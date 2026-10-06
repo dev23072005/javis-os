@@ -29,9 +29,15 @@ hostinger_env = set((hostinger.get("environment") or {}).keys())
 # không lấy từ `${...}`, nên nó KHÔNG đẻ thêm ô nhập trong Docker Manager. Đó là chỗ phân biệt
 # quan trọng của cả file test này: cái tốn chỗ của người cài là `${...}`, không phải khoá env.
 check(
-    "Hostinger chỉ hiện ba trường nhập có ý nghĩa",
+    "Hostinger chỉ hiện bốn trường nhập của app có ý nghĩa",
     hostinger_env
-    == {"DOMAIN_NAME", "JAVIS_ADMIN_USER", "JAVIS_ADMIN_PASSWORD", "WATCHTOWER_TOKEN"},
+    == {
+        "DOMAIN_NAME",
+        "JAVIS_ADMIN_USER",
+        "JAVIS_ADMIN_PASSWORD",
+        "JAVIS_REMINDER_EXECUTION_ENABLED",
+        "WATCHTOWER_TOKEN",
+    },
 )
 check(
     "CANARY: token Watchtower đóng cứng, không thành một ô nhập nữa",
@@ -98,8 +104,14 @@ vps_env = set((vps.get("environment") or {}).keys())
 # rồi dán vào trình duyệt. Hai biến admin là ĐẦU VÀO CỦA NGƯỜI DÙNG, cùng loại với ba trường
 # của Hostinger, không phải mặc định kỹ thuật của image - nên chúng thuộc về đây.
 check(
-    "VPS production giữ token Watchtower + hai trường tài khoản quản trị",
-    vps_env == {"WATCHTOWER_TOKEN", "JAVIS_ADMIN_USER", "JAVIS_ADMIN_PASSWORD"},
+    "VPS production giữ token Watchtower + hai trường tài khoản quản trị + cổng reminder",
+    vps_env
+    == {
+        "WATCHTOWER_TOKEN",
+        "JAVIS_ADMIN_USER",
+        "JAVIS_ADMIN_PASSWORD",
+        "JAVIS_REMINDER_EXECUTION_ENABLED",
+    },
 )
 check("VPS production vẫn không lặp lại biến kỹ thuật của image", not (vps_env & internal))
 check(

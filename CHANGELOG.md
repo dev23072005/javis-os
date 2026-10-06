@@ -6,6 +6,10 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.84.4] - 2026-10-07
+### Cải thiện
+- **Có thể tạm dừng riêng việc thực thi nhắc hẹn khi chuyển Javis sang máy mới.** Đặt `JAVIS_REMINDER_EXECUTION_ENABLED=false` để máy phụ vẫn cho xem, tạo và sửa lịch nhưng không chạy lịch đến hạn; bỏ biến hoặc đặt `true` thì hành vi giữ nguyên như trước.
+
 ## [0.84.3] - 2026-10-06
 ### Thêm mới
 - **Bot chuyên trách gửi được ảnh cho khách.** Dặn trong Agent khi nào gửi ảnh nào (vd "khách hỏi mẫu áo thì gửi `![Mẫu áo](attachments/mau-ao.jpg)`"), bot gửi ảnh thật ngay sau câu trả lời. Chạy trên Zalo cá nhân, Telegram, Slack và WhatsApp, ở mọi mức quyền.
