@@ -38,6 +38,9 @@ services:
       # trước sẽ tạo được admin - phải tạo ngay sau khi deploy. Vào được rồi nên bật 2FA.
       JAVIS_ADMIN_USER: ${JAVIS_ADMIN_USER:-}
       JAVIS_ADMIN_PASSWORD: ${JAVIS_ADMIN_PASSWORD:-}
+      # Khi chuyển máy, đặt false trên máy phụ để vẫn quản lý được lịch nhưng không chạy trùng.
+      # Bỏ trống hoặc true giữ nguyên hành vi cũ.
+      JAVIS_REMINDER_EXECUTION_ENABLED: ${JAVIS_REMINDER_EXECUTION_ENABLED:-true}
     ports:
       # Cổng MÁY CHỦ lấy từ biến (trong container vẫn luôn là 7777). Bản thứ hai đặt
       # JAVIS_HOST_PORT=7778 là hết đụng cổng.

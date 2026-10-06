@@ -115,6 +115,17 @@ MAX_KEEP = 500                 # trần số bản ghi giữ lại mỗi brain
 SCRIPT_TIMEOUT_S = 120         # trần thời gian chạy 1 job script
 SCRIPT_OUT_CAP = 3500          # trần ký tự stdout đẩy về Telegram
 
+# Cổng chuyển máy: một bản Javis phụ vẫn được đọc/tạo/sửa lịch nhưng không được thực thi lịch
+# đến hạn. Mặc định BẬT để mọi cài đặt hiện tại giữ nguyên hành vi sau khi cập nhật. Đọc lại
+# mỗi tick thay vì chốt lúc import để test và tiến trình nhúng có thể thay đổi env có kiểm soát.
+REMINDER_EXECUTION_ENV = "JAVIS_REMINDER_EXECUTION_ENABLED"
+
+
+def reminder_execution_enabled() -> bool:
+    return str(os.getenv(REMINDER_EXECUTION_ENV, "true") or "").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
 # Đuôi file script → trình chạy. Chỉ chạy script CÓ SẴN trong <brain>/Javis/scripts (chủ tự viết),
 # KHÔNG nhận lệnh tuỳ ý từ chat → chặn prompt-injection tạo job phá hoại.
 _SCRIPT_RUNNERS = {
@@ -504,6 +515,8 @@ class RemindersFeature:
 
     # ── scheduler gọi mỗi nhịp ──
     async def tick(self) -> None:
+        if not reminder_execution_enabled():
+            return
         try:
             brains = self.deps.scheduler_brains() or ["brain"]
         except Exception:

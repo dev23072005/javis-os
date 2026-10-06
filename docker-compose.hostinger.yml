@@ -8,10 +8,13 @@
 # CÁCH DÙNG:
 #   1) Docker Manager > Compose > URL > dán:
 #      https://raw.githubusercontent.com/blogminhquy/javis-os/main/docker-compose.hostinger.yml
-#   2) Ô Environment chỉ còn 4 trường hữu ích:
-#        DOMAIN_NAME, JAVIS_ADMIN_USER, JAVIS_ADMIN_PASSWORD, JAVIS_AUTO_UPDATE.
+#   2) Ô Environment có 5 trường hữu ích:
+#        DOMAIN_NAME, JAVIS_ADMIN_USER, JAVIS_ADMIN_PASSWORD, JAVIS_AUTO_UPDATE,
+#        JAVIS_REMINDER_EXECUTION_ENABLED.
 #      (JAVIS_AUTO_UPDATE=true thì Javis TỰ cập nhật mỗi ngày, khỏi bấm nút. Bỏ trống thì
 #       cập nhật bằng nút "Cập nhật ngay" trong app - xem service watchtower ở dưới.)
+#      (Khi chuyển máy, đặt JAVIS_REMINDER_EXECUTION_ENABLED=false trên máy phụ để không chạy
+#       trùng nhắc hẹn. Bỏ trống hoặc true giữ nguyên hành vi cũ.)
 #      (Thêm 2 trường CHỈ CẦN KHI cài bản Javis THỨ HAI trở đi trên cùng VPS - xem cuối file:
 #        JAVIS_NAME, JAVIS_HOST_PORT. Cài bản đầu thì bỏ trống cả hai.)
 #      Đặt DOMAIN_NAME để có HTTPS:
@@ -48,6 +51,7 @@ services:
       DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
       JAVIS_ADMIN_USER: ${JAVIS_ADMIN_USER:-admin}
       JAVIS_ADMIN_PASSWORD: ${JAVIS_ADMIN_PASSWORD:-}
+      JAVIS_REMINDER_EXECUTION_ENABLED: ${JAVIS_REMINDER_EXECUTION_ENABLED:-true}
       # Chung một token với service watchtower bên dưới -> nút "Cập nhật ngay" gọi được nó.
       # ĐÓNG CỨNG chứ không lấy từ biến, có lý do: mỗi `${...}` trong file này đẻ thêm một ô
       # trong form Environment của Docker Manager, mà token này không ai cần đổi - cổng 8080 của
