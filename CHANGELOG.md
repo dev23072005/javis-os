@@ -6,6 +6,11 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.86.102] - 2026-10-08
+### Cải thiện
+- **Fork Afftera đồng bộ với bản gốc 0.86.2** (`71f9c5b9`): nhận toàn bộ thay đổi từ 0.84.6 tới 0.86.2 của blogminhquy/javis-os, gồm sửa lỗi ghi một phần `settings.json` xoá sạch cài đặt (0.86.2), hook biết ai đang nói (0.85.8), Hệ thống cộng hưởng tắt sẵn (0.86.0) và Git Brain Sync khởi tạo được trên máy không đặt tiếng Anh (0.85.7, thay cho bản vá riêng của fork).
+- **Giữ nguyên hai sửa đổi riêng của fork:** cổng `JAVIS_REMINDER_EXECUTION_ENABLED` (0.84.4) và mức quyền theo từng việc nền trên Codex (0.84.5). Số 0.86.102 nằm ở lane riêng của fork (patch của bản gốc cộng 100) để không trùng số phát hành nào của bản gốc.
+
 ## [0.86.2] - 2026-10-08
 ### Sửa lỗi
 - **Cài đặt không còn bị xoá sạch khi mở tab WhatsApp hay cho phép một người nhắn bot.** Từ 0.71.0 có ba chỗ chỉ định lưu một mảnh nhỏ nhưng lại ghi đè cả file cài đặt: mở tab WhatsApp ở trang Kênh Admin lần đầu, cho phép một chat Zalo, cho phép một người dùng Slack, WhatsApp, Discord hay Lark. Mỗi lần như vậy là mất tên miền HTTPS, khoá API, kết nối Telegram cùng mọi thiết lập khác. Bản Docker dùng tên miền riêng còn có thể mất HTTPS sau lần khởi động lại reverse proxy kế tiếp. Giờ cả ba chỉ cập nhật đúng phần của mình. Cảm ơn đội DaoVix đã rà mã và gửi báo lỗi chi tiết.
@@ -92,6 +97,14 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 ## [0.84.6] - 2026-10-06
 ### Sửa lỗi
 - **Bot trong nhóm không còn báo "Anh chị nhắn hơi nhanh" với người mới hỏi lần đầu.** Giới hạn số câu trả lời mỗi giờ trước đây tính chung cho cả nhóm, nên nhóm đông gọi bot đủ 20 lần là ai tag bot sau đó cũng bị từ chối kèm tag tên mình. Giờ hạn mức tính riêng từng người, đúng như ô cài đặt ghi.
+
+## [0.84.5] - 2026-10-08
+### Bảo mật
+- **Việc nền chạy bằng ChatGPT (Codex) giờ gọi kết nối đúng mức quyền đã chọn.** Trước bản này, nhắc hẹn, loop hay việc Kanban đặt mức Đề xuất hoặc Tự làm mà chạy trên Codex vẫn được Javis coi là Toàn quyền khi gọi kết nối. Nay mỗi việc mang đúng mức của nó; việc Toàn quyền và lượt chat không đổi.
+
+## [0.84.4] - 2026-10-07
+### Cải thiện
+- **Có thể tạm dừng riêng việc thực thi nhắc hẹn khi chuyển Javis sang máy mới.** Đặt `JAVIS_REMINDER_EXECUTION_ENABLED=false` để máy phụ vẫn cho xem, tạo và sửa lịch nhưng không chạy lịch đến hạn; bỏ biến hoặc đặt `true` thì hành vi giữ nguyên như trước.
 
 ## [0.84.3] - 2026-10-06
 ### Thêm mới

@@ -8,6 +8,11 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.86.102] - 2026-10-08
+### Improvements
+- **The Afftera fork is synced with upstream 0.86.2** (`71f9c5b9`): every change from 0.84.6 to 0.86.2 of blogminhquy/javis-os is in, including the fix for partial settings writes wiping `settings.json` (0.86.2), tool hooks that know who is talking (0.85.8), the Resonance system switched off by default (0.86.0), and Git Brain Sync bootstrapping on machines not set to English (0.85.7, which replaces the fork's own patch).
+- **The fork's two own changes stay:** the `JAVIS_REMINDER_EXECUTION_ENABLED` gate (0.84.4) and the per-job permission level on Codex (0.84.5). 0.86.102 sits in the fork's own lane (upstream patch number plus 100) so it never collides with an upstream release number.
+
 ## [0.86.2] - 2026-10-08
 ### Fixed
 - **Settings are no longer wiped when you open the WhatsApp tab or allow someone to message a bot.** Since 0.71.0, three places meant to save one small piece but overwrote the whole settings file: opening the WhatsApp tab on the Admin channels page for the first time, allowing a Zalo chat, and allowing a Slack, WhatsApp, Discord or Lark user. Each time, the HTTPS domain, API keys, the Telegram connection and every other setting were lost. A Docker install with its own domain could also lose HTTPS after the next reverse proxy restart. All three now update only their own part. Thanks to the DaoVix team for reviewing the code and sending a detailed bug report.
@@ -94,6 +99,14 @@ Format: each release is a `## [x.y.z] - date` block, with changes grouped under 
 ## [0.84.6] - 2026-10-06
 ### Fixed
 - **A group bot no longer tells someone asking for the first time that they are "typing too fast".** The hourly reply limit used to be shared by the whole group, so once a busy group had called the bot 20 times, anyone who tagged it next was turned away with their name tagged. The limit now counts per person, as the setting says.
+
+## [0.84.5] - 2026-10-08
+### Security
+- **Background jobs that run on ChatGPT (Codex) now reach your connections at the permission level you chose.** Before this release, a reminder, loop or Kanban task set to Suggest or Auto that ran on Codex was still treated as Full access when it called a connection. Each job now carries its own level; Full-access jobs and chat turns are unchanged.
+
+## [0.84.4] - 2026-10-07
+### Improved
+- **Reminder execution can be paused independently while moving Javis to a new machine.** Set `JAVIS_REMINDER_EXECUTION_ENABLED=false` so a secondary machine can still view, create and edit schedules without firing due reminders; leave it unset or set it to `true` to keep the previous behavior.
 
 ## [0.84.3] - 2026-10-06
 ### Added
