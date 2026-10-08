@@ -43,6 +43,7 @@ import fastyaml
 
 import mcp_catalog
 import localefmt
+import turn_context
 from config import STATE_DIR
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -372,10 +373,13 @@ class PluginContext:
     def register_tool(self, name: str, description: str, handler: Callable,
                       schema: Optional[dict] = None, parameters: Optional[dict] = None,
                       min_mode: str = "readonly", check_fn: Optional[Callable] = None,
-                      emoji: str = "") -> None:
+                      emoji: str = "", visible_fn: Optional[Callable] = None) -> None:
         """Thêm 1 tool cho MỌI engine. handler(args: dict, ctx: PluginContext) -> str (sync|async).
         min_mode: readonly(mặc định, luôn chạy) | safe(chặn ở chế độ suggest) | full(chỉ chế độ full).
-        check_fn(): None nếu sẵn sàng, hoặc str lý do để chặn (vd chưa đăng nhập)."""
+        check_fn(): None nếu sẵn sàng, hoặc str lý do để chặn (vd chưa đăng nhập).
+        visible_fn(vault_root) -> bool: tool chỉ có mặt trong danh sách khi hàm trả True cho brain đó.
+        Khác check_fn: check_fn chặn lúc GỌI nhưng tool vẫn hiện, visible_fn giấu hẳn tool khỏi brain
+        chưa bật tính năng, nên brain đó không thấy, không tốn chỗ trong prompt và không gọi nhầm."""
         if not _TOOL_RE.match(str(name or "")):
             raise ValueError(f"tên tool không hợp lệ (a-z0-9_): {name!r}")
         if min_mode not in VALID_MIN_MODE:
@@ -383,7 +387,7 @@ class PluginContext:
         self._tools.append({
             "name": name, "description": description or name, "handler": handler,
             "schema": schema or parameters or {"type": "object", "properties": {}},
-            "min_mode": min_mode, "check_fn": check_fn, "emoji": emoji,
+            "min_mode": min_mode, "check_fn": check_fn, "emoji": emoji, "visible_fn": visible_fn,
         })
 
     def on_unload(self, fn: Callable) -> None:
@@ -403,7 +407,7 @@ class PluginContext:
     def register_hook(self, event: str, callback: Callable) -> None:
         """Đăng ký callback lifecycle. v1 hỗ trợ: 'pre_tool_call', 'post_tool_call'
         (bắn quanh MỌI tool call). callback(**kwargs) - nhận tool_name, args, result, mode,
-        vault_root. Luôn khai `**kwargs` trong callback: các khoá mới được thêm theo thời gian
+        vault_root, turn. Luôn khai `**kwargs` trong callback: các khoá mới được thêm theo thời gian
         (vd `denied` ở post_tool_call), và một callback khai cứng tham số sẽ gãy khi đó.
 
         **`pre_tool_call` CHẶN ĐƯỢC** (từ 0.63.1 - trước đó nó chỉ quan sát được dù docstring
@@ -415,6 +419,11 @@ class PluginContext:
 
         Hook ném lỗi thì tool VẪN CHẠY (fail-open có chủ ý, xem `_fire_pre`). `post_tool_call`
         không chặn được: lúc đó tool đã chạy rồi.
+
+        **`turn`** (cả pre lẫn post): ai đang nói trong lượt gọi tool này, dạng
+        `{"kenh", "sender_id", "chat_type", "chat_id", "la_chu"}` - chi tiết ở `turn_context`.
+        `None` = không xác định được (việc nền, engine chưa mang được khoá lượt): hook cần danh
+        tính thì coi None là "không ai", KHÔNG phải "chủ máy".
         """
         self._hooks.setdefault(str(event), []).append(callback)
 
@@ -887,6 +896,14 @@ def plugin_tools(mode: str = "full", vault_root: Optional[str] = None, *,
             if fn in _RESERVED_TOOLS or fn in seen:
                 print(f"[plugins] tool '{fn}' ({lp.slug}) trùng tên - bỏ qua", file=sys.stderr)
                 continue
+            vis = t.get("visible_fn")
+            if vis is not None:
+                try:
+                    if not vis(vault_root):
+                        continue
+                except Exception as e:  # noqa: BLE001 - không chắc thì giấu, đừng lộ tool chưa bật
+                    print(f"[plugins] visible_fn của '{fn}' lỗi: {type(e).__name__}: {e}", file=sys.stderr)
+                    continue
             seen.add(fn)
             desc = t["description"]
             if lp.source == "vault":
@@ -998,22 +1015,27 @@ def wrap_with_hooks(fn: str, base_call: Callable, mode: str, vault_root: Optiona
     không: lúc đó tool đã chạy rồi, thứ nó trả về không còn đổi được gì.
     """
     async def _wrapped(args):
+        # Read at CALL time, never when the route is built: routes are cached and shared by every
+        # turn (mcp_hub.discover_all), so a turn captured at build time would be someone else's.
+        turn = turn_context.current()
         quyet = await _fire_pre(vault_root,
                                 {"tool_name": fn, "args": args, "mode": mode,
-                                 "vault_root": vault_root})
+                                 "vault_root": vault_root, "turn": turn})
         if quyet.get("deny"):
             ket = _cau_bi_chan(fn, quyet["deny"])
             # Vẫn bắn post_tool_call: hook kiểm toán cần thấy CẢ lời gọi bị chặn, không thì
             # nhật ký chỉ có phần trôi lọt và đó là loại nhật ký tệ nhất.
             await _fire("post_tool_call", vault_root,
                         {"tool_name": fn, "args": args, "result": ket, "mode": mode,
-                         "vault_root": vault_root, "denied": True})
+                         "vault_root": vault_root, "denied": True,
+                         "turn": dict(turn) if turn else None})
             return ket
         if isinstance(quyet.get("args"), dict):
             args = quyet["args"]
         result = await base_call(args)
         await _fire("post_tool_call", vault_root,
-                    {"tool_name": fn, "args": args, "result": result, "mode": mode, "vault_root": vault_root})
+                    {"tool_name": fn, "args": args, "result": result, "mode": mode, "vault_root": vault_root,
+                     "turn": dict(turn) if turn else None})
         return result
     return _wrapped
 
