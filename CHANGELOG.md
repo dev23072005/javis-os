@@ -6,6 +6,98 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.86.102] - 2026-10-08
+### Cải thiện
+- **Fork Afftera đồng bộ với bản gốc 0.86.2** (`71f9c5b9`): nhận toàn bộ thay đổi từ 0.84.6 tới 0.86.2 của blogminhquy/javis-os, gồm sửa lỗi ghi một phần `settings.json` xoá sạch cài đặt (0.86.2), hook biết ai đang nói (0.85.8), Hệ thống cộng hưởng tắt sẵn (0.86.0) và Git Brain Sync khởi tạo được trên máy không đặt tiếng Anh (0.85.7, thay cho bản vá riêng của fork).
+- **Giữ nguyên hai sửa đổi riêng của fork:** cổng `JAVIS_REMINDER_EXECUTION_ENABLED` (0.84.4) và mức quyền theo từng việc nền trên Codex (0.84.5). Số 0.86.102 nằm ở lane riêng của fork (patch của bản gốc cộng 100) để không trùng số phát hành nào của bản gốc.
+
+## [0.86.2] - 2026-10-08
+### Sửa lỗi
+- **Cài đặt không còn bị xoá sạch khi mở tab WhatsApp hay cho phép một người nhắn bot.** Từ 0.71.0 có ba chỗ chỉ định lưu một mảnh nhỏ nhưng lại ghi đè cả file cài đặt: mở tab WhatsApp ở trang Kênh Admin lần đầu, cho phép một chat Zalo, cho phép một người dùng Slack, WhatsApp, Discord hay Lark. Mỗi lần như vậy là mất tên miền HTTPS, khoá API, kết nối Telegram cùng mọi thiết lập khác. Bản Docker dùng tên miền riêng còn có thể mất HTTPS sau lần khởi động lại reverse proxy kế tiếp. Giờ cả ba chỉ cập nhật đúng phần của mình. Cảm ơn đội DaoVix đã rà mã và gửi báo lỗi chi tiết.
+- **File cài đặt được ghi an toàn hơn.**
+  - Ghi nguyên tử: máy tắt giữa lúc lưu không còn để lại file hỏng.
+  - Giữ bản dự phòng `settings.json.bak` của lần lưu tốt gần nhất. File hỏng thì Javis đọc bản dự phòng thay vì lặng lẽ quay về mặc định rồi ghi đè lên, và giữ lại bản hỏng để cứu tay.
+  - Nhiều thao tác lưu cùng lúc không còn đè mất thay đổi của nhau.
+
+## [0.86.1] - 2026-10-08
+### Cải thiện
+- **Dùng ChatGPT làm bộ não, khung chat hiện ngay bước Javis đang làm, không im hẳn tới lúc xong.** Trước đây khi Codex chạy một lệnh dài (cài thư viện, quét file, chạy script), khung chat chỉ có chữ "Javis đang suy nghĩ..." đếm giờ cho tới khi lệnh chạy xong, trông như bị treo. Giờ bước hiện ra ngay lúc bắt đầu, kiểu "Chạy lệnh: npm install", rồi được đánh dấu xong khi chạy xong, giống như khi dùng Claude.
+
+## [0.86.0] - 2026-10-08
+### Thêm mới
+- **Hệ thống cộng hưởng: Javis theo đuổi việc anh giao tới khi đạt.** Khi anh giao một việc cần làm tiếp sau lượt chat, Javis tự lập mục tiêu có cách nhận biết xong, làm ở nền trong hạn mức, chỉ báo xong khi có bằng chứng và giữ việc qua cả lúc khởi động lại. Tính năng tắt sẵn, bật riêng cho từng brain.
+- **Thẻ "Em đang hướng tới" trong khung chat.** Anh bấm Đúng ý hay Chưa đúng ý cho cách hiểu, Đạt yêu cầu cho sản phẩm, hoặc tạm dừng. Góp ý thêm trong chat được nối vào đúng mục tiêu, và Javis sửa từ đúng bản anh đã xem; bản Javis viết ngay trong lượt chat được giữ làm bản đầu, không tốn lượt viết lại.
+- **Thử cách làm mới trước khi đổi.** Javis so cách làm hiện tại với một cách khác trên cùng bộ tình huống, chỉ đổi khi cách mới thắng rõ, chưa đủ căn cứ thì giữ cách cũ.
+### Sửa lỗi
+- **Lượt chat trùng lúc Claude Code đang làm mới đăng nhập nói rõ là gửi lại được.** Claude Code bản mới báo lỗi này bằng một câu khác mà Javis từng hiện nguyên tiếng Anh; câu trả lời bình thường có chữ "already used" cũng không còn bị thay nhầm bằng câu báo lỗi.
+
+## [0.85.11] - 2026-10-08
+### Sửa lỗi
+- **Khung chat không còn đứng im ở "Javis đang suy nghĩ..." khi kết nối bị đứt ngầm.** Máy ngủ, đổi Wi-Fi hay mạng chập chờn có thể làm kết nối giữa trang và Javis chết mà trình duyệt không hay biết. Javis vẫn làm xong việc, nhưng câu trả lời không về được trang, nên chữ "đang suy nghĩ" đếm mãi và bạn phải gửi lại câu lệnh. Giờ trang tự hỏi thăm Javis sau mỗi quãng im lặng. Không thấy trả lời thì trang tự nối lại và kéo về câu trả lời đã xong. Nút Dừng cũng luôn tới được Javis, kể cả khi kết nối đã chết.
+
+## [0.85.10] - 2026-10-08
+### Sửa lỗi
+- **Gọi ChatGPT Live bằng tiếng Việt thì câu trả lời cũng là tiếng Việt, không còn tự nhảy sang tiếng Anh.** Khi cần tra dữ liệu, ChatGPT Live tự viết lại yêu cầu rồi giao cho bộ não chính, và có lúc viết bằng tiếng Anh. Bộ não chính trả lời theo câu đó nên ra tiếng Anh, rồi Live đọc to câu tiếng Anh, nghe như đổi giọng giữa cuộc gọi. Giờ bộ não chính trả lời theo thứ tiếng bạn thật sự nói. Bạn nói tiếng Anh thì vẫn trả lời tiếng Anh, và ngôn ngữ đã ghim ở Cài đặt vẫn được ưu tiên. Sửa luôn cho chế độ nói chuyện thường khi việc được giao chạy nền.
+
+## [0.85.9] - 2026-10-08
+### Sửa lỗi
+- **Bấm Cập nhật ngay trên bản Docker thì trang xoay chờ đến khi bản mới lên rồi tự tải lại, không còn báo lỗi oan.** Trước đây trang chỉ chờ khoảng 36 giây rồi báo "Bản mới chưa lên sau một lúc - có thể lỗi", trong khi Watchtower vẫn đang kéo bản mới về và một lúc sau trang tự lên bản mới. Giờ trang chờ tới 10 phút. Quá 45 giây thì nói rõ là vẫn đang kéo bản mới, máy chậm có thể mất vài phút. Lỗi thật (Watchtower báo lỗi, chưa có image mới) vẫn hiện ngay như cũ. Thanh "Tải lại / Để sau" cũng không hiện thừa giữa lúc đang cập nhật nữa.
+
+## [0.85.8] - 2026-10-08
+### Thêm mới
+- **Plugin biết ai đang nói trong lượt gọi công cụ.** Hook `pre_tool_call` và `post_tool_call` nhận thêm khoá `turn` (kênh, người gửi, nhóm hay chat riêng, có phải chủ không), nên một plugin bọc ứng dụng có phân quyền theo từng nhân viên có thể chạy công cụ đúng quyền của người đang nhắn cho bot. Danh tính lấy từ tin nhắn thật chứ không từ chữ model viết, và bot không bao giờ được coi là chủ. (Đóng góp của @nnbaonam96.)
+
+## [0.85.7] - 2026-10-08
+### Sửa lỗi
+- **Đồng bộ brain với GitHub không còn hỏng ở lần đẩy đầu tiên trên máy đặt tiếng Việt.** Khi repo trên GitHub còn trống, Javis đọc thông báo của git theo ngôn ngữ hệ điều hành nên không nhận ra trường hợp này và báo lỗi. Giờ Javis hỏi git bằng ngôn ngữ trung lập, máy đặt ngôn ngữ nào cũng khởi tạo được ngay. (Đóng góp của @dev23072005.)
+
+## [0.85.5] - 2026-10-07
+### Cải thiện
+- **Bỏ hạn mức lúc bot tự lên tiếng trong nhóm.** Trước đây ở chế độ Tự đánh giá, bot chỉ tự trả lời tối đa 8 lần mỗi nhóm, 3 lần mỗi người mỗi giờ, và nghỉ giữa hai lần. Giờ nói hay im do bộ phán xử và mô hình tự quyết theo vai của Agent và tài liệu; bạn chỉnh bằng nút Đúng/Sai ở Bộ phán xử.
+- Bot vẫn chờ một nhịp và nhường khi bạn đang gõ tay bằng chính nick đó. Nhóm đông hỏi nhiều sẽ tốn lượt dùng model nhiều hơn; muốn bớt thì đổi nhóm đó về chế độ Được gọi tên.
+
+## [0.85.4] - 2026-10-07
+### Cải thiện
+- **Bot không còn giới hạn 20 câu mỗi người mỗi giờ.** Ai nhắn riêng hay gọi tên bot đều được trả lời, không còn câu "Anh chị nhắn hơi nhanh".
+- Giới hạn lúc bot tự lên tiếng trong nhóm khi không ai gọi (chế độ Tự đánh giá) vẫn giữ, để bot không nói tràn lan. Không còn trần thì một người nhắn liên tục sẽ tốn lượt dùng model liên tục; thấy bất thường thì bấm Tiếp quản cuộc chat đó.
+
+## [0.85.3] - 2026-10-07
+### Sửa lỗi
+- **Bot ở mức Toàn quyền giờ chạy y như kênh admin.** Trước đây mức này vẫn đi đường hẹp của bot: với Grok Build và Antigravity bot không dùng được công cụ nào, với Claude Code thì không thấy các kết nối Gmail, Drive, lịch của tài khoản Claude. Giờ bot Toàn quyền có đúng bộ não, công cụ, MCP và kỹ năng như khi bạn chat trực tiếp, chỉ giữ vai của Agent.
+- Vì vậy mức Toàn quyền trao cả quyền chạy lệnh trên máy chủ và đọc mọi file. Cảnh báo trước khi bật đã nói rõ điều này: chỉ bật cho bot mà chỉ bạn hoặc người bạn tin tuyệt đối nhắn được.
+- Câu trả lời qua Telegram, Zalo, Slack... bằng Grok Build hoặc Antigravity nay được lưu đúng vào lịch sử và bộ nhớ, không còn bị ghi như một câu lỗi.
+
+## [0.85.1] - 2026-10-07
+### Cải thiện
+- **Bản Docker tự cài Antigravity CLI và Grok Build.** Trước đây hai thẻ này ở trang Models báo "CLI chưa cài" kèm một lệnh phải tự gõ, mà cài qua Hostinger thì không có chỗ gõ. Giờ Javis tự cài lúc khởi động, cài một lần là giữ qua mọi lần cập nhật.
+- Trong lúc đang cài, thẻ báo "Javis đang tự cài" thay vì đưa lệnh. Cài hỏng (máy chủ không ra được mạng) thì thẻ nói thật và chỉ cách thử lại. Ai không muốn thì tắt bằng `JAVIS_AUTO_INSTALL_CLIS=0`.
+
+## [0.85.0] - 2026-10-07
+### Thêm mới
+- **Chat với Javis từ Lark/Feishu và Discord.** Hai kênh mới tự nối ra ngoài nên chạy được cả trên laptop, không cần tên miền. Người lạ nhắn bot nhận mã ghép nối, bạn bấm Cho phép là xong.
+### Cải thiện
+- **Trang "Kênh" đổi tên thành "Kênh Admin"** cho khỏi lẫn với bot trả lời khách ở trang Chatbot, và chia mỗi kênh một tab, chấm màu trên tab cho biết kênh nào đang chạy.
+- **Bỏ ô tích "Bật bot" khó hiểu.** Giờ đầu mỗi tab có công tắc Bật/Tắt có tác dụng ngay, nút cuối tab ghi đúng việc nó làm ("Lưu và bật kênh" hay "Lưu thay đổi"), và thiếu thông tin gì thì trang nói tên ô đó.
+
+## [0.84.10] - 2026-10-07
+### Sửa lỗi
+- **Bot chuyên trách đọc được link Google Docs và Google Sheets gắn vào Agent.** Trước đây bot chỉ tra file trong brain, nên Agent dặn "chỉ trả lời theo tài liệu" mà bảng giá nằm trên Google Sheets thì bot báo "chưa có thông tin" với mọi sản phẩm.
+- Bảng tính được đọc đủ mọi tab, từng dòng kèm tên cột. Sửa file trên Google thì vài phút sau bot dùng bản mới. Chạy ở mọi mức quyền, không cần nâng bot lên Được ghi.
+- File phải chia sẻ "Bất kỳ ai có đường liên kết". File chưa chia sẻ thì thẻ bot hiện cảnh báo vàng nói rõ link nào. Link khách dán vào tin nhắn không bao giờ được mở.
+
+## [0.84.8] - 2026-10-07
+### Cải thiện
+- Tài liệu Chatbot nói đúng giới hạn hiện tại: bot trả lời mỗi người tối đa 20 câu một giờ, trong nhóm tính riêng từng người, và con số này chưa chỉnh được trên trang Chatbot.
+
+## [0.84.7] - 2026-10-06
+### Thêm mới
+- **Duyệt người xin vào nhóm Zalo ngay trong Javis.** Có người xin vào nhóm phải duyệt là Javis báo bạn qua chuông và Telegram. Hỏi "ai đang xin vào nhóm X" để xem danh sách, bảo "duyệt hết" hay "duyệt Lan, từ chối Minh" là Javis làm và báo lại từng người.
+- Bot chuyên trách không bao giờ tự duyệt. Tài khoản Zalo phải là trưởng hoặc phó nhóm, và kết nối Zalo ở mức Toàn quyền.
+
+## [0.84.6] - 2026-10-06
+### Sửa lỗi
+- **Bot trong nhóm không còn báo "Anh chị nhắn hơi nhanh" với người mới hỏi lần đầu.** Giới hạn số câu trả lời mỗi giờ trước đây tính chung cho cả nhóm, nên nhóm đông gọi bot đủ 20 lần là ai tag bot sau đó cũng bị từ chối kèm tag tên mình. Giờ hạn mức tính riêng từng người, đúng như ô cài đặt ghi.
+
 ## [0.84.5] - 2026-10-08
 ### Bảo mật
 - **Việc nền chạy bằng ChatGPT (Codex) giờ gọi kết nối đúng mức quyền đã chọn.** Trước bản này, nhắc hẹn, loop hay việc Kanban đặt mức Đề xuất hoặc Tự làm mà chạy trên Codex vẫn được Javis coi là Toàn quyền khi gọi kết nối. Nay mỗi việc mang đúng mức của nó; việc Toàn quyền và lượt chat không đổi.

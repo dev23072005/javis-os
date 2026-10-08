@@ -46,9 +46,12 @@ function stopCurrent() {
   if (sid && adaptiveCurrent.has(sid)) adaptiveCancelled.add(adaptiveCurrent.get(sid));
   // Dừng ĐÚNG phiên đang xem (phiên nền khác vẫn chạy). Server huỷ lượt + gửi turn_done về.
   if (sid && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ action: "stop", session_id: sid }));
-  } else if (sid) {
-    // WebSocket đang reconnect vẫn Stop được qua HTTP; job không còn phụ thuộc connection cũ.
+    try { ws.send(JSON.stringify({ action: "stop", session_id: sid })); } catch (e) {}
+  }
+  if (sid) {
+    // Luôn gửi thêm qua HTTP: socket có thể OPEN trên giấy mà đã chết (máy ngủ, đổi Wi-Fi), lệnh
+    // Dừng gửi vào đó là rơi mất. Dừng hai lần vô hại, server huỷ theo phiên. Job không phụ thuộc
+    // connection nên HTTP luôn tới được đúng lượt.
     fetch("/stop", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -901,14 +904,52 @@ function connect() {
   // không có chốt này là hai socket song song, mọi tin nhắn về gấp đôi.
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   ws = new WebSocket(WS_URL);
+  _wsLastFrameAt = Date.now(); _wsPingAt = 0;
   // Mất socket là trạng thái THẬT người dùng cần thấy ("ĐANG KẾT NỐI LẠI"), không phải đoán.
   ws.onclose = () => {
     try { runActions(turn.wsDown()); } catch (e) {}
     baoDutMang(true);
     setTimeout(connect, 3000);
   };
-  ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+  ws.onmessage = (e) => {
+    _wsLastFrameAt = Date.now(); _wsPingAt = 0;
+    const data = JSON.parse(e.data);
+    if (data.type !== "pong") handleMessage(data);
+  };
 }
+
+// ---- Socket chết mà không đóng (0.85.11) ----
+// Máy ngủ, đổi Wi-Fi, router rớt kết nối: trình duyệt vẫn giữ socket ở trạng thái OPEN và không
+// bao giờ gọi onclose. Lượt chat vẫn chạy xong trên server, nhưng câu trả lời không tới được, nên
+// chữ "Javis đang suy nghĩ..." đếm mãi, người dùng phải gửi lại câu lệnh (khách báo 08/10).
+// Im quá WS_IM_MS thì hỏi server một tiếng; không ai đáp trong WS_PONG_MS là socket chết thật:
+// bỏ nó, nối socket mới. Lời chào "hello" của socket mới đồng bộ lại lượt đang chạy và câu trả lời
+// đã xong trong lúc đứt.
+const WS_IM_MS = 30000, WS_PONG_MS = 10000;
+let _wsLastFrameAt = 0, _wsPingAt = 0;
+function _dropDeadSocket() {
+  const cu = ws;
+  ws = null;
+  if (cu) {
+    cu.onclose = null; cu.onmessage = null;
+    try { cu.close(); } catch (e) {}
+  }
+  try { runActions(turn.wsDown()); } catch (e) {}
+  baoDutMang(true);
+  connect();
+}
+function _checkSocket() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
+  const now = Date.now();
+  if (_wsPingAt) {
+    if (now - _wsPingAt > WS_PONG_MS) _dropDeadSocket();
+    return;
+  }
+  if (now - _wsLastFrameAt < WS_IM_MS) return;
+  _wsPingAt = now;
+  try { ws.send(JSON.stringify({ action: "ping" })); } catch (e) { _dropDeadSocket(); }
+}
+setInterval(_checkSocket, 5000);
 
 // ---- Hồi sức sau giấc ngủ nền (app "Thêm vào màn hình chính" trên iPhone) ----
 // iOS đóng băng toàn bộ JS khi app xuống nền: socket chết, tin nhắn đến trong lúc ngủ
@@ -990,6 +1031,9 @@ function handleMessage(data) {
       };
       setSessionRunning(sid, true);
     });
+    // Lượt của phiên đang xem đã xong trong lúc đứt (lỗi hoặc không có chữ thì không có gì để tải
+    // lại): bỏ chip "đang suy nghĩ" còn sót, không thì nó đếm mãi trong khi nút Gửi đã mở lại.
+    if (savedSessionId && !(turns[savedSessionId] && turns[savedSessionId].running)) hideActivity();
     syncActiveUI();
     notifySessions();
     // Lượt đang chờ gói thuê bao mở lại hạn mức: dựng lại thẻ "tự chạy lại" cho phiên đang xem.
@@ -1057,6 +1101,8 @@ function handleMessage(data) {
       scrollBottom();
       // Đọc tin nền chỉ khi người dùng KHÔNG đang nói hay đang nghe Javis nói dở (Voice V1):
       // chen một bản tin vào giữa câu người dùng là cắt ngang họ. Hoãn tới lúc rảnh.
+      // Khối thẻ mục tiêu (Resonance M4, chat-resonance.js) đã vẽ ở bong bóng trên: bóc khỏi bản dùng để ĐỌC.
+      if (window.JavisResonance) data.content = window.JavisResonance.tach(data.content || "").clean;
       if (voice.ttsEnabled) {
         // Đọc phần chữ, không đọc khối ẩn JAVIS_VIEC.
         const _doc = window.JavisViec ? window.JavisViec.tach(data.content || "").clean : (data.content || "");
@@ -2104,6 +2150,9 @@ function appendJavisMessage(text, ts, brain) {
   // Tin do việc nền đẩy về mang khối ẩn JAVIS_VIEC (chat-viec.js): bóc ra để vẽ thành THẺ việc
   // (icon trạng thái, tên việc, nút mở trang Việc) thay cho bong bóng chữ trơn (0.64.48).
   const tv = window.JavisViec ? window.JavisViec.tach(text) : { clean: text, viec: null };
+  // Thẻ mục tiêu (Resonance M4, chat-resonance.js): bóc khối JAVIS_RESONANCE rồi vẽ thẻ sống dưới bong bóng.
+  const tr = window.JavisResonance ? window.JavisResonance.tach(tv.clean) : { clean: tv.clean, cards: [] };
+  tv.clean = tr.clean;
   const div = document.createElement("div");
   div.className = "msg msg-javis";
   // Phiên bản ẢNH của tin này (0.65.33, xem markdownToHtml): tin cũ dựng lại dùng đúng mốc giờ của
@@ -2112,6 +2161,7 @@ function appendJavisMessage(text, ts, brain) {
   div.innerHTML = `<div class="bubble">${markdownToHtml(tv.clean, brain, div.dataset.anhV)}</div>` +
     actsHtml("javis", ts === undefined ? Date.now() : ts, !!lastUserText().trim());
   if (tv.viec) window.JavisViec.ve(div, tv.viec);
+  for (const c of tr.cards) window.JavisResonance.ve(div, c);
   div.dataset.md = tv.clean || "";   // copy nội dung markdown, không chép marker việc nền
   chatAppend(div); scrollBottom();
   return div;

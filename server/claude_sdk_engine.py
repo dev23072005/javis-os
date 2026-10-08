@@ -278,6 +278,18 @@ def la_loi_mat_mach(msg) -> bool:
         return False
 
 
+def _la_dua_token(text: str, is_error: bool) -> bool:
+    """Lượt kết thúc vì cuộc đua làm mới token (review sửa pilot 4, P2-1). Tín hiệu chính là is_error có cấu trúc của
+    CLI kèm câu lỗi đua token; khi CLI không cắm is_error thì CHỈ nhận khi toàn bộ kết quả là thông báo lỗi thô (neo ở
+    đầu). Câu trả lời thành công có chữ "already used", hay câu đang giải thích/trích lỗi OAuth, không bị nhận."""
+    try:
+        import claude_token_gate
+        return bool((is_error and claude_token_gate.la_loi_tranh_lam_moi(text))
+                    or claude_token_gate.la_loi_tho_tranh_lam_moi(text))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def map_message(msg):
     """Map 1 message SDK → (list event dict 'hợp đồng ClaudeCLI', session_id|None).
     PURE - test offline được, không cần CLI/auth."""
@@ -292,7 +304,8 @@ def map_message(msg):
                 if (b.text or "").strip():
                     events.append({"type": "text", "content": b.text})
             elif isinstance(b, ToolUseBlock):
-                events.append({"type": "tool_call", "name": b.name or "", "input": b.input or {}})
+                events.append({"type": "tool_call", "name": b.name or "", "input": b.input or {},
+                               "id": getattr(b, "id", "") or ""})
         return events, None
     if isinstance(msg, UserMessage):
         content = msg.content
@@ -302,7 +315,9 @@ def map_message(msg):
                     c = b.content
                     if isinstance(c, list):
                         c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
-                    events.append({"type": "tool_result", "content": str(c or "")[:500]})
+                    events.append({"type": "tool_result", "content": str(c or "")[:500],
+                                   "tool_use_id": getattr(b, "tool_use_id", "") or "",
+                                   "is_error": bool(getattr(b, "is_error", False))})
         return events, None
     if isinstance(msg, ResultMessage):
         u = msg.usage or {}
@@ -314,10 +329,12 @@ def map_message(msg):
         # chỉ sai đường - mà bấm Ngắt còn xoá luôn bản sao lưu của vệ sĩ credentials, tức
         # đẩy người ta từ một lượt hỏng sang mất đăng nhập thật.
         dua_token = False
+        # Cùng nhận dạng hẹp với cờ auth_refresh_race (review sửa pilot 4, P2-1): trước đây mọi kết quả có chữ
+        # "already used" đều bị coi là cuộc đua và câu trả lời thành công bị thay bằng câu báo lỗi.
+        auth_race = _la_dua_token(msg.result or "", bool(msg.is_error))
         try:
             import claude_token_gate
-            dua_token = (claude_token_gate.la_loi_tranh_lam_moi(msg.result or "")
-                         and claude_token_gate.con_dang_nhap())
+            dua_token = auth_race and claude_token_gate.con_dang_nhap()
         except Exception:
             dua_token = False
         try:
@@ -371,6 +388,14 @@ def map_message(msg):
             # lại được - nó phải biết mà nhảy sang bộ não kế tiếp.
             "dua_token": dua_token,
             "resume_failed": resume_failed,
+            # Claude kết thúc LỖI nhưng vẫn có chữ (hết lượt, lỗi giữa chừng) vẫn ra `final`, nên phải mang cờ theo:
+            # nơi nào cần biết lượt có thành công thật không (receipt của Resonance) đọc cờ này, không đoán qua chữ.
+            # Thêm khoá, không đổi hành vi của nơi gọi cũ.
+            "is_error": bool(msg.is_error),
+            "subtype": msg.subtype,
+            # Lượt kết thúc vì cuộc đua làm mới token (nhận dạng hẹp, xem claude_token_gate.la_loi_tranh_lam_moi):
+            # không phải câu trả lời của model, kể cả khi CLI không cắm is_error (pilot Resonance lần 4).
+            "auth_refresh_race": auth_race,
             "session_id": None if resume_failed else msg.session_id,
             "cost_usd": msg.total_cost_usd,
             "duration_ms": msg.duration_ms,
@@ -594,6 +619,27 @@ class ClaudeSDK:
                                       t.get("schema") or {"type": "object", "properties": {}})(_handler))
         return create_sdk_mcp_server("javis-plugins", tools=sdk_tools)
 
+    @staticmethod
+    def _gan_khoa_luot(servers):
+        """Add the current turn's key (X-Javis-Turn) to the hub entry, so pre/post_tool_call hooks
+        on the hub know who is talking (see turn_context). Done here, per query, because this
+        runs inside the turn and every query builds a NEW client: the config file itself is
+        shared by all turns of the same brain and must never carry a turn."""
+        hub = servers.get("javis")
+        if not isinstance(hub, dict) or not isinstance(hub.get("headers"), dict):
+            return servers
+        try:
+            import turn_context
+            key = turn_context.issue_key()
+        except Exception as e:   # noqa: BLE001 - no key means "nobody", never a broken turn
+            print(f"[sdk engine] khoá lượt lỗi: {type(e).__name__}: {e}", file=sys.stderr)
+            key = None
+        if not key:
+            return servers
+        hub = dict(hub)
+        hub["headers"] = {**hub["headers"], turn_context.HEADER: key}
+        return {**servers, "javis": hub}
+
     def _mcp_servers(self):
         """(mcp_servers cho options, strict) - đọc file config (đường _apply_mcp) thành dict,
         đấu thêm plugin in-process khi KHÔNG gated. Gated fork (allowed_tools) giữ nguyên
@@ -606,6 +652,7 @@ class ClaudeSDK:
             except Exception as e:
                 print(f"[sdk engine] đọc mcp_config lỗi ({e}) - truyền path thô", file=sys.stderr)
                 return str(self.mcp_config), self.mcp_strict
+            servers = self._gan_khoa_luot(servers)
         if self.allowed_tools:
             return servers, self.mcp_strict
         try:
