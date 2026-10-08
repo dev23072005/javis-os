@@ -8,6 +8,10 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.84.5] - 2026-10-08
+### Security
+- **Background jobs that run on ChatGPT (Codex) now reach your connections at the permission level you chose.** Before this release, a reminder, loop or Kanban task set to Suggest or Auto that ran on Codex was still treated as Full access when it called a connection. Each job now carries its own level; Full-access jobs and chat turns are unchanged.
+
 ## [0.84.4] - 2026-10-07
 ### Improved
 - **Reminder execution can be paused independently while moving Javis to a new machine.** Set `JAVIS_REMINDER_EXECUTION_ENABLED=false` so a secondary machine can still view, create and edit schedules without firing due reminders; leave it unset or set it to `true` to keep the previous behavior.
