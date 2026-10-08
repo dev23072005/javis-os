@@ -1651,6 +1651,39 @@ def dat_codex_vault(extra_config, vault_root):
     return extra_config
 
 
+# Mức quyền theo TỪNG tiến trình Codex (0.84.5). Profile javis là file dùng chung và luôn ghi
+# `X-Javis-Mode = "full"`, vì mọi lượt chat đều đọc nó. Việc nền ở mức suggest/auto mà chỉ dựa
+# vào profile thì hub nhận "full": canary 08/10/2026 bắt được đúng cảnh này, nhắc hẹn chỉ-đọc
+# chạy trên Codex mà audit hub ghi mode=full. Đi đúng đường `-c` của X-Javis-Vault: Codex áp
+# override `-c` SAU lớp profile (đã thử với codex-cli 0.160.1, `-p javis -c ...` cho ra mức
+# của override, đảo thứ tự cờ vẫn vậy). Không bọc tên header trong dấu nháy, cùng lý do với
+# CODEX_VAULT_KEY ở trên.
+CODEX_MODE_KEY = "mcp_servers.javis.http_headers.X-Javis-Mode"
+CODEX_MODES = ("suggest", "auto", "full")
+
+
+def codex_mode_override(mode):
+    """Override `-c` mang mức quyền của MỘT tiến trình Codex.
+
+    Không truyền mức thì là "full", đúng như profile, để lượt chat và workflow không đổi hành vi.
+    Mức lạ thì là "suggest": hub coi mức lạ là full (`mcp_catalog.effective_perm`), nên ở đây
+    phải đóng chặt thay vì để lọt."""
+    m = str(mode or "full").strip().lower()
+    if m not in CODEX_MODES:
+        m = "suggest"
+    return f"{CODEX_MODE_KEY}={_toml_str(m)}"
+
+
+def dat_codex_mode(extra_config, mode):
+    """Gắn override mức quyền vào danh sách `-c` của MỘT CodexCLI, THAY override cũ nếu có.
+
+    Cùng lý do với `dat_codex_vault`: engine giữ một CodexCLI qua nhiều lượt thì nối thêm sẽ để
+    lại nhiều giá trị, và Codex dùng giá trị đứng sau."""
+    extra_config[:] = [x for x in extra_config if not str(x).startswith(CODEX_MODE_KEY + "=")]
+    extra_config.append(codex_mode_override(mode))
+    return extra_config
+
+
 # ============================================================
 # Validate connection (thêm tài khoản / nút Test)
 # ============================================================
