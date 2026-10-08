@@ -558,10 +558,12 @@ def _build_codex(spec, claude_cli_obj, mode, tag, codex_profile=None):
                   tag=tag or getattr(claude_cli_obj, "tag", "aux"),
                   model=spec.get("model") or None,
                   instructions=getattr(claude_cli_obj, "system_prompt", None))
+    # Mức quyền của CHÍNH việc này, tính một lần cho cả sandbox lẫn header gửi hub.
+    muc = mode or getattr(claude_cli_obj, "javis_mode", None) or "full"
     # Codex không có allowlist per-call như Claude → chặn ở tầng sandbox của chính nó.
     # `codex_sandbox_cho_mode` còn đọc cờ JAVIS_CODEX_SANDBOX: trong Docker, bubblewrap không
     # chạy nổi nên rào đó không phải "chặt hơn" mà là "chết hẳn", và cờ là đường thoát.
-    cc.sandbox = codex_sandbox_cho_mode(mode or getattr(claude_cli_obj, "javis_mode", None) or "full")
+    cc.sandbox = codex_sandbox_cho_mode(muc)
     cc.vault_root = getattr(claude_cli_obj, "javis_vault", None)   # ảnh Codex vẽ về đúng brain
     if codex_profile:
         try:
@@ -573,6 +575,17 @@ def _build_codex(spec, claude_cli_obj, mode, tag, codex_profile=None):
         mcp_hub.dat_codex_vault(cc.extra_config, getattr(claude_cli_obj, "javis_vault", None))
     except Exception as e:
         print(f"[aux codex vault] {e}", file=sys.stderr)
+    # Header mức quyền theo TỪNG tiến trình (0.84.5). Profile chung luôn ghi "full", nên thiếu
+    # dòng này thì việc nền suggest/auto chạy trên Codex vẫn gọi hub với full: hub chỉ còn trần
+    # quyền của từng kết nối để chặn. Chỉ gắn khi profile hub thật sự có mặt: thiếu entry
+    # `mcp_servers.javis` mà vẫn có override header thì Codex từ chối khởi động với lỗi
+    # "invalid transport" (đã thử với codex-cli 0.160.1).
+    try:
+        if cc.profile and bool(cfgmod.read_settings().get("mcp", {}).get("hub", True)):
+            import mcp_hub
+            mcp_hub.dat_codex_mode(cc.extra_config, muc)
+    except Exception as e:
+        print(f"[aux codex mode] {e}", file=sys.stderr)
     return cc
 
 
