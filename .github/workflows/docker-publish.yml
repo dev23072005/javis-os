@@ -1,6 +1,9 @@
 name: Build pinned staging 0.102.0
 
 on:
+  push:
+    branches:
+      - ci/staging-build-0.102.0-6a0f229d
   workflow_dispatch:
 
 permissions:
