@@ -26,6 +26,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 import main  # noqa: E402
 import ollama_local  # noqa: E402
 import ollama_catalog  # noqa: E402
+import deploy_info  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+# The baseline cases below model a native host. Later Docker cases override this
+# dependency explicitly, regardless of whether the test runner is in a container.
+_native_deployment = patch.object(deploy_info, "deploy_mode", return_value="native")
+_native_deployment.start()
 
 fails = []
 

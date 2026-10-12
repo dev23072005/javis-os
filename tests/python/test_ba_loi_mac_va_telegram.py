@@ -37,6 +37,14 @@ import claude_cli          # noqa: E402
 import config as c         # noqa: E402
 import main                # noqa: E402
 import telegram_bot        # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+# This scenario models a new machine without Codex. Do not discover the host's
+# installed CLI or contact its model catalog while testing the missing-CLI path.
+_missing_codex = patch.object(main, "find_codex_cli", return_value=None)
+_missing_catalog = patch.object(main.openai_oauth, "list_models", return_value=None)
+_missing_codex.start()
+_missing_catalog.start()
 
 _fails = []
 

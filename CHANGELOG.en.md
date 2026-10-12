@@ -8,6 +8,145 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.102.100] - 2026-10-12
+### Improved
+- Sync staging with upstream 0.102.0 pinned at `57c40348515d652a887b9b2141e47fe0aa43f01d`.
+- Preserve the Afftera fork reminder execution gate and per-job Codex permission level.
+- This is a staging candidate; production is not promoted during this preparation.
+
+## [0.102.0] - 2026-10-12
+### Added
+- **Lark (and Feishu) as a chatbot channel.** On the Chatbot page, add a Lark account with the App ID and App Secret of a separate Lark app, attach it to a bot, and the bot answers customers on Lark, with every chat in the Inbox and takeover like the other channels. No domain needed: Javis opens the connection out to Lark.
+- **Lark bots join groups, send images and documents**, see the photos customers send, and you can reply to a customer straight from the Inbox.
+- **Javis works out whether the app is on Lark or Feishu**, nothing to pick. Pasting the app that runs your admin channel is refused right away, since two connections on one app get messages split at random.
+- **The Inbox shows Lark customer and group names** when the app may read contacts and chat info. Without those permissions the bot still runs and shows the ids.
+
+## [0.100.0] - 2026-10-12
+### Improved
+- **Assistants can carry several tags.** Instead of one group, each assistant now has any number of tags (Marketing, Writing, Engineering...). The old group becomes one tag; nothing is lost.
+- **Add and remove tags on the Partners page:** the **...** button on an assistant, item **Tags**. Click a tag to add or remove just that one, or type a name to create a new tag. The bar above filters by **All agents**, **Untagged** or one tag; an assistant with several tags shows only once.
+- **Renaming or deleting a tag** applies to every assistant that has it; renaming to an existing name merges the two. Deleting a tag only removes the label, never the assistant or its chats.
+- Tags only sort: they add no one to a group chat and grant nothing. Workflows keep their groups.
+- Going back to an older release: an assistant shows under a group named after its first tag.
+
+## [0.99.0] - 2026-10-12
+### Added
+- **German interface (first step).** With a German browser the dashboard shows German in the navigation, the Settings tabs and common messages. Anything not translated yet shows in English. Translation contributed by @sirschnake.
+- **"Deutsch" in the language pickers**, both under the side rail and in Settings, so you can switch back to German after choosing another language.
+
+### Fixed
+- **Readers of the German interface no longer get Vietnamese from Javis.** The server speaks only Vietnamese and English, so for a language that exists only in the dashboard, Telegram messages, background work, the voice and the default brain now use English. Before, they could fall back to Vietnamese.
+
+Thanks to @sirschnake for contributing the German translation (#618).
+
+## [0.96.1] - 2026-10-11
+### Fixed
+- **Updating no longer locks you out.** On servers that set the account from the environment (Docker, Hostinger) where `JAVIS_ADMIN_PASSWORD` carried a stray space, from 0.92.1 the first boot after an update took the environment password as changed and reset the account. The password you had changed in the dashboard was overwritten and the username became `admin`. Updating now leaves the account alone; only a real change of the environment value resets it.
+- **If your server was already reset:** sign in with `admin` (or your `JAVIS_ADMIN_USER` value, if you set one) and the password in `JAVIS_ADMIN_PASSWORD` on Hostinger, without the stray space. Then change the name and password back in Settings.
+
+## [0.96.0] - 2026-10-11
+### Added
+- **Resonance assistants only write to files you have allowed.** A new goal, or a switch to another file, makes the card ask "The assistant wants to write to ... Allow?" with the exact path. Once allowed, the assistant keeps working without asking again for each revision.
+- **What the assistant drafts before you allow it is kept as a draft.** Preview it, then Allow publishes exactly that version, with no new model call.
+- **Codex and API-key brains can also hand in their work during the chat**, through the same check as Claude: Javis reads, verifies and publishes the submission itself, and never overwrites a file you edited.
+- **A Revoke permission button on the goal card** stops the goal right away; press Resume to grant it again. To go back to 0.95.1, stop Javis and run `tools/resonance_restore_pre_a4.py`.
+
+## [0.95.1] - 2026-10-11
+### Fixed
+- **Ollama (Local) no longer "returns nothing" after thinking too long.** Models like qwen3 turn thinking on by themselves, and a job such as counting the rows of a file could spend the whole turn thinking without writing a word. Javis now switches thinking off for local models, with or without tools, so they answer directly.
+- **The Effort button no longer drags the local model along.** Leave Effort at Medium or Very high for Claude and the local model still answers directly, so switching between the two no longer means toggling it every time.
+- **When a model only thinks and never answers, Javis says exactly that**, with what to do (lower the thinking level or split the task), instead of a "returned nothing" that looks like a lost connection.
+
+Thanks to the user who reported this with a patch tested on a Mac.
+
+## [0.94.0] - 2026-10-11
+### Improved
+- **Bots see customer photos whatever model runs them.** A bot whose model can see images still looks at the photo itself. When the model cannot (Antigravity, Grok Build, a text-only model) or returns nothing for a photo, another brain you already connected looks at it and describes it, copying prices, order codes and phone numbers exactly. The order: your main brain, then the ChatGPT plan, then Claude Code.
+- **Bots remember what the earlier photo showed.** When a customer follows up about "the thing in that photo", the bot still knows, because the description stays in the conversation.
+
+### Fixed
+- **Zalo photos are no longer dropped by mistake.** Zalo's photo server labels some photos as generic binary files instead of images, and Javis skipped them before the bot could see them. Javis now checks the file's own content to recognise an image.
+- **The bot card shows the real error when a model rejects a photo**, instead of a generic "refused the image". When no brain can look, the card says why each one could not.
+
+## [0.92.2] - 2026-10-11
+### Fixed
+- **Ollama (Local) can use tools.** With a model running in Ollama on your own machine, the model could not read files or call any connection and said it had no tool permission, because Javis forgot to load tools for this kind of model. Local models now get the same tools as the API models, and the Connections page no longer says they cannot call tools.
+- **The Local Model page on Apple-chip Macs says the GPU is used.** It used to say "Runs on CPU and RAM" while Ollama ran fully on the chip's GPU. Javis now recognises Apple chips even when Python runs under Rosetta, counts the shared RAM as GPU memory, and no longer drops the GPU when you enter the RAM size by hand.
+
+### Improved
+- **API and local models can read PDF and Word (.docx) files.** These files used to come out as binary noise. A scanned PDF (images only) is reported plainly as having no text to read.
+
+Thanks to the user who sent the bug report along with a patch tested on a Mac.
+
+## [0.92.1] - 2026-10-11
+### Fixed
+- **Signing in no longer fails on capital letters or invisible spaces.** Usernames ignore case now, so "Phong" and "phong" both work. A stray space before or after the password, which phone keyboards often add, no longer reads as a wrong password.
+- **When the password is right but the browser does not keep the session, Javis says so**, with the usual causes, instead of silently returning to an empty sign-in form.
+- **On a server that sets the account from its environment, the wrong-password message points out that the username is `JAVIS_ADMIN_USER`** (default admin). Resetting the password through Hostinger also resets the username, which is easy to miss.
+### Improved
+- **The first-run screen is readable on the light theme.** Brain names, card borders and the Claude sign-in command used to be nearly invisible on a light background. On a public server, the admin account section now says it is required right away instead of a red line at the bottom.
+
+## [0.91.0] - 2026-10-10
+### Added
+- **DeepSeek is a new brain.** Paste a DeepSeek API key on the Models page to pick `deepseek-flash` or `deepseek-v4-pro` as the main brain, for agents or for background work, with the same tools as the other API engines.
+- **Thinking depth works with DeepSeek.** Set to Off, DeepSeek answers directly, cheaper and faster; turned on, it thinks first. If an older conversation does not fit thinking mode, Javis answers in normal mode with a one-line notice.
+
+## [0.89.2] - 2026-10-10
+### Improved
+- **When a bot says it cannot see a photo, the bot card says why.** The reason used to stay in the server log, so a bot running on a VPS said it could not see the photo and the owner had no way to know what to fix. The warning line on the bot card now gives one of four reasons: the photo message carried no link, downloading the photo from Zalo failed (with the exact error), the bot's brain does not take images (Antigravity, Grok Build: switch the bot to a model that can see images), or the model refused the image.
+
+## [0.89.1] - 2026-10-10
+### Fixed
+- **A customer-care bot no longer silently drops groups past the 50th.** A bot used to remember only its first 50 groups, so newly approved customer groups reported success but never made it into the list and the bot stayed silent there. The group list is no longer cut. (Contributed by @nhuy288-8.)
+
+## [0.89.0] - 2026-10-10
+### Added
+- **Resonance assistants learn from feedback, with checks.** React to an assistant's notice to suggest shorter or less disruptive updates; you preview the change and decide whether to apply it.
+- **When stuck, the assistant tries one other method, only if the goal's budget covers both the trial and one more pass on the deliverable,** compared with the old method on the same criteria; a losing or unclear result keeps the old method.
+- **Every lesson has a source, a scope and a revoke button.** After you revoke or dismiss a suggestion, Javis waits 14 days before suggesting the same change again. Feedback never marks a goal done by itself and never grants more permissions or budget.
+
+## [0.88.6] - 2026-10-10
+### Fixed
+- **The Zalo bot card states the real reason when the Zalo connection drops.** The card used to show only a technical config line like `process closed stdout ([mcp] Config loaded: ...)`, with the real reason cut off. It now says it in plain words. If Zalo closed the session because the account was just opened somewhere else (Zalo Web in a browser, or another Javis machine signed in to the same account), the card says to close the other one and that Javis reconnects in about 2 minutes. If the Zalo sign-in expired, it says to sign in again with the QR code on the Connections page. Any other error shows the end of the message, where the real reason is.
+
+## [0.88.5] - 2026-10-10
+### Improved
+- **Conversations with many goal cards open faster.** Cards of the same goal share one load instead of one each, and are redrawn once.
+- **Opening a goal card no longer makes other pages wait.** Javis reads goal state on a separate thread and only reads what the card shows, so goals with a long history still open quickly.
+- **You can see how long Javis spends on each request.** Every response carries a `Server-Timing` header, to tell slowness in Javis from slowness in the network or proxy (Cloudflare).
+
+## [0.88.4] - 2026-10-09
+### Fixed
+- **The Partners page no longer shows up empty now and then even though the brain has assistants.** Opening the app straight on this page, Javis does not know the brain yet, so it loads the default brain's list (empty), then loads again once the real brain is known. If the first load came back later, it overwrote the right list and the page said there were no partners yet. Results from an outdated load are now dropped. If the server reports an error while loading the list, the page shows the error with a Retry button instead of pretending the list is empty.
+
+## [0.88.3] - 2026-10-09
+### Fixed
+- **A bot in a Zalo group sees the photo when a customer sends a plain photo and then calls the bot.** A photo without a caption used to be dropped on arrival, so the most common way to ask, a photo followed by "@bot take a look", made the bot say it had not seen any photo. A photo with a few words of caption worked, which made it look random. The bot now remembers a plain photo for 3 minutes and sees it when that person calls the bot.
+  - In Auto-evaluate mode, an untagged message like "look at the photo above" that the bot decides to answer also comes with the photo.
+  - A brief failure downloading the photo from Zalo (a network blip, a photo not ready yet) is retried once instead of reporting the photo as unseen right away.
+
+## [0.88.2] - 2026-10-09
+### Fixed
+- **Old ChatGPT chats recover by themselves after moving to another machine or VPS.** The Codex session files stay on the old machine, so an old chat kept failing with "no rollout found" while a new chat worked fine. Javis already rebuilds the context from chat history in this case, but did not recognise this error, especially when Codex only printed it and exited. Javis now recognises it and rebuilds once. Sign-in, usage limit and network errors are still reported as before. (Reported by @dev23072005, issue #595.)
+
+## [0.88.1] - 2026-10-09
+### Fixed
+- **Assistants with accented Vietnamese names open their Settings tab on the Partners page.** An assistant whose name had Vietnamese accents always showed "Could not load this assistant", and could not be deleted or exported either, because its file name kept the accents while the read step only accepted plain letters. Existing assistants now work normally, and new ones get a file name without accents. The Studio starter set also no longer fails to find its reviewer assistant in the verify step.
+
+## [0.88.0] - 2026-10-09
+### Improved
+- **Resonance assistants call the model only for a reason.** A new task, new feedback from you, or a retry still within its limit. While waiting on you they sleep; periodic reviews are code-only checks that back off to once a week.
+- **No pointless retries.** Two attempts in a row without progress pause retries until you give feedback; errors are retried at most 3 times; automatic retries always leave one call for your feedback.
+- **Files you edit by hand are not overwritten or redone.** Javis tells you once and re-checks on its own; a paused goal still watches its protective conditions, and turning an assistant off says clearly that watching stopped.
+- **The goal card shows why the assistant woke up** and its recent wake-ups, with or without a model call.
+
+## [0.87.0] - 2026-10-08
+### Added
+- **Resonance per assistant.** Each assistant has its own switch on the Team page. Only an assistant with it on sets and pursues goals; regular chat no longer creates goals. The assistant's right panel lists the goals it is pursuing.
+### Changed
+- **The per-brain Resonance switch is no longer used.** Goals set before this version wait under "Waiting for assignment" in Settings and do not run until you assign them to an assistant.
+- **Deleting and recreating an assistant with the same name makes a new assistant.** It must be turned on again; old goals and conversations stay with the old one. Turning it on in a conversation opened before that prompts you to open a new conversation.
+
 ## [0.86.102] - 2026-10-08
 ### Improvements
 - **The Afftera fork is synced with upstream 0.86.2** (`71f9c5b9`): every change from 0.84.6 to 0.86.2 of blogminhquy/javis-os is in, including the fix for partial settings writes wiping `settings.json` (0.86.2), tool hooks that know who is talking (0.85.8), the Resonance system switched off by default (0.86.0), and Git Brain Sync bootstrapping on machines not set to English (0.85.7, which replaces the fork's own patch).

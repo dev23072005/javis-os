@@ -4,7 +4,7 @@
 
 Since 0.85.0 you can talk to Javis right inside Discord and Lark (or Feishu, Lark's mainland China edition). Both are **admin channels**: the person messaging is you, with the same power as the dashboard (your brain, tools, background work). Set them up on the **Admin channels** page, one tab per channel.
 
-Bots that answer **customers** are a different thing, on the **Chatbot** page. Discord and Lark are not available there yet.
+Bots that answer **customers** are a different thing, on the **Chatbot** page. Since 0.102.0 Lark is available there (see [Customer bot on Lark](#customer-bot-on-lark)); Discord is not yet.
 
 | | Discord | Lark / Feishu |
 |---|---|---|
@@ -68,6 +68,15 @@ The order matters: the Lark console only lets you save "persistent connection" m
 4. In Lark, find the bot by name and DM it once. The bot replies with a pairing code, the Lark tab shows you with that code: click **Allow**.
 
 In a group, add the bot to the group and type `@Javis your question`. Javis answers right under that message. While it works, Javis puts an "on it" reaction on your question, since Lark has no typing indicator for bots.
+
+### Customer bot on Lark
+
+Since 0.102.0 a bot on the **Chatbot** page can answer customers on Lark or Feishu, with every chat in the shared **Inbox** and takeover when a human is needed.
+
+1. Create a **separate** app for the bot (repeat step 1 with another name). Do not reuse the admin channel's app: Lark splits messages at random between connections of one app, and Javis refuses it anyway.
+2. On top of the permissions in step 1, consider granting: read **all group messages** (not only those that @mention the bot) if the bot should follow groups on its own, and read **user info** (contact) and **chat info** (`im:chat`) so the Inbox shows customer and group names instead of `ou_...` ids. Without those two the bot still works and shows the ids.
+3. **Chatbot** page → **Accounts** → add an account, channel **Lark**, paste the **App ID** and **App Secret** separated by a space: `cli_... SECRET`. Javis finds out whether the app is on Lark or Feishu; to pin it, add the word `feishu` (or `lark`) at the end.
+4. Create the bot on the same page, attach the account and turn the bot on. Then do step 2 above in the console (persistent connection, the `im.message.receive_v1` event, publish a version).
 
 ### Common problems
 

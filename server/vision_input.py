@@ -2,8 +2,8 @@
 
 Owner decision (2026-10-05): no second model "describing" the photo for the bot (that was ChatGPT in 0.74.1, and it meant no ChatGPT
 = no eyes for any brain). The photo is downloaded into the bot's brain (inbox/ or attachments/, swept by media_gc after 30 days or
-300 MB) and sent as image input in the SAME turn to whatever model runs the bot. A model that cannot see images gets the old honest
-label instead and never guesses.
+300 MB) and sent as image input in the SAME turn to whatever model runs the bot. A model that cannot see images gets a description
+written by another connected brain (borrowed_eyes.py, 0.94.0), or the old honest label when no brain can look; it never guesses.
 
 The neutral shape inside Javis is the OpenAI Chat Completions content list, because six providers already speak it natively
 (OpenAI, Gemini's OpenAI endpoint, Groq, Ollama, OpenAI-compatible, OpenRouter):
@@ -29,7 +29,7 @@ MAX_INPUT_BYTES = 25_000_000 # never read a file bigger than this into memory
 
 # Providers whose bot path can carry image input today. The two remaining CLI brains (Antigravity, Grok Build) take one prompt
 # string with no image channel, so they get the honest label instead.
-SUPPORTED = ("openai", "openrouter", "gemini", "groq", "ollama", "ollama-local", "openai-compat",
+SUPPORTED = ("openai", "openrouter", "gemini", "groq", "deepseek", "ollama", "ollama-local", "openai-compat",
              "anthropic-api", "anthropic", "openai-oauth", "anthropic-cli")
 
 _MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}

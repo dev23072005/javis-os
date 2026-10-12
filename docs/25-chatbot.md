@@ -497,7 +497,7 @@ Lưu ý cách hiểu đúng: những giới hạn trên nằm ở **mức quyề
 
 ## Bot gửi ảnh cho khách (từ 0.84.3)
 
-Bot gửi được ảnh trên Telegram, Zalo cá nhân, Slack và WhatsApp, ở **mọi mức quyền**. Cách dùng: dặn trong file Agent khi nào gửi ảnh nào, ví dụ "khách hỏi mẫu áo thì gửi `![Mẫu áo](attachments/mau-ao.jpg)`". Agent chèn cú pháp ảnh đó vào câu trả lời, Javis gỡ nó khỏi câu chữ rồi gửi ảnh thật ngay sau tin chữ. Trong nhóm Zalo, tin chữ vẫn tag người đang hỏi.
+Bot gửi được ảnh trên Telegram, Zalo cá nhân, Slack, WhatsApp và Lark, ở **mọi mức quyền**. Cách dùng: dặn trong file Agent khi nào gửi ảnh nào, ví dụ "khách hỏi mẫu áo thì gửi `![Mẫu áo](attachments/mau-ao.jpg)`". Agent chèn cú pháp ảnh đó vào câu trả lời, Javis gỡ nó khỏi câu chữ rồi gửi ảnh thật ngay sau tin chữ. Trong nhóm Zalo, tin chữ vẫn tag người đang hỏi.
 
 Javis chỉ gửi khi đủ các điều kiện:
 

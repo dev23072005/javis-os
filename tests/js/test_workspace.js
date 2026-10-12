@@ -197,6 +197,9 @@ check("phan tram", W.phanTram(W.tienDoMoi(4)) === 0 && W.phanTram(st) === 100);
     gomNhom: W.gomNhom, nhomHtml: W.nhomHtml, daThu: () => false,
     nhomCua: (x) => (String((x && x.group) || "").trim()) || "Chung", NHOM_MD: "Chung", brain: () => "brain",
     nhomCua: (x) => (String((x && x.group) || "").trim()) || "Chung", NHOM_MD: "Chung", brain: () => "brain",
+    // Tag của agent (0.100.0) cũng khai ở đầu module: mượn bản thật qua W.
+    tagsCua: W.tagsCua, tagCap: W.tagCap, laKhoa: W.laKhoa, demTag: W.demTag, coTag: W.coTag,
+    khoaTag: W.khoaTag, dongChonTag: W.dongChonTag, TAG_NONE: W.TAG_NONE,
     TAB_PHAI: ["cai", "lichsu", "files"],
     luuChon() {}, moPhien() {}, heptLai: () => false, chatReady() {}, active: true, opening: 0,
     esc: (s) => String(s == null ? "" : s), t: (k) => k, ic: () => "<svg></svg>", avatar: () => "<i></i>",
@@ -214,6 +217,8 @@ check("phan tram", W.phanTram(W.tienDoMoi(4)) === 0 && W.phanTram(st) === 100);
   vm.createContext(ctx); vm.runInContext(doan, ctx);
 
   // ---- Bộ chọn nhóm là THANH + bảng nổi cùng khuôn thanh project bên Trò chuyện (0.59.47) ----
+  // Từ 0.100.0 NHÓM chỉ còn ở QUY TRÌNH; agent dùng tag (kiểm riêng ngay dưới khối này).
+  ctx.S.loai = "workflow";
   ctx.veTrai();
   const html = nodes["#wsGroup"].innerHTML;
   check("thanh chon nhom dung lop cs-proj-cur cua thanh project, khong con <select>/<option>",
@@ -233,6 +238,57 @@ check("phan tram", W.phanTram(W.tienDoMoi(4)) === 0 && W.phanTram(st) === 100);
     && nodes["#wsList"].innerHTML.includes("Kế toán") && !nodes["#wsList"].innerHTML.includes("Người viết"));
   check("dang loc thi thanh hien ten nhom va nut bo loc",
     nodes["#wsGroup"].innerHTML.includes("Finance") && nodes["#wsGroup"].innerHTML.includes("cs-proj-x"));
+  ctx.S.nhom = ""; ctx.S.loai = "agent"; ctx.veTrai();
+
+  // ---- TAG của agent (0.100.0, docs/dev/agent-tags.md) ----
+  const tagBar = nodes["#wsGroup"].innerHTML, tagDs = nodes["#wsList"].innerHTML;
+  check("agent: thanh loc hien Tat ca agent, khong co nut tao nhom/tag rieng",
+    tagBar.includes("ws.tag_all") && !tagBar.includes("cs-proj-add") && !tagBar.includes("cs-proj-x"));
+  check("agent: khong chia tieu de theo tag (agent nhieu tag khong hien hai lan)", !tagDs.includes("data-nhom="));
+  check("agent: moi hang co chip tag", (tagDs.match(/class="ws-tag"/g) || []).length === 3, tagDs.slice(0, 300));
+  ds[0].tags = ["Marketing", "Viết nội dung"]; ds[1].tags = []; ds[2].tags = ["marketing"];
+  ctx.veTrai();
+  check("agent nhieu tag xuat hien DUNG MOT lan o Tat ca",
+    (nodes["#wsList"].innerHTML.match(/Người viết/g) || []).length === 1);
+  ctx.chonNhom("Marketing");
+  check("loc mot tag: khop khong phan biet hoa thuong, khong lay agent khac tag",
+    nodes["#wsList"].innerHTML.includes("Người viết") && nodes["#wsList"].innerHTML.includes("Chạy ads")
+    && !nodes["#wsList"].innerHTML.includes("Kế toán"));
+  ctx.chonNhom("Viết nội dung");
+  check("agent nhieu tag xuat hien duoi MOI tag phu hop",
+    nodes["#wsList"].innerHTML.includes("Người viết") && !nodes["#wsList"].innerHTML.includes("Chạy ads"));
+  ctx.chonNhom(W.TAG_NONE);
+  check("loc Chua gan tag chi lay agent khong co tag",
+    nodes["#wsList"].innerHTML.includes("Kế toán") && !nodes["#wsList"].innerHTML.includes("Người viết")
+    && nodes["#wsGroup"].innerHTML.includes("ws.tag_none"));
+  ctx.S.q = "viet noi"; ctx.chonNhom("");
+  check("tim theo ten tag (khong dau) ket hop duoc voi loc", nodes["#wsList"].innerHTML.includes("Người viết")
+    && !nodes["#wsList"].innerHTML.includes("Kế toán"));
+  ctx.S.q = "";
+  check("demTag dem dung so agent moi tag va so chua gan tag",
+    JSON.stringify(W.demTag(ds).tags.map(g => [g.ten, g.n])) === JSON.stringify([["Marketing", 2], ["Viết nội dung", 1]])
+    && W.demTag(ds).khong === 1);
+  ctx.S.nhom = "Tag-da-bi-xoa"; ctx.veTrai();
+  check("tag dang loc khong con ai mang (doi ten/xoa o tab khac) thi ve Tat ca", ctx.S.nhom === "");
+  // Review PR #617 vòng 1, R2: tên tag là chữ người dùng gõ; "__proto__", "constructor" hợp lệ.
+  let demDacBiet = null, loiDem = "";
+  const dsDacBiet = [{ slug: "x", tags: ["Marketing", "__proto__", "constructor"] }, { slug: "y", tags: ["constructor"] }];
+  try { demDacBiet = W.demTag(dsDacBiet); } catch (e) { loiDem = e.message; }
+  check("R2 demTag dem duoc __proto__ va constructor, khong nem loi",
+    demDacBiet && demDacBiet.tags.some(g => g.ten === "__proto__" && g.n === 1)
+    && demDacBiet.tags.some(g => g.ten === "constructor" && g.n === 2), loiDem);
+  const dongY = W.dongChonTag(dsDacBiet[1], dsDacBiet);
+  check("R2 bo chon: dau tick dung voi ten dac biet (y chi mang constructor)",
+    dongY.filter(r => r.on).map(r => r.ten).join() === "constructor"
+    && dongY.some(r => r.ten === "__proto__" && !r.on));
+  check("R2 khong cham prototype", ({}).n === undefined && Object.prototype.n === undefined);
+  check("R3 loc bang khoa host: 'strasse' gom ca Straße va STRASSE",
+    W.loc([{ slug: "a", tags: ["Straße"], tag_keys: ["strasse"] }, { slug: "b", tags: ["STRASSE"], tag_keys: ["strasse"] }],
+          "", "STRASSE", true).length === 2);
+  const chip = W.chipTagHtml({ tags: ['<img src=x onerror="a()">', "B", "C", "D", "E"] });
+  check("chip tag escape ten do nguoi dung go (khong XSS)", chip.includes("&lt;img") && !chip.includes("<img"));
+  check("chip tag toi da 3, phan con lai gop +n", (chip.match(/class="ws-tag"/g) || []).length === 3 && chip.includes("ws-tag-more"));
+  delete ds[0].tags; delete ds[1].tags; delete ds[2].tags;
   ctx.S.nhom = ""; ctx.veTrai();
 
   // ---- Hàng quy trình ĐANG chạy đeo icon quay ----
@@ -319,9 +375,15 @@ check("phan tram", W.phanTram(W.tienDoMoi(4)) === 0 && W.phanTram(st) === 100);
     !/<strong>[^<]*<span class="ws-item-pin"/.test(htmlGhim));
   // 0.59.46: ở "Tất cả", phần không ghim chia theo NHÓM chứ không gom thành "Còn lại"
   // nữa; nhãn "Còn lại" chỉ còn khi đang lọc MỘT nhóm mà có mục ghim phía trên.
-  check("co nhan Da ghim, phan con lai chia theo nhom (khong con nhan Con lai)",
-    htmlGhim.includes("ws.grp_pinned") && !htmlGhim.includes("ws.grp_rest")
-    && htmlGhim.includes('data-nhom="Marketing"'));
+  // Agent (0.100.0) không chia theo tag: một khối ghim, rồi một khối "Còn lại".
+  check("agent: co nhan Da ghim, phan con lai la mot khoi (khong chia theo tag)",
+    htmlGhim.includes("ws.grp_pinned") && htmlGhim.includes("ws.grp_rest") && !htmlGhim.includes("data-nhom="));
+  ctx.S.loai = "workflow"; ctx.veDanhSach();
+  const htmlGhimWf = nodes["#wsList"].innerHTML;
+  check("quy trinh: co nhan Da ghim, phan con lai chia theo nhom (khong con nhan Con lai)",
+    htmlGhimWf.includes("ws.grp_pinned") && !htmlGhimWf.includes("ws.grp_rest")
+    && htmlGhimWf.includes('data-nhom="Marketing"'));
+  ctx.S.loai = "agent"; ctx.veDanhSach();
   ctx.S.nhom = "Finance"; ctx.veDanhSach();
   check("loc mot nhom ma co ghim thi van co nhan Con lai, khong co tieu de nhom",
     nodes["#wsList"].innerHTML.includes("ws.grp_pinned") === (ds[1].group === "Finance")

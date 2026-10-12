@@ -14,7 +14,10 @@ Thêm ngôn ngữ thứ N+1 = thêm MỘT mục vào `LANGS` + một file `lexic
 """
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Tuple
 
 
@@ -222,6 +225,42 @@ def cho_giao_dien() -> list:
     """Danh sách cho ô chọn ngôn ngữ trên dashboard. Dashboard KHÔNG tự khai danh sách này,
     nếu không thì thêm ngôn ngữ lại phải sửa hai nơi."""
     return [{"ma": l.code, "ten": l.native, "ten_en": l.english} for l in LANGS.values()]
+
+
+_DICT_NAME = re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$")
+_DICT_CACHE: dict = {}
+
+
+def dashboard_only_languages(i18n_dir) -> list:
+    """Dashboard dictionaries for languages this registry does NOT know (0.99.0).
+
+    A community translation can be just `dashboard/i18n/<code>.json` (CONTRIBUTING.md,
+    Translations item 2): the dashboard picks it up for that browser language, but the server,
+    the voice and the prompts stay in vi/en. The language pickers still need to offer it, or a
+    reader who switched to English could never switch back. Same shape as `cho_giao_dien`, plus
+    `chi_giao_dien: True` so the dashboard stores English on the server for it. The name comes
+    from the file's own `_meta.name`. Cached per file mtime: GET /settings calls this often.
+    """
+    out = []
+    try:
+        files = sorted(Path(i18n_dir).glob("*.json"))
+    except OSError:
+        return out
+    for f in files:
+        code = f.stem.lower()
+        if code in LANGS or not _DICT_NAME.match(code):
+            continue
+        try:
+            mtime = f.stat().st_mtime_ns
+            hit = _DICT_CACHE.get(code)
+            if not hit or hit[0] != mtime:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                name = str((data or {}).get("_meta.name") or code) if isinstance(data, dict) else code
+                _DICT_CACHE[code] = hit = (mtime, name[:40])
+        except (OSError, ValueError):
+            continue      # a broken file is not offered; the dashboard loader skips it too
+        out.append({"ma": code, "ten": hit[1], "ten_en": hit[1], "chi_giao_dien": True})
+    return out
 
 
 def giong_tts(code: str, provider: str) -> str:

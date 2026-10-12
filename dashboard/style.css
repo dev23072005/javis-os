@@ -3585,3 +3585,44 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .rs-note { margin-top: 8px; font-size: 13px; color: var(--text2); }
 .rs-card.rs-old { padding: 8px 12px; opacity: .8; }
 .rs-dir .rs-drop { margin-left: 6px; padding: 2px 8px; }
+
+/* Resonance A1: khối Cộng hưởng của một trợ lý (cột phải trang Cộng sự) và danh sách trợ lý ở trang Cài đặt
+   (resonance-agent.js). Một cột, chữ xuống dòng được trên điện thoại. */
+.rsa-panel { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--hairline); }
+.rsa-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rsa-title { font-weight: 600; color: var(--text); }
+.rsa-sub { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.45; }
+.rsa-warn { font-size: 13px; color: var(--red); margin-top: 6px; line-height: 1.45; }
+.rsa-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rsa-new-session { margin-top: 8px; }
+.rsa-goals-title { font-size: 13px; font-weight: 600; color: var(--text2); margin-top: 12px; }
+.rsa-card { font-size: 14px; }
+.rsa-wait { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--hairline); }
+.rsa-wait-text { font-size: 14px; color: var(--text); }
+.rsa-wait-title { margin-top: 12px; }
+
+/* Resonance A3: hàng phản hồi dưới tin báo của trợ lý (chat-resonance.js) và mục Bài học (resonance-agent.js).
+   Một cột; câu cũ và câu mới xếp dọc để đọc được trên điện thoại. */
+.rs-react { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; }
+.rs-react-q { color: var(--text3); }
+.rs-react-b {
+  font: inherit; font-size: 13px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--hairline); background: var(--surface-2); color: var(--text);
+}
+.rs-react-b.rs-on { border-color: var(--accent); color: var(--accent); }
+.rs-react-b:disabled { opacity: .5; cursor: default; }
+.rs-react-why { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.rs-learn { font-size: 13px; color: var(--text2); }
+/* A4: dòng quyền của thẻ mục tiêu và bản nháp xem trước */
+.rs-scope { font-size: 13px; }
+.rs-scope .rs-btns { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 6px; }
+.rs-card .rs-warn.rs-scope { color: var(--text); }
+.rs-preview { max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px;
+  background: var(--bg2, transparent); border: 1px solid var(--hairline); border-radius: 6px; padding: 8px;
+  margin-top: 6px; }
+.rsa-lesson { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--hairline); }
+.rsa-lesson-text { font-size: 14px; color: var(--text); }
+.rsa-pv { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.rsa-pv-label { font-size: 12px; color: var(--text3); }
+.rsa-pv-text { font-size: 13px; color: var(--text); padding: 6px 8px; border-radius: 8px; background: var(--surface-2);
+  overflow-wrap: anywhere; }

@@ -67,15 +67,17 @@ check("POST /agents nhận nhóm", r.status_code == 200 and r.json().get("ok"), 
 check("agent: nhóm ghi vào frontmatter", meta.get("group") == "Marketing", meta)
 
 _, meta, _ = luu("agents", name="Khong nhom", role="x")
-check("agent: client cũ không gửi group → 'Chung' (không phải None)",
-      meta.get("group") == main.NHOM_MAC_DINH, meta)
+# 0.100.0 (docs/dev/agent-tags.md): agent dùng tag. Agent mới không gửi gì thì CHƯA gắn tag (`tags: []`),
+# không ghi nhãn "Chung" giả vào file.
+check("agent: không gửi nhóm hay tag → chưa gắn tag, không ghi 'Chung' giả",
+      meta.get("tags") == [] and "group" not in meta, meta)
 
 _, meta, _ = luu("agents", name="Nhom thua dau cach", role="x", group="  Bán hàng  ")
 check("agent: nhóm được cắt khoảng trắng thừa (khỏi đẻ 'Bán hàng ' song song)",
       meta.get("group") == "Bán hàng", meta)
 
 _, meta, _ = luu("agents", name="Nhom rong", role="x", group="   ")
-check("agent: nhóm toàn khoảng trắng → 'Chung'", meta.get("group") == main.NHOM_MAC_DINH, meta)
+check("agent: nhóm toàn khoảng trắng → chưa gắn tag", meta.get("tags") == [] and "group" not in meta, meta)
 
 r, meta, slug_wf = luu("workflows", name="Nghien cuu roi viet", description="hai bước",
                        steps="[]", group="Nội dung")
@@ -119,11 +121,14 @@ check("agent: lưu lại lần hai không làm mất nhóm", meta.get("group") =
 # 3. Chỉ mục Javis/index.md: xếp theo nhóm cho CẢ BA loại
 # ============================================================
 caps = main._gather_capabilities(BRAIN)
-check("caps: agent mang theo nhóm", all("group" in a for a in caps["agents"]))
+check("caps: agent mang theo tag (0.100.0)", all(isinstance(a.get("tags"), list) for a in caps["agents"]))
 check("caps: workflow mang theo nhóm", all("group" in w for w in caps["workflows"]))
 
 idx = main._render_javis_index(caps)
-check("index: có tiêu đề nhóm của agent", "### Marketing" in idx, idx[:400])
+# 0.100.0: agent nhiều tag không chia theo tiêu đề (chia thì agent hai tag hiện hai lần); tag ghi trên dòng.
+_agent_part = idx.split("## Agents", 1)[1].split("\n## Skills", 1)[0]
+check("index: agent ghi tag trên dòng, không chia tiêu đề theo nhóm",
+      "tags: Marketing" in _agent_part and "### " not in _agent_part, idx[:600])
 check("index: có tiêu đề nhóm của workflow", "### Nội dung" in idx)
 check("index: agent nhóm Chung vẫn được liệt kê", "agent-cu" in idx)
 

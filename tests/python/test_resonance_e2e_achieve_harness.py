@@ -220,8 +220,10 @@ import resonance_store as RS  # noqa: E402
 
 _B = Path(tempfile.mkdtemp(prefix="ach-h-brain-")).resolve()
 (_B / "Javis").mkdir()
-(_B / "Javis" / "resonance.json").write_text('{"enabled": true}', encoding="utf-8")
 _ST = RS.GoalStore(Path(tempfile.mkdtemp(prefix="ach-h-db-")) / "r.sqlite3")
+import _resonance_agent as RA  # noqa: E402  - A1: Cộng hưởng bật theo trợ lý
+RA.preapprove()  # A4: chủ dự án cho phép phạm vi ngay sau khi lập (D1); xem _resonance_agent.preapprove
+RA.enable(_ST, _B)
 _P = RS.Principal("agent", "javis", str(_B))
 _DL = "Docs/hd.md"
 
@@ -236,7 +238,8 @@ def _goal(mid, hold=False):
                      "horizon": {"kind": "review", "at_iso": "2027-01-20T09:00:00+07:00"},
                      "criteria": [{"description": "Có mục Lỗi hay gặp", "evaluator": "artifact_contract",
                                    "params": {"path": _DL, "must_contain": ["Lỗi hay gặp"]}},
-                                  {"description": "Anh xác nhận", "evaluator": "human_confirmation"}]}},
+                                  {"description": "Anh xác nhận", "evaluator": "human_confirmation"}]},
+        **RA.ctx(_ST.agent(str(_B), RA.SLUG))},
         R.GoalDeps(engine_factory=lambda s, t: (None, {}), budget=R.CallBudget(0), store=_ST)))
 
 
@@ -251,7 +254,7 @@ def _pres(ok=True):
 
 
 g = _goal(1)
-act = _ST.begin_action(_P, g.id, g.revision, "work", lease_until=9e18, now=1.0, intent={})
+act = _ST.begin_action(_P, g.id, g.revision, "work", lease_until=9e18, now=1.0, intent=RA.pin(_ST, _B))
 Path(g.output_root).mkdir(parents=True, exist_ok=True)
 (Path(g.output_root) / f"{act['id']}.md").write_text("bản việc nền đã ghi, chưa có receipt", encoding="utf-8")
 _saved.clear()
@@ -269,7 +272,7 @@ res, ok = H.preserve_work_outputs(_ST, _P, g.id, _DL, "out.json", _pres())
 check("P2-1 file .md lạc trong vùng làm việc cũng được lưu (orphan, unverified)",
       ok and any(x.get("status") == "orphan" for x in res["items"]) and any("orphan" in x for x in _saved))
 g2 = _goal(2)
-a2 = _ST.begin_action(_P, g2.id, g2.revision, "work", lease_until=9e18, now=1.0, intent={})
+a2 = _ST.begin_action(_P, g2.id, g2.revision, "work", lease_until=9e18, now=1.0, intent=RA.pin(_ST, _B))
 _ST.finish_action(_P, a2["id"], "succeeded", {"output_ref": str(Path(g2.output_root) / "khong-co.md"),
                                               "status": "succeeded"})
 check("P2-1 đối chứng: action succeeded mà không thấy file thì không cho dọn",
@@ -344,8 +347,16 @@ async def _nt(goal, kind, text, card=""):
     return True
 
 
-g3 = _goal(3, hold=True)
-_mref = R.message_ref("s", 3)
+# A4 (D1): lượt LẬP mục tiêu không nhận quyền ghi (đích chờ chủ dự án cho phép SAU ảnh chụp đầu lượt). Bản chat được
+# tiếp nhận ở lượt SỬA kế tiếp, khi phạm vi đã được cho phép trước lúc lượt đó bắt đầu.
+g3c = _goal(3)
+g3, _rel3, _kept3 = R.revise_goal(_ST, _P, g3c.id, g3c.revision, {"understanding": "Bản hướng dẫn nhận hàng",
+                                                                         "relevant_quote": "Em lo giúp anh bản hướng dẫn"}, {
+    "message_ref": R.message_ref("s", 4), "session_id": "s", "message_id": 4,
+    "user_text": "Em lo giúp anh bản hướng dẫn tới khi anh thấy dùng được. Lưu ở Docs/hd.md.",
+    "constraints": [], "hold_until": 1_800_000_000.0 + 900, "authority_seq": _ST.authority_seq(),
+    **RA.ctx(_ST.agent(str(_B), RA.SLUG))})
+_mref = R.message_ref("s", 4)
 (_B / "Docs").mkdir(exist_ok=True)
 (_B / _DL).write_text("# HD\n\n1. Đếm.\n", encoding="utf-8")
 R.note_turn_event(_mref, str(_B), {"type": "tool_call", "name": "Write", "id": "w1",
@@ -353,9 +364,14 @@ R.note_turn_event(_mref, str(_B), {"type": "tool_call", "name": "Write", "id": "
 R.note_turn_event(_mref, str(_B), {"type": "tool_result", "tool_use_id": "w1", "is_error": False})
 _META = {"requested_provider": "fake", "requested_model": "fake-1", "provider": "fake", "model": "fake-1",
          "text_only": True}
+_clk = {"t": 1_800_000_000.0}
 _d = R.GoalDeps(engine_factory=lambda s, t: (_Eng(), dict(_META)), budget=R.CallBudget(0),
-                clock=lambda: 1_800_000_000.0, store=_ST, principal=_P, brain_root=str(_B), evidence=_Ev(), notify=_nt)
+                clock=lambda: _clk["t"], store=_ST, principal=_P, brain_root=str(_B), evidence=_Ev(), notify=_nt)
 check("P2-2 sản phẩm: bản chat chưa đạt được tiếp nhận", R.handoff_after_turn(g3.id, _mref, _d) == "adopted")
+asyncio.run(R.advance(g3.id, {"kind": "wake"}, _d))
+# A2 (thiết kế mục 3): bản chat là lượt đầu; lần thức sau bàn giao chỉ hẹn thử lại, tới mốc mới sửa bằng việc nền.
+check("P2-2 A2: lần thức sau bàn giao chưa gọi model", _Eng.queries == 0)
+_clk["t"] += R.HB.POLICY["RETRY_BASE_S"]
 asyncio.run(R.advance(g3.id, {"kind": "wake"}, _d))
 _acts = [x for x in _ST.actions(_P, g3.id) if x["kind"] == "work" and x["revision"] == g3.revision]
 _ass = [x for x in _ST.assessments(_P, g3.id) if int(x.get("revision") or 0) == g3.revision]

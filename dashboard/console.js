@@ -3567,7 +3567,7 @@
     } else {
       than = '<div class="ol-chips">' +
         chip("cpu", t("ol.ram") + ": " + olGb(sp.ram_gb)) +
-        (sp.has_gpu ? chip("zap", "GPU" + (sp.vram_gb ? " " + olGb(sp.vram_gb) : "")) 
+        (sp.has_gpu ? chip("zap", sp.vram_gb ? "GPU " + olGb(sp.vram_gb) : (sp.gpu_name || "GPU"))
                     : chip("circle", t("ol.no_gpu"))) +
         chip(tu ? "circle-check" : "pencil", tu ? t("ol.specs_auto") : t("ol.specs_manual")) +
         "</div>";
@@ -3835,7 +3835,7 @@
       `<button class="seg-btn ${reasoning === v ? "sel" : ""}" data-reason="${v}" title="${esc(d)}">` +
       `<span class="seg-lb">${esc(l)}</span><span class="seg-d">${esc(d)}</span></button>`).join("");
 
-    const KEYFIELD = { "openrouter": "openrouter_key", "anthropic-api": "anthropic_api_key", "openai": "openai_api_key", "gemini": "gemini_api_key", "groq": "groq_api_key", "ollama": "ollama_key", "openai-compat": "openai_compat_key" };
+    const KEYFIELD = { "openrouter": "openrouter_key", "anthropic-api": "anthropic_api_key", "openai": "openai_api_key", "gemini": "gemini_api_key", "groq": "groq_api_key", "deepseek": "deepseek_api_key", "ollama": "ollama_key", "openai-compat": "openai_compat_key" };
     const provHead = (p, on, kindLabel, statusText) => `
         <div class="prov-head">
           <span class="prov-shield ${on ? "on" : ""}">${_shield(on)}</span>
@@ -5461,7 +5461,7 @@
     // native, bốn provider API đi qua vòng gọi tool + hub trong _api_stream_mcp. Gemini từng
     // thiếu trong danh sách này nên khách chạy Gemini bị banner vàng "chưa hỗ trợ gọi công cụ"
     // dù bên dưới đã chạy MCP ngon - nhánh vàng giờ chỉ còn để chặn provider lạ.
-    const MCP_PROVIDERS = ["anthropic-cli", "openrouter", "openai", "anthropic-api", "gemini", "groq", "ollama", "openai-compat"];
+    const MCP_PROVIDERS = ["anthropic-cli", "openrouter", "openai", "anthropic-api", "gemini", "groq", "deepseek", "ollama", "ollama-local", "openai-compat"];
     const mainLabel = (provs.find(p => p.id === main.provider) || {}).label || main.provider || "-";
     let warn = "";
     if (main.provider === "openai-oauth") {
@@ -7230,6 +7230,21 @@
     }
   }
 
+  // Interface languages for the two pickers (Settings and the rail): the languages the server speaks
+  // plus dashboard-only dictionaries, a community `dashboard/i18n/xx.json` (German since 0.99.0).
+  function uiLangChoices(s) {
+    return (s && (s.ui_lang_list || s.lang_list)) || [];
+  }
+
+  // What the SERVER stores for an interface language. It only knows its own registry (vi, en), and an
+  // unknown code there turns into Vietnamese. A dashboard-only dictionary is therefore stored as
+  // English, the same fallback the dashboard uses for keys that dictionary does not translate yet.
+  function uiLangForServer(ma, s) {
+    const full = (s && s.lang_list) || [];
+    if (full.some(l => l.ma === ma)) return ma;
+    return full.some(l => l.ma === "en") ? "en" : ma;
+  }
+
   async function renderSettings(el, tab = "general") {
     const gen = _renderGen;               // chốt token: nếu user đổi trang trong lúc await → bỏ render này
     parkQuickSet();                       // giữ #quickSet an toàn TRƯỚC khi ghi đè cviewBody
@@ -7261,7 +7276,7 @@
         <div class="qs-field">
           <label class="qs-lbl" for="vpUiLang">${esc(t("settings.ui_lang.title"))}</label>
           <select class="js-input" id="vpUiLang">
-            ${langs.map(l => opt(l.ma, l.ten, uiLang)).join("")}
+            ${uiLangChoices(s).map(l => opt(l.ma, l.ten, uiLang)).join("")}
           </select>
         </div>
         <div class="qs-hint">${esc(t("settings.ui_lang.hint"))}
@@ -7367,7 +7382,7 @@
         // THEO THIẾT BỊ (người dùng mở Javis từ nhiều máy), nên trải nghiệm phải tức thì và
         // không được phụ thuộc vào việc gọi mạng có thành công hay không.
         try { await JavisI18n.setLang(selUi.value); } catch (e) { /* noop */ }
-        await saveSetting("locale", { ui_lang: selUi.value });
+        await saveSetting("locale", { ui_lang: uiLangForServer(selUi.value, s) });
         // Vẽ lại trang Cài đặt bằng từ điển mới - không thì phần khung (tiêu đề nhóm, thẻ,
         // nút) vẫn tiếng cũ tới lần mở sau, nhìn như đổi ngôn ngữ "không ăn".
         refreshSettings();
@@ -9040,8 +9055,11 @@
         if (I && !I.daChon()) {
           if (srvChon && langs0.some(l => l.ma === srv)) {
             if (srv !== I.lang()) await I.setLang(srv);
-          } else if (!srv && langs0.some(l => l.ma === I.lang())) {
-            saveSetting("locale", { ui_lang: I.lang(), tu_dong: true });
+          } else if (!srv && uiLangChoices(s).some(l => l.ma === I.lang())) {
+            // A dashboard-only language (German since 0.99.0) is stored on the server as English,
+            // see uiLangForServer. Saving nothing there left `ui_lang` empty, so Telegram, background
+            // work, the voice and the default brain fell back to Vietnamese for a German reader.
+            saveSetting("locale", { ui_lang: uiLangForServer(I.lang(), s), tu_dong: true });
           }
         }
       } catch (e) { /* lỗi thì giữ ngôn ngữ đang hiện, không chặn phần còn lại */ }
@@ -9051,7 +9069,7 @@
       try {
         const wrap = document.getElementById("railLangWrap");
         const sel = document.getElementById("railLang");
-        const langs = s.lang_list || [];
+        const langs = uiLangChoices(s);
         if (wrap && sel && langs.length > 1) {
           const cur = (window.JavisI18n && JavisI18n.lang()) || "vi";
           sel.innerHTML = langs.map(l =>
@@ -9060,7 +9078,7 @@
             // Đổi NGAY trên máy này trước rồi mới lưu lên server - ngôn ngữ giao diện là lựa
             // chọn theo thiết bị, trải nghiệm không được chờ mạng (giống ô ở trang Cài đặt).
             try { await JavisI18n.setLang(sel.value); } catch (e) { /* noop */ }
-            saveSetting("locale", { ui_lang: sel.value });
+            saveSetting("locale", { ui_lang: uiLangForServer(sel.value, s) });
           };
           wrap.hidden = false;
         }
