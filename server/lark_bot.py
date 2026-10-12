@@ -229,6 +229,7 @@ class LarkBot(HangLuot):
         self._token = ""
         self._token_exp = 0.0
         self._parts = {}              # message_id -> {seq: bytes} for split events
+        self._names = {}              # "u:<open_id>" / "c:<chat_id>" -> display name (customer bots)
         self._ping_every = PING_DEFAULT
         self._service_id = 0
 
@@ -388,6 +389,31 @@ class LarkBot(HangLuot):
             "reply_to_bot": False,
         }
 
+    async def _fill_names(self, client, meta) -> None:
+        """Customer bots only (0.102.0): the sender's name and the group's name, so the customer inbox
+        shows people instead of `ou_...` ids. Needs the contact and chat read permissions; without
+        them the lookup fails quietly and the id stays. Cached, failures included, so a missing
+        permission costs one call per person, not one per message."""
+        names = self._names
+
+        async def lookup(key, path, pick):
+            if key not in names:
+                if len(names) > 500:
+                    names.clear()
+                d = await self._api(client, "GET", path)
+                names[key] = str(pick((d.get("data") or {})) or "") if d.get("code") == 0 else ""
+            return names[key]
+
+        uid = meta.get("user_id") or ""
+        if uid and not meta.get("user_name"):
+            name = await lookup("u:" + uid, f"/open-apis/contact/v3/users/{uid}?user_id_type=open_id",
+                                lambda data: (data.get("user") or {}).get("name"))
+            meta["user_name"] = meta["username"] = name
+        chat = meta.get("chat_id") or ""
+        if chat and meta.get("chat_type") == "group" and not meta.get("chat_title"):
+            meta["chat_title"] = await lookup("c:" + chat, f"/open-apis/im/v1/chats/{chat}",
+                                              lambda data: data.get("name"))
+
     async def _download(self, client, message_id, key, kind) -> bytes:
         tok = await self._tenant_token(client)
         r = await client.get(self.base + f"/open-apis/im/v1/messages/{message_id}/resources/{key}",
@@ -464,6 +490,8 @@ class LarkBot(HangLuot):
             await self._send(client, chat, localefmt.chu(
                 "Bạn không có quyền dùng bot Javis này.", "You are not allowed to use this Javis bot."))
             return
+        if self.giau_trang_thai:
+            await self._fill_names(client, meta)
         text = await self.message_text(client, msg, meta)
         if text.startswith("!") and len(text) > 1 and text[1].isalpha():
             text = "/" + text[1:]

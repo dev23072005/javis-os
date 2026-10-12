@@ -4,7 +4,7 @@
 
 Từ 0.85.0 bạn nói chuyện được với Javis ngay trong Discord và Lark (hay Feishu, bản Trung Quốc của Lark). Hai kênh này là **kênh admin**: người nhắn là chính bạn, đủ quyền như trên dashboard (brain, công cụ, việc nền). Cài ở trang **Kênh Admin**, mỗi kênh một tab.
 
-Bot trả lời **khách hàng** là chuyện khác, nằm ở trang **Chatbot**. Discord và Lark hiện chưa có ở đó.
+Bot trả lời **khách hàng** là chuyện khác, nằm ở trang **Chatbot**. Từ 0.102.0 Lark có ở đó (xem mục [Bot khách hàng trên Lark](#bot-khách-hàng-trên-lark)); Discord thì chưa.
 
 | | Discord | Lark / Feishu |
 |---|---|---|
@@ -68,6 +68,15 @@ Thứ tự quan trọng: console Lark chỉ cho lưu chế độ "kết nối d�
 4. Trong Lark, tìm bot theo tên rồi nhắn riêng một câu. Bot trả mã ghép nối, tab Lark hiện bạn kèm mã đó: bấm **Cho phép**.
 
 Trong nhóm, thêm bot vào nhóm rồi gõ `@Javis câu hỏi`. Javis trả lời ngay dưới tin đó. Khi đang làm, Javis thả một biểu tượng cảm xúc "đang làm" lên câu hỏi của bạn, vì Lark không có dấu "đang nhập" cho bot.
+
+### Bot khách hàng trên Lark
+
+Từ 0.102.0 một bot ở trang **Chatbot** trả lời được khách trên Lark hoặc Feishu, mọi cuộc chat vào **Hộp thư** chung, tiếp quản được khi cần người thật.
+
+1. Tạo một app **riêng** cho bot (làm lại bước 1 với tên khác). Không dùng chung app với kênh admin: Lark chia tin ngẫu nhiên giữa các kết nối cùng một app, Javis cũng từ chối app đó.
+2. Ngoài các quyền ở bước 1, nên cấp thêm: đọc **mọi tin trong nhóm** (không chỉ tin gọi tên bot) nếu muốn bot tự theo dõi nhóm, đọc **thông tin người dùng** (contact) và **thông tin nhóm** (`im:chat`) để Hộp thư hiện tên khách và tên nhóm thay vì mã `ou_...`. Thiếu hai quyền sau thì bot vẫn chạy, chỉ hiện mã.
+3. Trang **Chatbot** → **Tài khoản** → thêm tài khoản, kênh **Lark**, dán **App ID** và **App Secret** cách nhau một dấu cách: `cli_... SECRET`. Javis tự dò app thuộc Lark hay Feishu; muốn chỉ định thì thêm chữ `feishu` (hoặc `lark`) ở cuối.
+4. Tạo bot ở cùng trang và gắn tài khoản vừa thêm, rồi bật bot. Sau đó làm bước 2 ở trên trong console (chọn kết nối dài, thêm sự kiện `im.message.receive_v1`, phát hành phiên bản).
 
 ### Sự cố thường gặp
 

@@ -123,8 +123,32 @@ const cho = (ms = 30) => new Promise((r) => setTimeout(r, ms));
         /!I\.daChon\(\)/.test(con) && /s\.locale && s\.locale\.ui_lang/.test(con) && /await I\.setLang\(srv\)/.test(con));
   check("console.js: giá trị server TỰ GHI theo trình duyệt không áp lên thiết bị khác",
         /ui_lang_nguon\) !== "tu_dong"/.test(con) && /if \(srvChon && /.test(con));
-  check("console.js: server chưa có ui_lang thì ghi ngôn ngữ vừa đoán lên",
-        /saveSetting\("locale", \{ ui_lang: I\.lang\(\), tu_dong: true \}\)/.test(con));
+  check("console.js: server chưa có ui_lang thì ghi ngôn ngữ vừa đoán lên (qua uiLangForServer)",
+        /saveSetting\("locale", \{ ui_lang: uiLangForServer\(I\.lang\(\), s\), tu_dong: true \}\)/.test(con));
+
+  // ---- 6. Từ điển chỉ có ở dashboard (cộng đồng đóng góp, tiếng Đức từ 0.99.0) ----
+  // Server chỉ biết vi/en, mã lạ bị nắn thành tiếng Việt. Nên mọi chỗ ghi ui_lang lên server phải đi qua
+  // uiLangForServer (lưu tiếng Anh cho từ điển chỉ-dashboard), và hai ô chọn phải liệt kê được nó.
+  const lay = (ten) => {
+    const i = con.indexOf("function " + ten + "(");
+    const j = con.indexOf("\n  }\n", i);
+    return con.slice(i, j + 4);
+  };
+  const helpers = new Function(lay("uiLangChoices") + "\n" + lay("uiLangForServer") +
+                               "\nreturn { uiLangChoices, uiLangForServer };")();
+  const S = { lang_list: [{ ma: "vi" }, { ma: "en" }],
+              ui_lang_list: [{ ma: "vi" }, { ma: "en" }, { ma: "de", chi_giao_dien: true }] };
+  check("uiLangForServer: từ điển chỉ-dashboard lưu lên server là tiếng Anh, không thành tiếng Việt",
+        helpers.uiLangForServer("de", S) === "en", helpers.uiLangForServer("de", S));
+  check("uiLangForServer: ngôn ngữ server biết thì giữ nguyên",
+        helpers.uiLangForServer("vi", S) === "vi" && helpers.uiLangForServer("en", S) === "en");
+  check("uiLangChoices: ô chọn có cả tiếng Đức; server cũ chưa trả ui_lang_list thì dùng lang_list",
+        helpers.uiLangChoices(S).some((l) => l.ma === "de") && helpers.uiLangChoices({ lang_list: S.lang_list }).length === 2);
+  check("console.js: không còn chỗ nào ghi thẳng ui_lang chưa qua uiLangForServer",
+        !/ui_lang: (sel|selUi)\.value/.test(con) && !/ui_lang: I\.lang\(\)/.test(con)
+        && (con.match(/ui_lang: uiLangForServer\(/g) || []).length === 3);
+  check("console.js: cả hai ô chọn ngôn ngữ giao diện lấy danh sách từ uiLangChoices",
+        (con.match(/uiLangChoices\(s\)/g) || []).length >= 3);
   const cfg = fs.readFileSync(path.join(ROOT, "server/config.py"), "utf8");
   check("config.py: ui_lang mặc định rỗng cho bản cài mới", /"ui_lang": "",/.test(cfg));
 

@@ -310,8 +310,9 @@ _ANH_CHO: Dict[tuple, tuple] = {}     # (bot_id, chat_id, user_id) -> (paths, ts
 async def anh_cho_bot(text_engine: str, meta: dict, cfg: dict) -> tuple:
     """The photos of this turn, put INTO the chat for the bot's own model (0.81.0). Returns (text, image paths).
 
-    Owner decision (2026-10-05): no second model describes the photo (0.74.1 used ChatGPT, so no ChatGPT meant no eyes for any
-    brain). The photo is saved in the bot's own brain (swept by media_gc) and sent as image input with this turn; main.py
+    Owner decision (2026-10-05): the bot's own model looks first; since 0.94.0 another connected brain describes the photo only
+    when that model cannot see it (main.py `_bot_anh_mat_muon`). In 0.74.1 ChatGPT always described, so no ChatGPT meant no eyes
+    for any brain. The photo is saved in the bot's own brain (swept by media_gc) and sent as image input with this turn; main.py
     `_bot_gan_anh` turns it into the provider's format, or into the honest "you cannot see this photo" label for a brain that
     cannot take images. Three sources:
       - the download line a gateway writes ("[... đã tải về: <path>]": Telegram, Zalo Bot, Slack, WhatsApp). The line is
@@ -346,15 +347,39 @@ async def anh_cho_bot(text_engine: str, meta: dict, cfg: dict) -> tuple:
             msg = image_vision.SAFE_PART.sub("_", str(msg_id or ""))[:40] or str(int(time.time()))
             attach = image_vision.image_gen._attachments_dir(root)
             saved, why = await asyncio.wait_for(image_vision.fetch_image(url, attach / "zalo" / chat, msg), ANH_TOI_DA_GIAY)
+            if not saved and _tai_lai_duoc(why):
+                # Ảnh vừa gửi đôi khi chưa sẵn trên máy chủ ảnh của Zalo, hoặc mạng chập một nhịp: thử lại một lần.
+                await asyncio.sleep(2)
+                saved, why = await asyncio.wait_for(image_vision.fetch_image(url, attach / "zalo" / chat, msg),
+                                                    ANH_TOI_DA_GIAY)
             if saved:
                 paths.append(str(Path(saved).resolve()))
             else:
                 print(f"[chatbot] không tải được ảnh khách gửi: {why}", file=sys.stderr)
+                _ghi_ly_do_anh(cfg, f"không tải được ảnh: {why}")
         except Exception as e:      # noqa: BLE001 - a photo we cannot get must never cost the customer the reply
             print(f"[chatbot] tải ảnh lỗi: {type(e).__name__}: {e}", file=sys.stderr)
+            _ghi_ly_do_anh(cfg, f"tải ảnh lỗi: {type(e).__name__}: {e}")
+    elif meta.get("co_anh") and not url and not paths:
+        _ghi_ly_do_anh(cfg, "tin ảnh tới mà không kèm link ảnh nào (bản Zalo đang chạy không gửi link)")
     if not paths:
         return (gan_nhan_anh(text, meta) if meta.get("co_anh") else text), []
     return (text if text.strip() else CHI_CO_ANH), paths[:vision_input.MAX_IMAGES]
+
+
+def _ghi_ly_do_anh(cfg: dict, ly_do: str) -> None:
+    """Vì sao lượt này bot không xem được ảnh khách gửi, để nhật ký bot nói ra (0.89.2). Trước đó lý do chỉ in ra stderr của
+    server: chủ thấy bot trả lời "không xem được ảnh" mà không có cách nào biết tại sao, nhất là khi bot chạy trên VPS."""
+    try:
+        cfg["_anh_loi"] = ("Bot không xem được ảnh khách gửi: " + str(ly_do))[:300]
+    except Exception:      # noqa: BLE001 - ghi lý do hỏng không được làm mất lượt
+        pass
+
+
+def _tai_lai_duoc(why: str) -> bool:
+    """Lỗi tải ảnh đáng thử lại: hết giờ, lỗi mạng, máy chủ ảnh lỗi tạm. Ảnh quá to hay không phải ảnh thì thôi."""
+    s = str(why or "").lower()
+    return not any(x in s for x in ("mb ", "mb nên", "quá nhiều", "không phải ảnh", "không phải https", "an toàn"))
 
 
 def nho_anh_khong_goi(bot_id: str, meta: dict, text: str, root) -> None:
@@ -384,9 +409,13 @@ def lay_anh_cho(bot_id: str, meta: dict) -> dict:
 
 
 def gan_anh_cho(bot_id: str, meta: dict, text: str) -> dict:
-    """`meta` with the remembered photo attached when this message CALLS the bot and carries no photo of its own."""
+    """`meta` with the remembered photo attached to a turn the bot ANSWERS that carries no photo of its own.
+
+    Runs only on the answer path, so the bot has already decided to reply to this person. Until 0.88.3 it also required a tag or
+    a reply to the bot, which left out the Auto-evaluate case: "xem giúp ảnh trên" with no @ is answered by the judge, but the
+    photo just above it was never shown."""
     m = dict(meta or {})
-    if not (m.get("mentioned") or m.get("reply_to_bot")) or m.get("co_anh") or m.get("image_path"):
+    if m.get("co_anh") or m.get("image_path"):
         return m
     if vision_input.take_image_markers(text)[1]:
         return m
@@ -790,6 +819,12 @@ class PolicyHooks:
     def __init__(self, bot_id: str):
         self.bot_id = bot_id
         self._shadow_inflight = 0
+
+    def nho_anh(self, meta: dict) -> None:
+        """Nhớ một ảnh trơn của nhóm (không chú thích, không gọi bot) cho lần người đó gọi bot ngay sau."""
+        cfg = chatbot_store.get_bot(self.bot_id)
+        if cfg and _nhom_duoc_phep(cfg, (meta or {}).get("chat_id")):
+            _nho_neu_khong_goi(self.bot_id, cfg, meta, "")
 
     def prepare(self, text: str, meta: dict, owner_typing: bool = False):
         cfg = chatbot_store.get_bot(self.bot_id)
@@ -1322,6 +1357,7 @@ def _make_answer_fn(bot_id: str):
             ten_nguoi = str((meta or {}).get("user_name") or "").strip()
             if ten_nguoi:
                 text_engine = f"[{ten_nguoi}] {text}"
+        cfg.pop("_anh_loi", None)
         text_engine, cfg["_anh"] = await anh_cho_bot(text_engine, gan_anh_cho(bot_id, meta, text), cfg)
 
         # Bản ghi truyền xuống lõi phải có brain và slug - lõi dựa vào đó để đổi brain, đổi
@@ -1426,7 +1462,7 @@ def _make_answer_fn(bot_id: str):
             # nổi công cụ). Cố ý KHÔNG nhét vào `loi`: `loi` kéo theo `bi`, kéo theo gọi người
             # trực, và làm bẩn tab "Bot bí" - trong khi đây là lượt trả lời bình thường. Chủ
             # cần biết, người đang hỏi thì không cần.
-            "canh_bao": " · ".join(x for x in ((out or {}).get("canh_bao"), tl.get("canh_bao_link")) if x),
+            "canh_bao": " · ".join(x for x in ((out or {}).get("canh_bao"), tl.get("canh_bao_link"), cfg.get("_anh_loi")) if x),
         })
         # Câu bot nói (kể cả câu xin lỗi khi gãy) vào Hộp thư hội thoại, cạnh tin khách.
         ghi_tin_bot(cfg, meta or {}, dap, loi=loi_ky_thuat, files=(out or {}).get("files"))

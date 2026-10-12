@@ -17,7 +17,7 @@ Liên quan: chọn model cho agent xem [Models & engine](10-models-va-engine.md)
 
 Mở **Năng lực > Cộng sự** trên thanh bên của dashboard (mặc định tại cổng 7777). Trang có hai tab **Trợ lý | Quy trình**. Skills và Plugins vẫn nằm trong nhóm Năng lực.
 
-- Cột trái: chọn tab, tìm theo tên hoặc lọc nhóm, rồi chọn cộng sự. Trợ lý vừa trò chuyện và quy trình vừa chạy được xếp lên đầu.
+- Cột trái: chọn tab, tìm theo tên hoặc lọc theo tag (quy trình: theo nhóm), rồi chọn cộng sự. Trợ lý vừa trò chuyện và quy trình vừa chạy được xếp lên đầu.
 - Cột giữa: khung chat của cộng sự đang chọn.
 - Cột phải: cài đặt và hội thoại của trợ lý, hoặc tiến độ và lịch sử chạy của quy trình.
 
@@ -34,9 +34,9 @@ Hội thoại cộng sự tách khỏi lịch sử chat chính của Javis. Quay
 
 ## Tạo mới, tìm kiếm và Javis Store
 
-Chọn tab cần dùng rồi bấm nút tạo trợ lý hoặc quy trình ở cuối cột trái. **Javis Store** mở kho gói tương ứng để thêm cộng sự có sẵn. Muốn xếp nhóm, điền trường **Nhóm** trong trình sửa.
+Chọn tab cần dùng rồi bấm nút tạo trợ lý hoặc quy trình ở cuối cột trái. **Javis Store** mở kho gói tương ứng để thêm cộng sự có sẵn. Trợ lý được phân loại bằng **tag**, quy trình bằng **nhóm** (xem dưới).
 
-Ô tìm lọc theo tên, slug, vai trò hoặc mô tả, hỗ trợ gõ không dấu. Bộ lọc nhóm kết hợp với ô tìm. Mục chưa có nhóm thuộc **Chung**; mục chưa dùng nằm sau các mục đã dùng và được xếp theo tên.
+Ô tìm lọc theo tên, slug, vai trò, mô tả và tên tag, hỗ trợ gõ không dấu. Bộ lọc tag (ở tab Quy trình là bộ lọc nhóm) kết hợp với ô tìm. Mục chưa dùng nằm sau các mục đã dùng và được xếp theo tên.
 
 ## Tạo một Agent (từng bước, qua form)
 
@@ -88,9 +88,16 @@ Phạm vi: danh sách này thuộc về **trợ lý**, nên mọi cuộc trò ch
 
 Trợ lý mới chưa bấm Lưu lần nào thì nút này còn mờ: phải có trợ lý trước rồi mới gắn tài liệu vào được.
 
-### Nhóm của một trợ lý
+### Tag của một trợ lý
 
-Nhóm **không** nằm trong form cài đặt (từ bản 0.62.0). Bạn xếp nhóm ở cột trái: thanh nhóm phía trên danh sách để tạo, đổi tên, xoá nhóm; nút **...** trên từng trợ lý có mục **Chuyển sang nhóm**. Trước đây nhóm nằm ở cả hai chỗ, nên đổi nhóm ở cột trái rồi bấm Lưu trong form là nhóm nhảy về giá trị cũ mà không báo gì.
+Từ bản 0.100.0 mỗi trợ lý gắn được **nhiều tag** (ví dụ Marketing, Viết nội dung, Kỹ thuật); nhóm cũ của trợ lý tự thành một tag. Tag chỉ để phân loại và tìm trợ lý:
+
+- **Gắn tag, bỏ tag:** nút **...** trên từng trợ lý, mục **Gắn tag**. Bấm một tag để gắn hay bỏ đúng tag đó; ô **Tag mới** tạo và gắn tag mới. Các tag khác giữ nguyên.
+- **Lọc:** thanh phía trên danh sách chọn **Tất cả agent**, **Chưa gắn tag** hay một tag. Trợ lý có nhiều tag hiện ở mọi tag của nó nhưng chỉ một lần trong danh sách.
+- **Đổi tên, xoá tag:** nút **...** cạnh tên tag trong thanh lọc. Đổi tên áp cho mọi trợ lý mang tag đó; đổi sang tên đã có thì hai tag gộp làm một. Xoá tag chỉ gỡ nhãn, không xoá trợ lý, cuộc trò chuyện hay mục tiêu.
+- Tag không nằm trong form cài đặt: bấm Lưu trong form không đổi tag.
+
+Tag **khác** nhóm chat: gắn tag không thêm trợ lý vào cuộc trò chuyện nhóm nào. Tag cũng không chọn người review, không cấp quyền, không bật Cộng hưởng. Quy trình vẫn xếp theo **nhóm** như trước.
 
 ### Bộ nhớ riêng và nhật ký chạy của agent
 
@@ -174,7 +181,7 @@ Bạn không bắt buộc phải dùng form. Trong khung trò chuyện với Jav
 - "Tạo workflow nghiên cứu rồi viết bài."
 - "Thêm bước biên tập vào workflow X."
 
-Khi đó Javis tự ghi file .md tương ứng vào vault, tự đặt slug không dấu, tự xếp nhóm (đọc nhóm đang dùng trong brain rồi lấy nhóm sát nhất), tự gán skill hợp lý từ skill có sẵn, và nếu workflow nhắc tới một agent chưa tồn tại thì tạo agent đó trước. Sau khi làm xong, Javis báo ngắn gọn đã tạo/sửa file nào. Bạn quay lại trang Cộng sự là thấy ngay, không cần thao tác thêm.
+Khi đó Javis tự ghi file .md tương ứng vào vault, tự đặt slug không dấu, tự gắn tag cho agent hay xếp nhóm cho workflow (đọc tag và nhóm đang dùng trong brain rồi lấy cái sát nhất), tự gán skill hợp lý từ skill có sẵn, và nếu workflow nhắc tới một agent chưa tồn tại thì tạo agent đó trước. Sau khi làm xong, Javis báo ngắn gọn đã tạo/sửa file nào. Bạn quay lại trang Cộng sự là thấy ngay, không cần thao tác thêm.
 
 Cách này tiện khi bạn mô tả được ý định bằng lời nhưng ngại điền form, hoặc muốn chỉnh nhiều bước cùng lúc.
 
@@ -186,10 +193,10 @@ Trong brain theo cấu trúc mới, mỗi agent là một file `agents/<slug>.md
 
 Vì là file văn bản, bạn có thể mở qua [Quản lý tệp tin](05-quan-ly-tep-tin.md) để xem hoặc sửa tay. Cấu trúc file:
 
-- Agent: phần đầu (frontmatter) chứa tên, vai trò, nhóm (`group`), danh sách skill, model, và tài liệu đã gắn (`assets` gồm `files` và `links`); phần thân là system prompt chi tiết. Bộ nhớ riêng và nhật ký chạy nằm ngoài file này, ở `memory/agents/<slug>/`.
+- Agent: phần đầu (frontmatter) chứa tên, vai trò, tag (`tags`, một danh sách), danh sách skill, model, và tài liệu đã gắn (`assets` gồm `files` và `links`); phần thân là system prompt chi tiết. Bộ nhớ riêng và nhật ký chạy nằm ngoài file này, ở `memory/agents/<slug>/`.
 - Workflow: phần đầu chứa tên, trạng thái (active hoặc off), nhóm (`group`), mô tả và danh sách các bước (mỗi bước có agent, task, và tuỳ chọn agent kiểm chứng cùng số lần sửa).
 
-Trường `group` dùng chung một cách viết cho cả agent, workflow và skill, nên sửa tay trong file cũng được: ghi `group: Marketing` là lần tải lại trang sẽ thấy nó nằm đúng nhóm. Thiếu trường này thì nó vào nhóm "Chung".
+Sửa tay trong file cũng được. Agent: ghi `tags: [Marketing, Viết nội dung]`; có trường `tags` (kể cả `tags: []`) thì Javis chỉ đọc nó. File agent cũ chỉ có `group: Marketing` vẫn đọc thành một tag Marketing; lần lưu đầu Javis ghi thêm `tags` và giữ `group` bằng tag đầu tiên để bản cũ hơn vẫn đọc được. Workflow và skill dùng `group`; thiếu trường này thì vào nhóm "Chung".
 
 Sửa file rồi lưu thì trang Cộng sự tự nhận nội dung mới ở lần tải lại.
 
@@ -218,7 +225,7 @@ Lưu ý: gói xuất chỉ chứa file định nghĩa. **Bộ nhớ riêng và n
 - **Tạo mới:** chọn tab rồi bấm nút tạo ở cuối cột trái; hoặc mở **Javis Store**.
 - **Hội thoại mới:** bắt đầu phiên riêng với cộng sự đang chọn.
 - **Sửa / Xuất / Xoá:** nằm ở cột phải của cộng sự.
-- **Danh sách trống:** kiểm tra brain đang chọn, ô tìm và bộ lọc nhóm, rồi tạo cộng sự nếu chưa có.
+- **Danh sách trống:** kiểm tra brain đang chọn, ô tìm và bộ lọc tag (hay nhóm), rồi tạo cộng sự nếu chưa có.
 - **Không thấy cài đặt hay lịch sử:** mở cột chi tiết bằng nút ở đầu khung chat, nhất là trên màn hình hẹp.
 - **Thiếu trợ lý trong quy trình:** tạo trợ lý đó trước rồi sửa bước để chọn đúng trợ lý.
 - **Mất kết nối hoặc chạy lỗi:** đọc thông báo trong chat và lịch sử chạy trước khi gửi lại yêu cầu.

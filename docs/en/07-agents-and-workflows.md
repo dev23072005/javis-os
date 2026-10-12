@@ -17,7 +17,7 @@ Related: choosing an agent model in [Models & engines](10-models-and-engines.md)
 
 Open **Capabilities > Partners** in the dashboard sidebar (port 7777 by default). The page has **Agents | Workflows** tabs. Skills and Plugins remain in Capabilities.
 
-- Left: choose a tab, search or filter by group, then select a partner. Recently used agents and workflows appear first.
+- Left: choose a tab, search or filter by tag (workflows: by group), then select a partner. Recently used agents and workflows appear first.
 - Centre: chat with the selected partner.
 - Right: agent settings and conversations, or workflow progress and run history.
 
@@ -34,9 +34,20 @@ Partner conversations are separate from Javis's main chat history. Returning to 
 
 ## Creating, searching and Javis Store
 
-Choose a tab and use the create agent or workflow button at the bottom of the left column. **Javis Store** opens the matching package catalogue. Set **Group** in the editor to organise a partner.
+Choose a tab and use the create agent or workflow button at the bottom of the left column. **Javis Store** opens the matching package catalogue. Agents are sorted by **tags**, workflows by **group** (see below).
 
-Search matches names, slugs, roles or descriptions and supports accent-free typing. Search and group filters work together. Items without a group belong to **Chung** (General). Unused items follow recently used items, ordered by name.
+Search matches names, slugs, roles, descriptions and tag names, and supports accent-free typing. Search and the tag filter (group filter on the Workflows tab) work together. Unused items follow recently used items, ordered by name.
+
+### Agent tags
+
+Since 0.100.0 an agent can carry **several tags** (for example Marketing, Writing, Engineering); an agent's old group became one tag. Tags only sort and find agents:
+
+- **Add or remove a tag:** the **...** button on an agent, item **Tags**. Click a tag to add or remove just that tag; the **New tag** box creates and adds one. Other tags stay.
+- **Filter:** the bar above the list picks **All agents**, **Untagged** or one tag. An agent with several tags shows under each of them but only once in the list.
+- **Rename or delete a tag:** the **...** next to the tag in the filter bar. Renaming applies to every agent with that tag; renaming to an existing name merges the two. Deleting only removes the label, never an agent, chat or goal.
+- Tags are not in the settings form: saving the form never changes them.
+
+A tag is **not** a chat group: tagging adds the agent to no group chat. It also picks no reviewer, grants nothing and does not turn on Resonance. Workflows keep their **groups**.
 
 ## Creating an Agent (step by step, through the form)
 
@@ -48,7 +59,6 @@ Search matches names, slugs, roles or descriptions and supports accent-free typi
 |---|---|---|
 | **Name** | The agent name shown on the card. Required. | e.g. "Email specialist" |
 | **Role (short description)** | One sentence about what the agent does. | e.g. "Writes sales emails in a friendly voice" |
-| **Group** | A group name so the dashboard files the agent in the left column. Type a new one or pick an existing one (the field suggests). Leave it empty and the agent falls into "Chung". | e.g. Marketing, Sales, Content |
 | **System prompt (detailed working instructions)** | The long, detailed instruction: how the agent works, its principles, the output you expect. | e.g. writing rules, banned words, output format |
 | **Skills** | The skills available in the vault; tick the ones the agent may use. | Pick skills matching the role |
 | **Model** | A picker with 8 options, see the table below. | Sonnet for balance, Opus for deep reasoning, Haiku for fast and cheap |
@@ -157,7 +167,7 @@ You are not required to use the form. In the chat with Javis (see [Chat & voice]
 - "Create a workflow that researches then writes an article."
 - "Add an editing step to workflow X."
 
-Javis then writes the matching .md file into the vault, sets an accent-free slug, files it in a group (reading the groups already used in the brain and picking the closest), assigns sensible skills from what exists, and if a workflow references an agent that does not exist yet, creates that agent first. Afterwards Javis reports briefly which files it created or edited. Return to the Partners page and they are there, with nothing else to do.
+Javis then writes the matching .md file into the vault, sets an accent-free slug, tags an agent or files a workflow in a group (reading the tags and groups already used in the brain and picking the closest), assigns sensible skills from what exists, and if a workflow references an agent that does not exist yet, creates that agent first. Afterwards Javis reports briefly which files it created or edited. Return to the Partners page and they are there, with nothing else to do.
 
 This is handy when you can describe the intent in words but do not want to fill in forms, or when you want to adjust several steps at once.
 
@@ -169,10 +179,10 @@ In the current brain layout, each agent is a file at `agents/<slug>.md` and each
 
 Because they are text files, you can open them through [File manager](05-file-manager.md) to read or edit by hand. The file structure:
 
-- Agent: the frontmatter holds the name, role, group (`group`), skill list and model; the body is the detailed system prompt. Its own memory and run log live outside this file, in `memory/agents/<slug>/`.
+- Agent: the frontmatter holds the name, role, tags (`tags`, a list), skill list and model; the body is the detailed system prompt. Its own memory and run log live outside this file, in `memory/agents/<slug>/`.
 - Workflow: the frontmatter holds the name, status (active or off), group (`group`), description and the list of steps (each with an agent, a task, and optionally a verifying agent plus a retry count).
 
-The `group` field is written the same way for agents, workflows and skills, so editing it by hand works too: write `group: Marketing` and the next page load files it correctly. Without the field it lands in "Chung".
+Editing by hand works too. Agent: write `tags: [Marketing, Writing]`; once `tags` is present (even `tags: []`) Javis reads only it. An old agent file with just `group: Marketing` still reads as one Marketing tag; the first save adds `tags` and keeps `group` as the first tag so an older Javis can still read it. Workflows and skills use `group`; without it they land in "Chung".
 
 Edit and save a file and the Partners page picks up the new content on the next load.
 
@@ -201,7 +211,7 @@ Note: an exported package only contains definition files. **An agent's memory an
 - **Create:** choose a tab and use the create button at the bottom left, or open **Javis Store**.
 - **New conversation:** start a separate session with the selected partner.
 - **Edit / Export / Delete:** use the selected partner's right column.
-- **Empty list:** check the selected brain, search and group filter, then create a partner if needed.
+- **Empty list:** check the selected brain, search and tag (or group) filter, then create a partner if needed.
 - **Missing settings or history:** use the details button above chat to open the right column, especially on narrow screens.
 - **Missing workflow agent:** create that agent first, then select it in the step editor.
 - **Connection loss or run error:** read the chat message and run history before sending the request again.

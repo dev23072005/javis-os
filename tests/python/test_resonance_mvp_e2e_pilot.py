@@ -125,7 +125,7 @@ APPROVED = (json.loads(os.environ["JAVIS_RESONANCE_E2E_APPROVED"]) if os.environ
 BG_CWD = STATE / "resonance_cwd"     # cwd của lượt việc nền (main._reply_policy_sandbox_engine, cwd_name)
 BG_CWD.mkdir(parents=True, exist_ok=True)
 PILOT_VARS = ("JAVIS_RESONANCE_TICK_PAUSED", "JAVIS_RESONANCE_CALL_CEILING", "JAVIS_CLAUDE_CLI", "JAVIS_CLAUDE_BIN",
-              "JAVIS_STATE_DIR", "BRAINS_DIR", "JAVIS_PORT")
+              "JAVIS_STATE_DIR", "JAVIS_SESSIONS_DB", "BRAINS_DIR", "JAVIS_PORT")
 
 _fails, _log = [], []
 
@@ -420,6 +420,10 @@ try:
         rep["final_answer"] = answer
         check("lượt chat kết thúc (turn_done) và có session_id", bool(sid) and frames and frames[-1] == "turn_done")
     else:
+        # This legacy M3 dry scenario needs the A1 agent and A4 owner approval
+        # fixtures before it can exercise the intended blocked-engine path.
+        import _resonance_agent as RA
+        agent = RA.enable(goal_store(), KEY)
         ss = sess_store()
         sid = ss.get_or_create(None, brain=KEY, engine="dry", model="dry")
         mid = ss.append_message(sid, "user", USER_MSG)
@@ -428,10 +432,12 @@ try:
                 "horizon": {"kind": "maintain"},
                 "criteria": [{"description": "Ghi chú có đủ ba người", "evaluator": "artifact_contract",
                               "params": {"path": "Inbox/viec-dang-do.md", "must_contain": ["Lan", "Minh", "Hà"]}}]}
-        asyncio.run(R.form_goal(R.message_ref(sid, mid), {
+        dry_goal = asyncio.run(R.form_goal(R.message_ref(sid, mid), {
             "principal": P, "brain_root": KEY, "session_id": sid, "message_id": mid, "user_text": USER_MSG,
-            "constraints": [], "budget_calls": 3, "proposal": prop},
+            "constraints": [], "budget_calls": 3, "proposal": prop,
+            "agent_key": agent["agent_key"], "agent_version": agent["config_version"]},
             R.GoalDeps(engine_factory=lambda s, t: (None, {}), budget=R.CallBudget(0), store=goal_store())))
+        RA.approve(goal_store(), KEY, dry_goal.id)
     rep["session_id_hash"] = hashlib.sha256(str(sid).encode()).hexdigest()[:12]
     gs = [g for g in _all_goals() if g.session_id == sid]
     rep["goal_created"] = bool(gs)

@@ -408,7 +408,7 @@ The right way to understand the limits above: they live in the **permission leve
 
 ## The bot sends images (since 0.84.3)
 
-A bot can send images on Telegram, personal Zalo, Slack and WhatsApp, at **every permission level**. To use it, tell the Agent file when to send which image, for example "when a customer asks about shirts, send `![Shirt](attachments/shirt.jpg)`". The Agent puts that image syntax in its reply; Javis removes it from the text and sends the real image right after the text message. In a Zalo group the text still tags the person who asked.
+A bot can send images on Telegram, personal Zalo, Slack, WhatsApp and Lark, at **every permission level**. To use it, tell the Agent file when to send which image, for example "when a customer asks about shirts, send `![Shirt](attachments/shirt.jpg)`". The Agent puts that image syntax in its reply; Javis removes it from the text and sends the real image right after the text message. In a Zalo group the text still tags the person who asked.
 
 Javis only sends an image when all of these hold:
 

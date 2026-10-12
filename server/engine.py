@@ -472,6 +472,13 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # picker vẫn nạp danh sách LIVE từ /openai/v1/models nên mặc định này chỉ là lưới an toàn.
 GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
+# DeepSeek (endpoint OpenAI-compatible). The picker loads the LIVE list from /models; this
+# default is only the safety net. `deepseek-chat` and `deepseek-reasoner` were retired on
+# 2026-07-24, so never fall back to them.
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-flash"
+
 # Ollama - model chạy NGAY TRÊN MÁY người dùng. Khác mọi provider trên ở hai điểm, và cả hai
 # đều ăn vào cách viết mã chứ không chỉ là cấu hình:
 #   1. KHÔNG có API key. Nó nghe trên máy nhà nên không có gì để xác thực. Header Authorization
@@ -600,6 +607,34 @@ def _groq_is_reasoning(model):
     return any(s in m for s in ("qwen3", "deepseek-r1", "gpt-oss", "thinking", "reasoning"))
 
 
+# Javis level -> DeepSeek `reasoning_effort`. DeepSeek only knows low|high|max (it maps
+# medium/xhigh to high on its own), so send the values it names instead of relying on that.
+_DEEPSEEK_EFFORT = {"low": "low", "medium": "high", "high": "high", "xhigh": "max", "ultra": "max"}
+_DEEPSEEK_THINKING_OFF = {"thinking": {"type": "disabled"}}
+
+
+def _deepseek_thinking(reasoning):
+    """Payload fields that switch DeepSeek thinking on or off for this request.
+
+    DeepSeek thinks BY DEFAULT, unlike every other OpenAI-compatible provider here. So "off"
+    has to be said out loud: leaving the field out is not off, it is thinking at effort
+    "high", which costs tokens and breaks the tool loop (see `deepseek_chat_with_mcp`).
+    """
+    if reasoning in (None, "", "off"):
+        return dict(_DEEPSEEK_THINKING_OFF)
+    return {"thinking": {"type": "enabled"},
+            "reasoning_effort": _DEEPSEEK_EFFORT.get(reasoning, "high")}
+
+
+def _thinking_rejected(status, body_text):
+    """A 400 that is about thinking mode itself (missing `reasoning_content` in history, or a
+    forced tool_choice), not about the user's request. Retrying with thinking off fixes it."""
+    if status != 400:
+        return False
+    low = (body_text or "").lower()
+    return "reasoning_content" in low or "thinking" in low
+
+
 def _gemini_is_reasoning(model):
     """Gemini: model 'thinking' (2.5 trở lên) nhận reasoning_effort qua endpoint OpenAI-compat.
     Model cũ (1.5 / 2.0-flash không thinking) → KHÔNG gửi để tránh 400."""
@@ -607,14 +642,55 @@ def _gemini_is_reasoning(model):
     return "2.5" in m or "gemini-3" in m or "thinking" in m
 
 
-async def _openai_compat_stream(url, label, api_key, model, messages, reasoning, send_reasoning):
+# ── Ollama (Local): its OWN thinking level, not the shared Effort button (0.95.1) ─────────────────
+# qwen3 and most local reasoning models think BY DEFAULT when the request says nothing. On a home machine one long think can
+# eat the whole turn: a user counted CSV rows with qwen3 and got "Ollama (Local) returned nothing" after 69 s of thinking, and
+# a rerun was still thinking after 5 minutes. Javis never sent a thinking switch to this provider, so nothing could stop it.
+# And the Effort button is one setting for every model: "Medium" suits Claude but makes a local model ramble, "Off" tames the
+# local model but takes thinking away from Claude. So Ollama (Local) reads its own level, `model.ollama_local_reasoning`,
+# default "off", and the Effort button no longer reaches it.
+OLLAMA_LOCAL_REASONING_DEFAULT = "off"
+_OLLAMA_THINKING_OFF = {"reasoning_effort": "none"}    # Ollama's OpenAI layer maps "none" to think=false
+
+
+def ollama_local_reasoning() -> str:
+    """The thinking level for Ollama (Local): `model.ollama_local_reasoning`, "off" when unset or unreadable."""
+    try:
+        import config as cfgmod
+        v = str((cfgmod.read_settings().get("model", {}) or {}).get("ollama_local_reasoning") or "").strip().lower()
+    except Exception:      # noqa: BLE001 - an unreadable setting must not cost the turn; off is the safe level
+        v = ""
+    return v or OLLAMA_LOCAL_REASONING_DEFAULT
+
+
+def _ollama_thinking(level) -> dict:
+    """Payload fields for Ollama's thinking at this level. "off" is said OUT LOUD: leaving the field out is not off for qwen3,
+    it is thinking at the model's own default."""
+    if level in (None, "", "off"):
+        return dict(_OLLAMA_THINKING_OFF)
+    return {"reasoning_effort": api_effort(level)}
+
+
+def _thought_without_answer(label: str) -> dict:
+    """The error for a turn where the model only thought and never wrote an answer. Says what happened and what to change,
+    instead of a bare "returned nothing" that sends the user hunting for a broken connection."""
+    return {"type": "error", "content": _c(
+        f"{label} suy nghĩ hết lượt mà chưa viết ra câu trả lời. Hạ mức suy nghĩ của model này hoặc chia việc nhỏ hơn rồi thử lại.",
+        f"{label} spent the whole turn thinking and never wrote an answer. Lower this model's thinking level or split the "
+        f"task into smaller steps, then try again.")}
+
+
+async def _openai_compat_stream(url, label, api_key, model, messages, reasoning, send_reasoning,
+                                extra_payload=None):
     """Chat Completions dạng OpenAI (dùng chung cho OpenAI + Gemini qua endpoint tương thích).
-    Stream token-by-token + usage token ở chunk cuối. label chỉ dùng cho thông báo lỗi."""
+    Stream token-by-token + usage token ở chunk cuối. label chỉ dùng cho thông báo lỗi.
+    extra_payload: provider-specific fields merged last (DeepSeek's thinking switch)."""
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": messages, "stream": True,
                "stream_options": {"include_usage": True}}   # → chunk cuối kèm usage token
     if reasoning not in (None, "", "off") and send_reasoning:
         payload["reasoning_effort"] = api_effort(reasoning)
+    payload.update(extra_payload or {})
     try:
         timeout = httpx.Timeout(120.0, connect=15.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -635,7 +711,7 @@ async def _openai_compat_stream(url, label, api_key, model, messages, reasoning,
                            "remedy": _fact.remedy, "raw": _fact.raw}
                     yield ev_loi_http(label, r.status_code, body_text, r.headers, _fact)
                     return
-                got = False
+                got = thought = False
                 usage = None
                 async for line in r.aiter_lines():
                     line = (line or "").strip()
@@ -650,13 +726,18 @@ async def _openai_compat_stream(url, label, api_key, model, messages, reasoning,
                         continue
                     if obj.get("usage"):
                         usage = obj["usage"]
-                    c = ((obj.get("choices") or [{}])[0].get("delta") or {}).get("content")
+                    delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                    if delta.get("reasoning") or delta.get("reasoning_content"):
+                        thought = True      # thinking text is never shown, only remembered for the error below
+                    c = delta.get("content")
                     if c:
                         got = True
                         yield {"type": "text", "content": c}
                 if usage:
                     yield {"type": "usage", "input": usage.get("prompt_tokens", 0), "output": usage.get("completion_tokens", 0)}
-                if not got:
+                if not got and thought:
+                    yield _thought_without_answer(label)
+                elif not got:
                     yield {"type": "error", "content": _c(f"{label} trả về rỗng. Thử model khác.",
                                                           f"{label} returned nothing. Try another model.")}
     except Exception as e:
@@ -678,6 +759,17 @@ async def groq_stream(api_key, model, messages, reasoning="off"):
         yield ev
 
 
+async def deepseek_stream(api_key, model, messages, reasoning="off"):
+    """DeepSeek (endpoint OpenAI-compatible, provider 'deepseek') - nhánh KHÔNG tool.
+
+    Without tools DeepSeek ignores `reasoning_content` in history, so thinking can follow the
+    user's level freely here. `delta.reasoning_content` is not shown, only the answer."""
+    async for ev in _openai_compat_stream(DEEPSEEK_URL, "DeepSeek", api_key,
+                                          model or DEEPSEEK_DEFAULT_MODEL, messages, reasoning,
+                                          False, _deepseek_thinking(reasoning)):
+        yield ev
+
+
 async def ollama_stream(api_key, model, messages, reasoning="off"):
     """Ollama Cloud (endpoint OpenAI-compatible, provider 'ollama') - nhánh KHÔNG tool.
 
@@ -690,14 +782,28 @@ async def ollama_stream(api_key, model, messages, reasoning="off"):
 
 
 async def ollama_local_stream(api_key, model, messages, reasoning="off"):
-    """Ollama trên máy nhà - nhánh KHÔNG tool. Cùng khuôn `ollama_stream`, chỉ khác URL."""
+    """Ollama trên máy nhà - nhánh KHÔNG tool. Cùng khuôn `ollama_stream`, chỉ khác URL.
+
+    `reasoning` (the shared Effort button) is ignored on purpose: the level is `ollama_local_reasoning()`, see the block
+    above `_openai_compat_stream`. A model that cannot think at all answers a thinking request with a 400 about thinking;
+    then the turn is asked again with thinking off, before any text went out."""
     url = ollama_local_url()
     if not url:
         yield {"type": "error", "content": _c("Chưa đặt địa chỉ Ollama trong trang Models.", "No Ollama address set on the Models page.")}
         return
-    async for ev in _openai_compat_stream(url, "Ollama (Local)", api_key, model,
-                                          messages, reasoning, False):
-        yield ev
+    extra = _ollama_thinking(ollama_local_reasoning())
+    while True:
+        retry = False
+        async for ev in _openai_compat_stream(url, "Ollama (Local)", api_key, model,
+                                              messages, "off", False, extra):
+            if (ev.get("type") == "error" and extra != _OLLAMA_THINKING_OFF
+                    and _thinking_rejected(400, str(ev.get("content") or "")) and " 400:" in str(ev.get("content") or "")):
+                retry = True
+                break
+            yield ev
+        if not retry:
+            return
+        extra = dict(_OLLAMA_THINKING_OFF)
 
 
 async def openai_compat_stream(api_key, model, messages, reasoning="off"):
@@ -735,9 +841,14 @@ async def ollama_local_chat_with_mcp(api_key, model, messages, reasoning, mcp_to
         yield {"type": "error", "content": _c("Chưa đặt địa chỉ Ollama trong trang Models.", "No Ollama address set on the Models page.")}
         return
     headers = {"Authorization": f"Bearer {api_key or 'local'}", "Content-Type": "application/json"}
+    # Own thinking level, not `reasoning` (the shared Effort button): see `ollama_local_reasoning`. With thinking on, a 400
+    # about thinking (a model that cannot think) drops to thinking off for the rest of the turn, the same rail as DeepSeek.
+    extra = _ollama_thinking(ollama_local_reasoning())
+    fallback = None if extra == _OLLAMA_THINKING_OFF else dict(_OLLAMA_THINKING_OFF)
     yield {"type": "meta", "model": model}
     async for ev in _cc_tool_loop(url, headers, model, messages,
-                                  mcp_tools, mcp_route, {}, "Ollama (Local)"):
+                                  mcp_tools, mcp_route, extra, "Ollama (Local)",
+                                  thinking_fallback=fallback):
         yield ev
 
 
@@ -896,6 +1007,7 @@ async def single_tool_plan(provider, api_key, model, messages, reasoning, tool_s
     endpoints = {
         "openai": (OPENAI_URL, model or "gpt-4o-mini"),
         "groq": (GROQ_URL, model or GROQ_DEFAULT_MODEL),
+        "deepseek": (DEEPSEEK_URL, model or DEEPSEEK_DEFAULT_MODEL),
         "gemini": (GEMINI_URL, model or "gemini-2.5-flash"),
         "openrouter": (OPENROUTER_URL, model or "openai/gpt-4o-mini"),
         "ollama": (OLLAMA_URL, model),
@@ -912,7 +1024,11 @@ async def single_tool_plan(provider, api_key, model, messages, reasoning, tool_s
         "tool_choice": {"type": "function", "function": {"name": fn}},
         "parallel_tool_calls": False, "stream": False,
     }
-    if reasoning not in (None, "", "off"):
+    if provider == "deepseek":
+        # A forced tool_choice is a 400 in DeepSeek thinking mode, and thinking is on by
+        # default. This call forces exactly one tool, so thinking stays off whatever the level.
+        payload.update(_DEEPSEEK_THINKING_OFF)
+    elif reasoning not in (None, "", "off"):
         if provider == "openrouter":
             payload["reasoning"] = {"effort": api_effort(reasoning)}
         elif ((provider == "openai" and _openai_is_reasoning(model)) or
@@ -1540,14 +1656,24 @@ async def schedule_cancel_gateway(messages, mcp_tools, mcp_route):
 
 
 async def _cc_tool_loop(url, headers, model, messages, mcp_tools, mcp_route, reasoning_extra, label,
-                        cache_system=False):
+                        cache_system=False, thinking_fallback=None):
     """Vòng Chat Completions + tool (OpenAI/OpenRouter). Non-stream từng vòng; yield tool_call + text cuối.
     cache_system=True (OpenRouter + model Claude): đánh cache_control lên system - OpenAI/Gemini
-    tự cache nên không cần."""
+    tự cache nên không cần.
+
+    thinking_fallback (DeepSeek with thinking on): the payload fields that turn thinking OFF.
+    Passing it means `reasoning_extra` turned thinking on, which changes three things:
+      - each assistant tool-call message keeps its `reasoning_content`, because DeepSeek
+        answers 400 when a thinking request with tools is missing it;
+      - a turn that must force a tool runs with thinking off from the start, because a forced
+        tool_choice is also a 400 in thinking mode;
+      - a 400 about thinking itself (Javis history never stored `reasoning_content` for older
+        turns) drops to thinking off for the rest of the turn instead of failing it."""
     import mcp_client
     tools = _mcp_to_openai_tools(mcp_tools)
     msgs = _or_mark_system(messages) if cache_system else list(messages)
     usage_in = usage_out = 0
+    thinking_on = thinking_fallback is not None
     guard = _LapGuard()   # phanh chống kẹt vòng lặp (xem _LapGuard)
     # Chỉ chờ cửa sổ hạn mức MỘT lần mỗi lượt: chờ hai lần là người dùng ngồi nhìn màn hình
     # đứng im nửa phút mà không hiểu chuyện gì.
@@ -1556,6 +1682,9 @@ async def _cc_tool_loop(url, headers, model, messages, mcp_tools, mcp_route, rea
     tool_fumbles = 0
     requirement = _tool_requirement(messages, mcp_tools)
     requirement_pending = bool(requirement)
+    if thinking_on and requirement_pending and tools:
+        thinking_on = False
+        reasoning_extra = thinking_fallback
     ignored_required = 0
     cancel_gate = await schedule_cancel_gateway(messages, mcp_tools, mcp_route)
     if cancel_gate:
@@ -1633,6 +1762,16 @@ async def _cc_tool_loop(url, headers, model, messages, mcp_tools, mcp_route, rea
                     r = await client.post(url, headers=headers, json=payload)
             if r.status_code != 200:
                 body_text = r.text or ""
+                if thinking_on and _thinking_rejected(r.status_code, body_text):
+                    thinking_on = False
+                    reasoning_extra = thinking_fallback
+                    for _m in msgs:
+                        if isinstance(_m, dict):
+                            _m.pop("reasoning_content", None)
+                    yield {"type": "tool_call", "name": "javis_thinking_off",
+                           "content": _c(f"⚙ {label} không nhận chế độ suy nghĩ cho cuộc trò chuyện này, trả lời ở chế độ thường...",
+                                         f"⚙ {label} refused thinking mode for this conversation, answering in normal mode...")}
+                    continue
                 # Model YẾU tự bịa cú pháp gọi tool (Llama hay phát
                 # "<function=ten{...}</function>" thay vì JSON tool_calls chuẩn), provider
                 # trả 400 tool_use_failed. Đây KHÔNG phải lỗi của người dùng và cũng không
@@ -1688,7 +1827,10 @@ async def _cc_tool_loop(url, headers, model, messages, mcp_tools, mcp_route, rea
         tcs = msg.get("tool_calls") or []
         if tcs:
             requirement_pending = False
-            msgs.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tcs})
+            _asst = {"role": "assistant", "content": msg.get("content") or "", "tool_calls": tcs}
+            if thinking_on and msg.get("reasoning_content"):
+                _asst["reasoning_content"] = msg["reasoning_content"]
+            msgs.append(_asst)
             for tc in tcs:
                 fn = (tc.get("function") or {}).get("name")
                 try:
@@ -1738,6 +1880,8 @@ async def _cc_tool_loop(url, headers, model, messages, mcp_tools, mcp_route, rea
             yield {"type": "usage", "input": usage_in, "output": usage_out}
         if content:
             yield {"type": "text", "content": content}
+        elif msg.get("reasoning") or msg.get("reasoning_content"):
+            yield _thought_without_answer(label)
         else:
             yield {"type": "error", "content": _c(f"{label} trả về rỗng.", f"{label} returned nothing.")}
         return
@@ -1837,6 +1981,22 @@ async def groq_chat_with_mcp(api_key, model, messages, reasoning, mcp_tools, mcp
         extra["reasoning_effort"] = api_effort(reasoning)
     yield {"type": "meta", "model": model}
     async for ev in _cc_tool_loop(GROQ_URL, headers, model or GROQ_DEFAULT_MODEL, messages, mcp_tools, mcp_route, extra, "Groq"):
+        yield ev
+
+
+async def deepseek_chat_with_mcp(api_key, model, messages, reasoning, mcp_tools, mcp_route):
+    """DeepSeek + vòng tool-calling MCP - đủ đồ nghề của Javis như các provider API khác.
+
+    Thinking is on by default at DeepSeek, so "off" sends an explicit switch. When the user
+    asks for thinking, `_cc_tool_loop` gets `thinking_fallback` and handles DeepSeek's two
+    thinking-mode rules for tool calls (see its docstring)."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    extra = _deepseek_thinking(reasoning)
+    fallback = None if extra == _DEEPSEEK_THINKING_OFF else dict(_DEEPSEEK_THINKING_OFF)
+    yield {"type": "meta", "model": model}
+    async for ev in _cc_tool_loop(DEEPSEEK_URL, headers, model or DEEPSEEK_DEFAULT_MODEL, messages,
+                                  mcp_tools, mcp_route, extra, "DeepSeek",
+                                  thinking_fallback=fallback):
         yield ev
 
 

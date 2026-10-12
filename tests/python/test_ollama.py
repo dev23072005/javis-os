@@ -17,6 +17,7 @@ trong im lặng. Hai, phần máy nhà đã đi sạch, không để lại mẩu
 from _paths import ROOT, SERVER  # noqa: E402,F401
 import asyncio
 import os
+import re
 import sys
 import tempfile
 import types
@@ -115,7 +116,7 @@ finally:
 # ---- 5. Có tool MCP thì Ollama cũng là agent, không chỉ chat suông ----
 _src = (ROOT / "server" / "main.py").read_text(encoding="utf-8")
 check("ollama nằm trong danh sách provider được phát tool",
-      '"gemini", "groq", "ollama", "openai-compat")' in _src)
+      '"gemini", "groq", "deepseek", "ollama", "openai-compat")' in _src)
 check("có nhánh gọi vòng tool cho ollama",
       "engine.ollama_chat_with_mcp(key, model, messages, reasoning, tools, route)" in _src)
 check("CANARY: mã đã sạch hàm chọn địa chỉ",
@@ -206,7 +207,8 @@ check("CANARY: giao diện không còn nhánh theo địa chỉ", "needs_host" n
 check("CANARY: không còn nút Kiểm tra địa chỉ", "data-ph=" not in _console)
 # Thiếu dòng này thì thẻ Ollama hiện "Đổi key (•••)" với bốn ký tự cuối của... không gì cả.
 check("bảng key của giao diện biết ollama", '"ollama": "ollama_key"' in _console)
-check("ollama vẫn nằm trong danh sách provider có MCP", '"groq", "ollama", "openai-compat"]' in _console)
+_mcp_ui = re.search(r"const MCP_PROVIDERS = \[([^\]]*)\]", _console)
+check("ollama vẫn nằm trong danh sách provider có MCP", bool(_mcp_ui) and '"ollama"' in _mcp_ui.group(1))
 
 print()
 if _fails:

@@ -138,6 +138,8 @@
     editAgent: editAgent, editWorkflow: editWorkflow, exportItem: exportItem, importItems: importItems,
     // Trang Models gọi sau khi cắm/ngắt key: ô chọn model trong form trợ lý dựng từ /settings.
     quenForm: quenForm,
+    // Lọc/đếm tag của trang agent, để test chạy đúng mã thật (gọi lúc dùng: các hàm khai sau dòng này).
+    tags: () => ({ demTag, tagCap, locTheoNhom, khungNhomHtml, TAG_NONE }),
   };
   const _studioBtn = document.getElementById("studioOpenBtn");
   if (_studioBtn) _studioBtn.addEventListener("click", () => window.openStudio("workspace"));
@@ -182,25 +184,66 @@
     return m;
   }
 
+  // TAG của AGENT (0.100.0, docs/dev/agent-tags.md): agent mang nhiều tag thay cho một nhóm; quy trình
+  // và skill vẫn dùng nhóm. Cột phân loại của trang agent liệt kê tag (agent nhiều tag được đếm ở
+  // mỗi tag nhưng chỉ hiện MỘT lần trong danh sách) và "Chưa gắn tag". Gắn/bỏ tag làm ở trang Cộng sự.
+  // Giá trị lọc "Chưa gắn tag": bắt đầu bằng dấu cách nên không bao giờ trùng tên tag thật (server cắt
+  // khoảng trắng hai đầu), và đi qua thuộc tính data-cat mà không bị trình duyệt đổi (khác ký tự NUL).
+  const TAG_NONE = " none";
+  const tagsCua = (x) => (x && Array.isArray(x.tags)) ? x.tags.map(String)
+    : ((g) => (g && g !== NHOM_MD ? [g] : []))(String((x && x.group) || "").trim());
+  // Khoá định danh do HOST cấp (`tag_keys`, Unicode casefold ở server), cùng định nghĩa với trang Cộng sự và
+  // server (review PR #617 vòng 1, R3). NFC + toLowerCase chỉ là đường lùi cho server cũ chưa trả `tag_keys`.
+  // `state.cat` của trang agent giữ KHOÁ; "ALL" viết hoa không thể là khoá casefold nên không trùng tag thật.
+  const khoaTag = (s) => { let v = String(s == null ? "" : s); try { v = v.normalize("NFC"); } catch (e) {} return v.toLowerCase(); };
+  const tagCap = (x) => {
+    const tg = tagsCua(x);
+    const ks = x && Array.isArray(x.tag_keys) && x.tag_keys.length === tg.length ? x.tag_keys.map(String) : null;
+    return tg.map((g, i) => ({ ten: g, key: ks ? ks[i] : khoaTag(g) }));
+  };
+  function demTag(items) {
+    const m = new Map(); let khong = 0;
+    (items || []).forEach(x => {
+      const cap = tagCap(x);
+      if (!cap.length) khong++;
+      cap.forEach(p => { if (!m.has(p.key)) m.set(p.key, { ten: p.ten, key: p.key, n: 0 }); m.get(p.key).n++; });
+    });
+    return { tags: [...m.values()].sort((a, b) => a.ten.localeCompare(b.ten, LOC())), khong };
+  }
+
   // HTML của khung: cột nhóm + ô tìm + một chỗ trống (id=bodyId) để mỗi trang tự vẽ danh sách
-  // theo kiểu riêng của nó (thẻ agent, hàng workflow, thẻ skill).
+  // theo kiểu riêng của nó (thẻ agent, hàng workflow, thẻ skill). `o.laTag`: cột là TAG (trang agent).
   function khungNhomHtml(items, state, o) {
-    const dem = demNhom(items);
-    const cats = ["ALL"].concat(Object.keys(dem).sort((a, b) => a.localeCompare(b, LOC())));
-    const catHtml = cats.map(c => `<div class="gr-cat ${state.cat === c ? "sel" : ""}" data-cat="${esc(c)}"><span>${c === "ALL" ? esc(t("studio.all")) : esc(c)}</span><span class="n">${c === "ALL" ? items.length : dem[c]}</span></div>`).join("");
+    let cats, ten = (c) => c, so;
+    if (o.laTag) {
+      const d = demTag(items);
+      cats = ["ALL", TAG_NONE].concat(d.tags.map(g => g.key));
+      const n = new Map(d.tags.map(g => [g.key, g]));
+      so = (c) => c === TAG_NONE ? d.khong : (n.get(c) || { n: 0 }).n;
+      ten = (c) => c === TAG_NONE ? t("ws.tag_none") : (n.get(c) || { ten: c }).ten;
+    } else {
+      const dem = demNhom(items);
+      cats = ["ALL"].concat(Object.keys(dem).sort((a, b) => a.localeCompare(b, LOC())));
+      so = (c) => dem[c];
+    }
+    const tatCa = o.laTag ? t("ws.tag_all") : t("studio.all");
+    const catHtml = cats.map(c => `<div class="gr-cat ${state.cat === c ? "sel" : ""}" data-cat="${esc(c)}"><span>${c === "ALL" ? esc(tatCa) : esc(ten(c))}</span><span class="n">${c === "ALL" ? items.length : so(c)}</span></div>`).join("");
     return `<div class="gr">
-      <div class="gr-side"><div class="sec">${esc(t("studio.groups"))}</div>${catHtml}</div>
+      <div class="gr-side"><div class="sec">${esc(o.laTag ? t("studio.tags") : t("studio.groups"))}</div>${catHtml}</div>
       <div class="gr-main">
-        <div class="gr-bar"><h4>${state.cat === "ALL" ? esc(t("studio.all")) : esc(state.cat)}</h4><span class="cnt"></span>
+        <div class="gr-bar"><h4>${state.cat === "ALL" ? esc(tatCa) : esc(ten(state.cat))}</h4><span class="cnt"></span>
           <input id="${o.searchId}" placeholder="${esc(o.searchPh)}" value="${esc(state.q)}"></div>
         <div class="${o.bodyCls || ""}" id="${o.bodyId}"></div>
       </div></div>`;
   }
 
-  // Lọc theo nhóm đang chọn + ô tìm. `blob` trả chuỗi dùng để dò của một mục.
-  function locTheoNhom(items, state, blob) {
+  // Lọc theo nhóm (hay tag, khi `laTag`) đang chọn + ô tìm. `blob` trả chuỗi dùng để dò của một mục.
+  function locTheoNhom(items, state, blob, laTag) {
     let list = items || [];
-    if (state.cat !== "ALL") list = list.filter(x => nhomCua(x) === state.cat);
+    if (laTag) {
+      if (state.cat === TAG_NONE) list = list.filter(x => !tagsCua(x).length);
+      else if (state.cat !== "ALL") list = list.filter(x => tagCap(x).some(p => p.key === state.cat));
+    } else if (state.cat !== "ALL") list = list.filter(x => nhomCua(x) === state.cat);
     const nq = _spNoAccent((state.q || "").trim());
     if (nq) list = list.filter(x => nq.split(/\s+/).every(word => _spNoAccent(blob(x)).includes(word)));
     return list;
@@ -603,13 +646,13 @@
   }
 
   const _agFiltered = () => locTheoNhom(_agState.agents, _agState,
-    (a) => `${a.name} ${a.slug} ${a.role || ""}`);
+    (a) => `${a.name} ${a.slug} ${a.role || ""} ${tagsCua(a).join(" ")}`, true);
 
   function renderAgentUI() {
     const panel = document.getElementById("panel-agents");
     const all = _agState.agents;
     panel.innerHTML = `<div class="panel-bar"><h3>${esc(t("page.workspace.label"))}</h3><div class="pb-actions"><button class="s-btn-ghost" id="agSelAll" title="${esc(t("studio.selall_title"))}">${esc(t("studio.selall"))}</button><button class="s-btn-ghost" id="agDl" disabled title="${esc(t("studio.dl_title"))}">${esc(t("studio.dl_sel"))}</button><button class="s-btn-ghost" id="agImport">${esc(t("studio.import"))}</button><button class="s-btn" id="newAgent">+ ${esc(t("page.workspace.label"))}</button></div></div>
-      ${all.length ? khungNhomHtml(all, _agState, { bodyId: "agCards", bodyCls: "cards",
+      ${all.length ? khungNhomHtml(all, _agState, { bodyId: "agCards", bodyCls: "cards", laTag: true,
                                                     searchId: "agSearch", searchPh: t("studio.ag_search_ph") })
       : `<div class="empty">${esc(t("studio.ag_empty"))}</div>`}`;
     document.getElementById("newAgent").onclick = () => editAgent(null);
@@ -631,7 +674,7 @@
     cards.innerHTML = "";
     list.forEach(a => {
       const div = document.createElement("div"); div.className = "ag-card";
-      div.innerHTML = `<div class="ag-name"><input type="checkbox" class="ag-sel" data-slug="${esc(a.slug)}" title="${esc(t("studio.sel_one"))}"> ${ic("bot")} ${esc(a.name)} <span class="ag-model">${esc(a.model || "")}</span></div><div class="ag-role">${esc(a.role)}</div><div class="ag-skills">${(a.skills || []).map(s => `<span class="chip-skill">${esc(s)}</span>`).join("") || `<span class="dim">${esc(t("studio.no_skills"))}</span>`}</div><div class="ag-group">${ic("folder-open")} ${esc(nhomCua(a))}</div><div class="wf-actions"><button class="s-btn-ghost edit">${esc(t("common.edit"))}</button><button class="s-btn-ghost exp" title="${esc(t("studio.export_title"))}">${esc(t("studio.export"))}</button><button class="s-btn-ghost del">${esc(t("common.delete"))}</button></div>`;
+      div.innerHTML = `<div class="ag-name"><input type="checkbox" class="ag-sel" data-slug="${esc(a.slug)}" title="${esc(t("studio.sel_one"))}"> ${ic("bot")} ${esc(a.name)} <span class="ag-model">${esc(a.model || "")}</span></div><div class="ag-role">${esc(a.role)}</div><div class="ag-skills">${(a.skills || []).map(s => `<span class="chip-skill">${esc(s)}</span>`).join("") || `<span class="dim">${esc(t("studio.no_skills"))}</span>`}</div><div class="ag-group">${ic("tag")} ${tagsCua(a).length ? tagsCua(a).map(g => `<span class="chip-tag">${esc(g)}</span>`).join("") : `<span class="dim">${esc(t("ws.tag_none"))}</span>`}</div><div class="wf-actions"><button class="s-btn-ghost edit">${esc(t("common.edit"))}</button><button class="s-btn-ghost exp" title="${esc(t("studio.export_title"))}">${esc(t("studio.export"))}</button><button class="s-btn-ghost del">${esc(t("common.delete"))}</button></div>`;
       noiSel("agent", "agDl", div.querySelector(".ag-sel"), a.slug);
       div.querySelector(".exp").onclick = () => exportItem("agent", a.slug);
       div.querySelector(".edit").onclick = () => editAgent(a);
@@ -948,7 +991,8 @@
     .gr-bar input{flex:1;min-width:160px;max-width:340px;padding:7px 11px;border-radius:8px;border:1px solid var(--hairline);background:var(--field-bg);color:var(--text);font-size:15px;outline:none}
     /* Nhãn nhóm trên thẻ agent và hàng workflow: nhìn thẻ là biết nó thuộc nhóm nào, khỏi phải
        mở form ra xem. Cùng biểu tượng thư mục với dòng nhóm ở thẻ skill. */
-    .ag-group{color:var(--text3);font-size:13px;margin-top:7px;display:flex;align-items:center;gap:5px}
+    .ag-group{color:var(--text3);font-size:13px;margin-top:7px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0}
+    .ag-group .chip-tag{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;padding:1px 7px;border-radius:9px;background:var(--surface-2);color:var(--text2)}
     .wf-group{color:var(--text3);font-size:13px;display:inline-flex;align-items:center;gap:4px;flex:none}
     .sk2-list{display:flex;flex-direction:column;gap:8px;flex:1;min-width:0}
     /* .sk2-list là flex cột, nên hàng phân trang phải tự căn giữa - để mặc định nó dính mép

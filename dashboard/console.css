@@ -1636,7 +1636,7 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
 .ws-filters .ws-group { flex: 1 1 auto; min-width: 0; width: auto; }
 /* Thanh chọn nhóm (0.59.47): mượn nguyên lớp .cside-proj/.cs-proj-* của thanh project bên Trò
    chuyện (style.css), chỉ thêm co giãn cho vừa hàng lọc. */
-.ws-filters .ws-nhom-bar { flex: 1 1 auto; min-width: 0; }
+.ws-filters .ws-nhom-bar { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
 .ws-nhom-bar .cs-proj-name svg { width: 14px; height: 14px; vertical-align: -2px; }
 /* Điện thoại: chữ ở cột cộng sự và thanh nhóm lên sàn 16px (tên) / 14px (dòng phụ, nhãn nhóm),
    theo chuẩn đọc trên màn nhỏ của chủ repo. Màn rộng giữ cỡ gọn như cũ. */
@@ -1661,6 +1661,25 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   text-overflow: ellipsis; white-space: nowrap; }
 .ws-item-text small { font-size: 11.5px; color: var(--text3); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+/* Tag của agent (0.100.0): chip xuống dòng trong cột, mỗi chip tự cắt chữ, không đẩy cột ra ngang. */
+.ws-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; min-width: 0; }
+/* Khối chữ mặc định chỉ rộng bằng dòng dài nhất, nên hai chip ngắn cũng bị đẩy xuống hai dòng: hàng
+   có chip thì khối chữ giãn hết phần còn lại của hàng. */
+.ws-item-text:has(> .ws-tags) { flex: 1 1 auto; }
+.ws-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 8px;
+  background: var(--surface-2); color: var(--text2); border: 1px solid var(--line, transparent); }
+.ws-tag-more { color: var(--text3); }
+.ws-tag-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; padding: 6px 8px;
+  border-radius: 8px; font-size: 12px; line-height: 1.4; background: var(--info-wash); color: var(--info-ink);
+  overflow-wrap: anywhere; flex-basis: 100%; }
+.ws-tag-note.loi { background: var(--warn-wash, rgba(255, 122, 60, .12)); color: var(--text); }
+.ws-tag-note-x { flex: none; margin-left: auto; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
+.ws-tag-note-x svg { width: 13px; height: 13px; }
+.ws-tag-new { display: flex; gap: 6px; padding: 4px 6px 6px; }
+.ws-tag-new .ws-tag-in { flex: 1 1 auto; min-width: 0; padding: 6px 8px; border-radius: 7px;
+  border: 1px solid var(--line, var(--surface-2)); background: var(--surface-1); color: var(--text); font: inherit; font-size: 13px; }
+.ws-tag-new .ws-btn { flex: none; }
 /* Hai nút đáy cột XẾP DỌC: cột trái chỉ rộng 210-260px, để cạnh nhau thì "Tạo quy trình" bị
    bẻ thành ba dòng chữ rời. */
 .ws-left-foot { display: flex; flex-direction: column; gap: 6px; flex: none; }

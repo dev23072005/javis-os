@@ -442,13 +442,11 @@
               <div class="opt-sub" id="brandLogoStatus"></div>
             </div>
 
-            <!-- Hệ thống cộng hưởng (Resonance M4): công tắc theo BRAIN đang chọn, mặc định tắt. chat-resonance.js đọc
-                 và ghi qua /resonance/settings; đổi brain thì nạp lại khi khối này được mở. -->
+            <!-- Cộng hưởng (Resonance A1): công tắc theo TỪNG TRỢ LÝ của brain đang chọn, mặc định tắt, cùng mục
+                 "Chờ gán" cho mục tiêu có trước A1. resonance-agent.js vẽ vào #resonanceAgents qua /resonance/agents. -->
             <div class="qs-block" data-settings-section="general" id="resonanceBlock">
               <div class="popover-label" data-i18n="resonance.settings_title">Hệ thống cộng hưởng (thử nghiệm)</div>
-              <div class="opt-sub" data-i18n="resonance.settings_desc">Cho Javis tự lập mục tiêu từ việc bạn nhờ, làm tiếp ở nền trong hạn mức và chỉ báo xong khi có bằng chứng. Chỉ áp dụng cho brain đang chọn.</div>
-              <label class="loop-row" style="padding:0"><span data-i18n="resonance.settings_on">Bật cho brain này</span>
-                <label class="toggle"><input type="checkbox" id="resonanceEnabled"><span></span></label></label>
+              <div id="resonanceAgents"></div>
             </div>
 
             <div class="qs-block" data-settings-section="general">
@@ -646,13 +644,17 @@
       <div class="settings-body">
         <style>
         .wz-prov{display:flex;flex-direction:column;gap:8px;margin-top:6px}
-        .wz-card{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;transition:.15s}
-        .wz-card:hover{border-color:rgba(255,138,60,.5)} .wz-card.sel{border-color:#ff8a3c;background:rgba(255,138,60,.12)}
-        .wz-card input{margin-top:3px;accent-color:#ff8a3c} .wz-card b{font-size:15px;color:#e7eefc}
-        .wz-rec{font-size:12px;background:#ff8a3c;color:#1a1a1a;border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:700}
-        .wz-pdesc{font-size:15px;color:#9fb0cf;margin-top:3px;line-height:1.45}
-        #wzProvHint code{background:rgba(0,0,0,.35);padding:1px 5px;border-radius:4px;font-size:13px}
-        #wzProvHint{margin-top:8px;font-size:15px;color:#8aa}
+        /* Theme tokens only: these colours used to be hard-coded for the dark theme, so on the
+           light theme the provider names were near-white on cream and the login command in
+           the hint was dark-on-dark (customer report 2026-10-11). */
+        .wz-card{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);background:var(--bg2);border-radius:10px;cursor:pointer;transition:.15s}
+        .wz-card:hover{border-color:var(--accent-line)} .wz-card.sel{border-color:var(--accent);background:var(--accent-wash-2)}
+        /* The global form-input rule stretches inputs to full width; a radio must stay its own size. */
+        .wz-card input{width:auto;flex:none;margin:3px 0 0;accent-color:var(--accent)} .wz-card b{font-size:15px;color:var(--text)}
+        .wz-rec{font-size:12px;background:var(--accent-solid);color:var(--bg);border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:700}
+        .wz-pdesc{font-size:15px;color:var(--text2);margin-top:3px;line-height:1.45}
+        #wzProvHint code{background:var(--surface-3);color:var(--text);padding:1px 5px;border-radius:4px;font-size:13px;word-break:break-all}
+        #wzProvHint{margin-top:8px;font-size:15px;color:var(--text2);line-height:1.5}
         </style>
         <div class="set-note"><span data-i18n="wz.intro">Vài bước nhanh để bắt đầu. Mọi thứ đổi lại được sau trong</span> <i data-ic="settings"></i> <span data-i18n="page.settings.label">Cài đặt</span>.</div>
         <div class="set-sec">
@@ -864,7 +866,8 @@
        window.JavisSteps ngay khi khung tool_call đầu tiên về. -->
   <script src="/static/chat-steps.js?v=2"></script>
   <script src="/static/chat-viec.js?v=2"></script>
-  <script src="/static/chat-resonance.js?v=1"></script>
+  <script src="/static/chat-resonance.js?v=2"></script>
+  <script src="/static/resonance-agent.js?v=1"></script>
   <!-- Voice V1: khối ngữ cảnh giao diện + bộ nhận lệnh ui_action, nạp TRƯỚC app.js. -->
   <script src="/static/ui-context.js?v=1"></script>
   <script src="/static/ui-actions.js?v=1"></script>
@@ -887,7 +890,7 @@
   <script src="/static/studio.js?v=43"></script>
   <!-- Trang Cộng sự: nạp SAU studio.js (mượn trình sửa agent/workflow của Studio) và TRƯỚC
        console.js (renderWorkspace ủy quyền cho window.JavisWorkspace). -->
-  <script src="/static/workspace.js?v=16"></script>
+  <script src="/static/workspace.js?v=17"></script>
   <script src="/static/packs.js?v=1"></script>
   <script src="/static/chatbots-reply-policy.js?v=1"></script>
   <script src="/static/chatbots-try.js?v=1"></script>

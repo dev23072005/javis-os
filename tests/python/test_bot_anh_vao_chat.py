@@ -164,6 +164,9 @@ def fake_api_stream(prov, key, model, messages, reasoning="off"):
     return g()
 
 main._api_stream = fake_api_stream
+# No other brain connected to look for the bot (0.94.0 borrowed eyes are covered in test_bot_mat_muon.py): this file pins the
+# direct path and the honest label when nobody can look.
+main._mat_muon_ung_vien = lambda prov, model: []
 
 
 async def _noop(_s):
@@ -188,11 +191,11 @@ check("history keeps PLAIN text with a short note, never base64",
       isinstance(hist, str) and "base64" not in hist and "ảnh" in hist and hist.startswith("áo này"), hist)
 turn("grok-cli", [str(SMALL)])
 last = SENT[0]["messages"][-1]["content"]
-check("a brain with no image channel (Grok Build) gets the honest label, no image", isinstance(last, str)
+check("a brain with no image channel (Grok Build), no other eyes connected: the honest label, no image", isinstance(last, str)
       and last.startswith(cr._KEM_ANH), last)
 SCRIPT["replies"] = ["", "Dạ em chưa xem được ảnh ạ"]
 out, _ = turn("groq", [str(SMALL)])
-check("a model that rejects images: retried once with text only + the honest label",
+check("a model that rejects images, no other eyes connected: retried once with text only + the honest label",
       len(SENT) == 2 and isinstance(SENT[1]["messages"][-1]["content"], str)
       and SENT[1]["messages"][-1]["content"].startswith(cr._KEM_ANH) and out.get("text") == "Dạ em chưa xem được ảnh ạ", SENT)
 turn("openai", [])

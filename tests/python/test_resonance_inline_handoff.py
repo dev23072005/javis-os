@@ -28,6 +28,8 @@ import claude_sdk_engine  # noqa: E402
 import luot_dang_chay  # noqa: E402
 import resonance as R  # noqa: E402
 import resonance_store as RS  # noqa: E402
+import _resonance_agent as RA  # noqa: E402  - A1: Cộng hưởng bật theo trợ lý
+RA.preapprove()  # A4: chủ dự án cho phép phạm vi ngay sau khi lập (D1); xem _resonance_agent.preapprove
 from claude_agent_sdk import AssistantMessage, ToolResultBlock, ToolUseBlock, UserMessage  # noqa: E402
 
 _fails = []
@@ -97,8 +99,8 @@ _n = {"mid": 0, "call": 0}
 def world(name):
     brain = Path(tempfile.mkdtemp(prefix=f"brain-{name}-")).resolve()
     (brain / "Javis").mkdir(parents=True)
-    (brain / "Javis" / "resonance.json").write_text('{"enabled": true}', encoding="utf-8")
     store = RS.GoalStore(_STATE / f"{name}.sqlite3")
+    RA.enable(store, brain)       # A1: mục tiêu thuộc một trợ lý đang bật trong kho của thế giới này
     return str(brain), store, RS.Principal("agent", "javis", str(brain))
 
 
@@ -127,19 +129,33 @@ def proposal(**kw):
 
 
 def create(brain, store, p, clock, mid, ref):
+    """Mục tiêu có lượt chat ĐANG MỞ bàn giao ở tin `ref`, đã có phạm vi được cho phép.
+
+    A4 (D1): lượt LẬP mục tiêu không bao giờ có quyền ghi (đích mới chờ chủ dự án cho phép, sau ảnh chụp đầu lượt).
+    Các ca của file này kiểm bàn giao bản chat, nên mục tiêu được lập ở một tin trước (chủ dự án cho phép ngay, xem
+    RA.preapprove), rồi tin `ref` là lượt CẬP NHẬT cùng đích: phạm vi đã có trước lúc lượt bắt đầu, nên lượt nhận
+    liên kết `grant` và bản chat của nó được bàn giao như trước A4."""
     deps0 = R.GoalDeps(engine_factory=lambda s, t: (None, {"blocked": "không gọi"}), budget=R.CallBudget(0),
                        store=store)
-    return asyncio.run(R.form_goal(ref, {
-        "principal": p, "brain_root": brain, "session_id": "s-hand", "message_id": mid, "user_text": USER,
+    seed = asyncio.run(R.form_goal(R.message_ref("s-hand", 100000 + mid), {
+        "principal": p, "brain_root": brain, "session_id": "s-hand", "message_id": 100000 + mid, "user_text": USER,
         "constraints": [], "budget_calls": 4, "proposal": proposal(),
-        "hold_until": clock() + R.HANDOFF_HOLD_S}, deps0))
+        **RA.ctx(store.agent(brain, RA.SLUG))}, deps0))
+    return R.revise_goal(store, p, seed.id, seed.revision,
+                         {"understanding": "Bản hướng dẫn nhận hàng, sửa theo góp ý tới khi anh thấy dùng được",
+                          "relevant_quote": "Em lo giúp anh bản hướng dẫn nhận hàng"},
+                         {"message_ref": ref, "session_id": "s-hand", "message_id": mid, "user_text": USER,
+                          "constraints": [], "user_unsure": False, "reason": "lượt chat",
+                          "hold_until": clock() + R.HANDOFF_HOLD_S, "authority_seq": store.authority_seq(),
+                          **RA.ctx(store.agent(brain, RA.SLUG))})[0]
 
 
 def revise(store, p, gid, rev, clock, mid, ref, text=FEEDBACK):
     return R.revise_goal(store, p, gid, rev, {"constraints": ["Có ví dụ"], "relevant_quote": "em thêm một ví dụ"},
                          {"message_ref": ref, "session_id": "s-hand", "message_id": mid, "user_text": text,
                           "constraints": [], "user_unsure": False, "reason": "góp ý",
-                          "hold_until": clock() + R.HANDOFF_HOLD_S})[0]
+                          "hold_until": clock() + R.HANDOFF_HOLD_S, "authority_seq": store.authority_seq(),
+                          **RA.ctx(store.agent(p.brain_id, RA.SLUG))})[0]
 
 
 def sdk_events(blocks_msgs):
@@ -376,7 +392,8 @@ mid, ref = mref()
 put_file(b, DELIV, A)
 deps0 = R.GoalDeps(engine_factory=lambda s, t: (None, {}), budget=R.CallBudget(0), store=st)
 g = asyncio.run(R.form_goal(ref, {"principal": P, "brain_root": b, "session_id": "s-hand", "message_id": mid,
-                                  "user_text": USER, "constraints": [], "budget_calls": 4, "proposal": proposal()}, deps0))
+                                  "user_text": USER, "constraints": [], "budget_calls": 4, "proposal": proposal(),
+                                  **RA.ctx(st.agent(b, RA.SLUG))}, deps0))
 eng = FakeEngine()
 deps = deps_for(b, st, eng, clk)
 adv(g.id, deps)          # việc nền chạy, xung đột với file có sẵn: đầu ra nằm ở vùng làm việc
@@ -386,8 +403,11 @@ _c.execute("UPDATE evidence_links SET created_at=? WHERE kind='chat_output'", (9
 _c.execute("INSERT OR REPLACE INTO published VALUES(?,?,?,?,?)", (g.id, DELIV, R._sha(A.encode()), "chat:x", 0))
 _c.commit()
 _c.close()
+# A4: bản nộp của lượt việc nền gặp xung đột đã ở trạng thái cuối `conflict`; _publish_latest chỉ lấy bản `candidate`,
+# nên không còn gì để đăng đè (trước A4 nhánh này trả "superseded" khi so thời điểm với bản tiếp nhận).
 check("P1-2 đầu ra việc nền cũ hơn bản tiếp nhận: _publish_latest không đăng đè",
-      R._publish_latest(st.get(P, g.id), deps, clk())["status"] == "superseded"
+      R._publish_latest(st.get(P, g.id), deps, clk())["status"] == "none"
+      and [s["status"] for s in st.submissions(P, g.id)] == ["conflict"]
       and (Path(b) / DELIV).read_text(encoding="utf-8") == A)
 
 # ═══════════ 3. Không tự cấp quyền thay file ═══════════
@@ -418,6 +438,12 @@ check("3e không lưu được bằng chứng: không tiếp nhận, không mố
 r = scenario("c4", lambda b: write_msgs(b, DELIV, BAD), BAD)
 check("4 tiếp nhận bản chat chưa đạt", r[0] == "adopted")
 adv(r[5].id, r[7])
+# A2 (thiết kế mục 3): bản chat là lượt đầu của revision. Lần thức sau bàn giao chỉ kết sổ lượt đó và hẹn thử lại theo
+# trần chung, không gọi model ngay; tới mốc thử lại thì việc nền sửa TỪ bản chat.
+check("4 A2: lần thức sau bàn giao không gọi model, hẹn thử lại",
+      r[6].queries == 0 and any(x["code"] == "retry_not_met" for x in r[2].reasons(r[3], r[5].id)))
+r[7].clock.t += R.HB.POLICY["RETRY_BASE_S"]
+adv(r[5].id, r[7])
 check("4 chưa đạt: việc nền chạy một lượt, prompt có bản chat, thay được file, chờ người dùng",
       r[6].queries == 1 and BAD in r[6].prompts[0] and (Path(r[1]) / DELIV).read_text(encoding="utf-8") == WORKER
       and rs(r[2], r[3], r[5].id).get("block_reason") == "human_confirmation")
@@ -440,8 +466,8 @@ mid, ref = mref()
 feed(ref, b, sdk_events(write_msgs(b, DELIV, A)))
 put_file(b, DELIV, A)
 g = create(b, st, P, clk, mid, ref)
-(Path(b) / "Javis" / "resonance.json").write_text('{"enabled": false}', encoding="utf-8")
-check("4 tắt tính năng: không tiếp nhận",
+RA.disable(st, b)
+check("4 tắt Cộng hưởng của trợ lý: không tiếp nhận",
       R.handoff_after_turn(g.id, ref, deps_for(b, st, FakeEngine(), clk)) == "gate_closed")
 
 # ═══════════ 5. Góp ý: việc nền sửa từ bản anh đã xem; chat tự sửa thì tiếp nhận ═══════════

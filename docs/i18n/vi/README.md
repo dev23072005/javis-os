@@ -53,7 +53,7 @@ Lệnh đó cài trọn gói: Python + thư viện, **bốn bộ não CLI chạy
 
 Javis OS **không phải** một chatbot. Nó là một **AI agentic tự host** chạy trên máy/VPS của bạn: đọc/ghi file, gọi công cụ (MCP), chạy skill, giao việc chạy nền, tự đặt lịch - rồi gói tất cả vào một **dashboard đẹp, điều khiển bằng giọng nói**, kèm một **Second Brain** (bộ nhớ + wiki) tích luỹ tri thức theo thời gian.
 
-**Bộ não thì bạn chọn, và đổi lúc nào cũng được.** 12 đường dùng được ngay: **Claude Code**, **ChatGPT/Codex**, **Grok Build** và **Antigravity CLI** (dùng chính gói subscription bạn đang trả, không cần mua API riêng), **OpenRouter · OpenAI API · Google Gemini · Anthropic API · Groq · Ollama Cloud** (chỉ cần API key), cộng thêm **Ollama chạy ngay trên máy bạn** và **mọi endpoint tương thích OpenAI**.
+**Bộ não thì bạn chọn, và đổi lúc nào cũng được.** 13 đường dùng được ngay: **Claude Code**, **ChatGPT/Codex**, **Grok Build** và **Antigravity CLI** (dùng chính gói subscription bạn đang trả, không cần mua API riêng), **OpenRouter · OpenAI API · Google Gemini · Anthropic API · Groq · DeepSeek · Ollama Cloud** (chỉ cần API key), cộng thêm **Ollama chạy ngay trên máy bạn** và **mọi endpoint tương thích OpenAI**.
 
 <p align="center">
 <img src="../../../docs/assets/diagrams/swappable-brain.svg" width="100%" alt="Hình động: lõi Javis ở giữa, bộ đồ nghề (MCP Hub, Skills, Second Brain, Tasks, Schedules, Plugins) bao quanh, 12 bộ não lần lượt lắp vào mà mọi công cụ vẫn sáng nguyên">
@@ -107,7 +107,7 @@ Nhờ vậy:
 
 | | Chatbot thường | **Javis OS** |
 |---|---|---|
-| Bộ não | Khoá cứng 1 model, API gọi rời từng câu | **Đổi được**: 12 nhà cung cấp, cái nào cũng đủ tool, MCP, skill, session - kể cả model chạy ngay trên máy bạn qua Ollama |
+| Bộ não | Khoá cứng 1 model, API gọi rời từng câu | **Đổi được**: 13 nhà cung cấp, cái nào cũng đủ tool, MCP, skill, session - kể cả model chạy ngay trên máy bạn qua Ollama |
 | Trí nhớ | Quên sau mỗi phiên | **Second Brain sống** - nhớ bạn, dày lên qua từng hội thoại |
 | Dữ liệu | Bịa hoặc không có | **Số liệu thật** từ kết nối bạn đấu vào (POS, Ads, Lịch, Zalo…) |
 | Tự cải thiện | Không | **Vòng lặp tự chạy nền** + hàng đợi việc do AI tự vận hành |
@@ -275,7 +275,7 @@ Thanh điều hướng bên trái gom **22 trang** thành **6 nhóm** (bấm tê
 | | **Skills** | Gom nhóm + tìm kiếm + **bật/tắt** + thêm/sửa/xoá + nhập/xuất skill. | [Skills](../../../docs/06-skills.md) |
 | | **Workflows** | Tạo/chạy chuỗi tự động (agent → agent), có bước kiểm chứng. | [Agents & Workflows](../../../docs/07-agents-va-workflows.md) |
 | | **Plugins** | Thêm tool/hook native cho mọi engine bằng một thư mục Python. | [Plugins](../../../docs/20-plugins.md) |
-| | **Chatbot** | Đem Agent ra trả lời khách qua bot Telegram/Zalo/Slack/WhatsApp riêng, brain riêng. | [Chatbot](../../../docs/25-chatbot.md) |
+| | **Chatbot** | Đem Agent ra trả lời khách qua bot Telegram/Zalo/Slack/WhatsApp/Lark riêng, brain riêng. | [Chatbot](../../../docs/25-chatbot.md) |
 | | **Hội thoại** | Hộp thư gom mọi cuộc chat khách nhắn cho bot và Zalo cá nhân; đọc lại, tiếp quản khi cần người thật. | [Hội thoại khách](../../../docs/28-hoi-thoai-khach.md) |
 | **Việc** | **Việc** | Hàng đợi task nền do AI tự đặc tả và tự chạy; bạn chỉ xử lý ngoại lệ. | [Việc (Kanban)](../../../docs/21-viec-kanban.md) |
 | | **Việc định kỳ** | Nhiều vòng lặp chạy nền + nhắc hẹn theo giờ hoặc cron. | [Việc định kỳ & Nhắc hẹn](../../../docs/08-viec-dinh-ky.md) |

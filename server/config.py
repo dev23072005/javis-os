@@ -125,6 +125,7 @@ _DEFAULT = {
         "openai_api_key": "",                  # provider OpenAI (ChatGPT API)
         "gemini_api_key": "",                  # provider Google Gemini (endpoint OpenAI-compat)
         "groq_api_key": "",                    # provider Groq (endpoint OpenAI-compat, suy luận rất nhanh)
+        "deepseek_api_key": "",                # provider DeepSeek (endpoint OpenAI-compat)
         # Provider 'ollama' = Ollama Cloud (ollama.com). Bản chạy trên máy nhà KHÔNG được đấu,
         # cố ý: nó đòi thêm một ô địa chỉ - ca đặc biệt duy nhất của cả lớp nhà cung cấp -
         # trong khi phần đông người dùng Javis chạy nó trên VPS, nơi "localhost" là chính cái
@@ -172,6 +173,7 @@ _DEFAULT = {
             "openai": ["gpt-4o", "gpt-4o-mini", "o3-mini"],                        # OpenAI API
             "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],  # Google Gemini API (picker load động)
             "groq": ["llama-3.3-70b-versatile", "qwen3-32b", "openai/gpt-oss-120b"],  # Groq (picker load động)
+            "deepseek": ["deepseek-flash", "deepseek-v4-pro"],                     # DeepSeek (picker load động)
             # Không ghim model Codex: /provider/models lấy catalog LIVE bằng
             # codex app-server model/list và nhớ lại lần thành công gần nhất.
             "openai-oauth": [],
@@ -510,7 +512,7 @@ _SECRET_PATHS = (
     # được. Xem `_secret_keys`.
     "packs.tokens.*",
     "model.openrouter_key", "model.anthropic_api_key", "model.openai_api_key", "model.gemini_api_key",
-    "model.groq_api_key", "model.ollama_key", "model.ollama_local_key", "model.openai_compat_key",
+    "model.groq_api_key", "model.deepseek_api_key", "model.ollama_key", "model.ollama_local_key", "model.openai_compat_key",
     "model.openai_oauth.access_token", "model.openai_oauth.refresh_token", "model.openai_oauth.id_token",
     # Gemini CLI (đăng nhập Google ngay trên dashboard). Refresh token ở đây mở được cả gói
     # Code Assist của tài khoản Google, nên nó ngang hàng mọi secret khác trong danh sách.
@@ -1057,13 +1059,38 @@ def gate_active():
     return auth_enabled() or require_login()
 
 
+def clean_password(password) -> str:
+    """The password as it should be STORED: without surrounding whitespace.
+
+    Phone keyboards add a trailing space after an autocompleted word, and a value pasted into
+    the Hostinger Environment box can carry one too. The owner never sees that space, so it
+    must not decide whether they can sign in (customer report 2026-10-11). Every place that
+    stores a password goes through here; `verify_password` accepts both forms when reading.
+    """
+    return str(password or "").strip()
+
+
 def verify_password(password, cfg=None):
+    """Exact match first (an older hash may have been stored WITH a space), then the cleaned
+    form, so a space the keyboard slipped in never locks the owner out. A password that is
+    only whitespace never matches."""
     cfg = cfg or read_settings()
     a = cfg.get("auth", {})
-    if not a.get("password_hash"):
+    if not a.get("password_hash") or not clean_password(password):
         return False
-    h, _ = hash_password(password, a.get("salt"))
-    return secrets.compare_digest(h, a["password_hash"])
+    for cand in dict.fromkeys((str(password), clean_password(password))):
+        h, _ = hash_password(cand, a.get("salt"))
+        if secrets.compare_digest(h, a["password_hash"]):
+            return True
+    return False
+
+
+def username_matches(typed, cfg=None) -> bool:
+    """Usernames are not secrets: ignore case and surrounding spaces. A phone capitalises the
+    first letter on its own, and "Phong" vs "phong" must not read as "wrong password"."""
+    cfg = cfg or read_settings()
+    want = str((cfg.get("auth", {}) or {}).get("username") or "").strip().casefold()
+    return bool(want) and str(typed or "").strip().casefold() == want
 
 
 # ---- Xác thực 2 lớp (TOTP). Toán nằm ở totp.py, đây chỉ là chỗ CẤT ----
@@ -1422,8 +1449,16 @@ def provision_admin_from_env():
 
     `auth.env_applied` keeps only a salted hash of the last applied env value, never the value.
     Returns "created", "reset" or "" (nothing done).
+
+    The marker is compared with the env value as typed AND as cleaned (0.96.1). From 0.92.1 the
+    value is cleaned of surrounding whitespace before use, but a marker written by an older
+    version holds the hash of the value WITH its whitespace. Comparing only the cleaned value
+    read that as "the env changed" and reset the account on the first boot after the update:
+    an owner who had set their own password in the dashboard was locked out with "Wrong username
+    or password" and their username turned into "admin" (many reports 2026-10-11).
     """
-    pw = os.getenv("JAVIS_ADMIN_PASSWORD", "")
+    raw = os.getenv("JAVIS_ADMIN_PASSWORD", "")
+    pw = clean_password(raw)
     if not pw:
         return ""
     user = (os.getenv("JAVIS_ADMIN_USER", "admin").strip() or "admin")
@@ -1438,9 +1473,23 @@ def provision_admin_from_env():
         return "created"
     applied = a.get("env_applied") if isinstance(a.get("env_applied"), dict) else {}
     if applied.get("hash"):
-        same = (applied.get("username") == user and secrets.compare_digest(
-            hash_password(pw, str(applied.get("salt") or ""))[0], str(applied["hash"])))
-        if same:
+        def _applied(value):
+            return secrets.compare_digest(hash_password(value, str(applied.get("salt") or ""))[0],
+                                          str(applied["hash"]))
+        if applied.get("username") == user and _applied(pw):
+            return ""
+        if applied.get("username") == user and raw != pw and _applied(raw):
+            # Same env value, applied with its whitespace by a version before 0.92.1: NOT a change
+            # by the owner, so never a reset. If the account still has exactly that password, store
+            # it clean so the owner can sign in without the invisible space (the typed form keeps
+            # working through `verify_password`). A password set in the dashboard since is kept.
+            # Username, 2FA and sessions are untouched either way.
+            if secrets.compare_digest(hash_password(raw, str(a.get("salt") or ""))[0],
+                                      str(a.get("password_hash") or "")):
+                a["password_hash"], a["salt"] = hash_password(pw)
+            a["env_applied"] = marker
+            cfg["auth"] = a
+            write_settings(cfg)
             return ""
     elif a.get("username") == user and verify_password(pw, cfg):
         # Upgrade from a version without the marker, and the env already matches the account:

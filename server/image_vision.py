@@ -104,6 +104,33 @@ def url_allowed(url: str) -> bool:
         return True
 
 
+# Labels a CDN puts on a file when it does not say what the file is. Zalo's photo servers answer `application/octet-stream` for some
+# photos (seen 2026-10-11: every photo from one customer was dropped as "not an image" before the bot could see it). A file with one
+# of these labels is downloaded and judged by its first bytes instead.
+_GENERIC_TYPES = ("", "application/octet-stream", "binary/octet-stream", "application/binary", "application/x-binary",
+                  "application/unknown", "application/download", "application/force-download")
+
+
+def header_may_be_image(content_type: str) -> bool:
+    """True when the Content-Type is an image type, or a generic binary label that the bytes must settle."""
+    ct = str(content_type or "").split(";")[0].strip().lower()
+    return ct.startswith("image/") or ct in _GENERIC_TYPES
+
+
+def sniff_image_type(head: bytes) -> str:
+    """The image MIME type read from a file's first bytes (JPEG, PNG, GIF, WebP), or "" when they are not one of those."""
+    b = bytes(head or b"")
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if b[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
 def image_extension(url: str, content_type: str = "") -> str:
     ct = str(content_type or "").split(";")[0].strip().lower()
     if ct in _EXT_BY_TYPE:
@@ -142,7 +169,7 @@ async def fetch_image(url: str, dest_dir: Path, stem: str, max_bytes: int = imag
                     if r.status_code != 200:
                         return None, f"máy chủ ảnh trả HTTP {r.status_code} (link có thể đã hết hạn)"
                     ctype = r.headers.get("content-type") or ""
-                    if ctype and not ctype.lower().startswith("image/"):
+                    if not header_may_be_image(ctype):
                         return None, f"link không phải ảnh ({ctype.split(';')[0]})"
                     async for chunk in r.aiter_bytes():
                         buf.extend(chunk)
@@ -155,8 +182,12 @@ async def fetch_image(url: str, dest_dir: Path, stem: str, max_bytes: int = imag
         return None, f"tải ảnh lỗi: {type(e).__name__}: {e}"
     if not buf:
         return None, "ảnh rỗng"
+    sniffed = sniff_image_type(bytes(buf[:16]))
+    if not sniffed and not str(ctype or "").lower().startswith("image/"):
+        # A generic binary label is only trusted once the bytes prove it: an HTML error page served as octet-stream stays out.
+        return None, f"link không phải ảnh ({(ctype or 'không rõ loại').split(';')[0]})"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / (stem + image_extension(url, ctype))
+    dest = dest_dir / (stem + image_extension(url, sniffed or ctype))
     dest.write_bytes(bytes(buf))
     return dest, ""
 

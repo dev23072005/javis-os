@@ -104,6 +104,9 @@ Repo mở cho người đóng góp quốc tế, nên phần NGƯỜI NGOÀI Đ�
   bản dịch dùng chung. Chú thích (alt) của hình thì dịch theo từng bản.
 - `tests/python/test_machine_translations.py` canh link chết, anchor lệch và dấu gạch dài trong
   các bản dịch, nên dịch lại xong phải chạy test này.
-- Giao diện app chỉ giữ tiếng Anh và tiếng Việt. Chủ repo chốt ngày 2026-10-03: thêm thứ tiếng
-  cho app khi có người dùng thật cần, không làm trước. Tài liệu hướng dẫn đầy đủ cũng chỉ hai
-  thứ tiếng.
+- Server, giọng đọc và tài liệu hướng dẫn đầy đủ chỉ giữ tiếng Anh và tiếng Việt. Chủ repo chốt
+  ngày 2026-10-03: thêm thứ tiếng ĐẦY ĐỦ (lang_registry) khi có người dùng thật cần. Từ 0.99.0
+  (chủ chốt 2026-10-12, nhận tiếng Đức của @sirschnake) bản dịch CHỈ DASHBOARD (`dashboard/i18n/xx.json`)
+  được nhận riêng: nó hiện cho trình duyệt thứ tiếng đó và có trong ô chọn ngôn ngữ, còn server lưu
+  `ui_lang` là tiếng Anh (`uiLangForServer` trong console.js) để Telegram, việc nền, giọng đọc ra
+  tiếng Anh thay vì rơi về tiếng Việt.

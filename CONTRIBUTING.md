@@ -67,7 +67,7 @@ Javis already **replies** in whatever language you write in. A translation adds 
 2. **The dashboard.** Copy `dashboard/i18n/en.json` to `dashboard/i18n/<code>.json` and translate the values, never the keys. A half-finished file is fine: any key you have not translated yet shows in English.
 3. **The whole language.** Register it in `server/lang_registry.py` so the voice, date formats and currency follow it too, and optionally add `system/mcp-catalog.<code>.json` for the connection store. The step-by-step handbook is [docs/dev/adding-a-language.md](docs/dev/adding-a-language.md).
 
-English is the source language for the README and the quick start. When either changes, the **Translations** workflow lists which translations are now behind (a warning, never a failed build); after updating one, run `python tools/check_translations.py --stamp <file>`. The app interface itself is kept in English and Vietnamese only, and gains a language when there are real users asking for it.
+English is the source language for the README and the quick start. When either changes, the **Translations** workflow lists which translations are now behind (a warning, never a failed build); after updating one, run `python tools/check_translations.py --stamp <file>`. The server, the voice and the full-language handbook stay in English and Vietnamese. A dashboard translation (item 2) is welcome on its own: it shows for readers whose browser uses that language and appears in the language pickers, while everything the server says (Telegram, background work, the voice) stays in English for them.
 
 ## Getting help
 
