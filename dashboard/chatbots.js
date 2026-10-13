@@ -850,6 +850,7 @@
               '</div>' +
               '<div class="cb-hint cb-pk-hint" id="cbPkHint"></div>' +
             '</div>' +
+            '<div class="cb-hint" id="cbKoNhom" style="display:none"></div>' +
             '<div id="cbRwBox" style="display:none">' +
               '<div id="cbRwSeg">' +
                 '<div class="cb-sub">' + esc(window.t("cb2.rw_lb")) + '</div>' +
@@ -1089,6 +1090,18 @@
         t.style.display = tabs.indexOf(t.dataset.t) >= 0 ? "" : "none";
       });
       box.querySelector("#cbRwBox").style.display = co ? "" : "none";
+      // Không có nhóm thì nói vì sao, thay vì ẩn im lặng (0.102.1): chủ tưởng phải đưa bot vào nhóm mới hiện.
+      var koNhom = box.querySelector("#cbKoNhom");
+      var dsTk = tkDangChon();
+      koNhom.style.display = !co && dsTk.length ? "" : "none";
+      if (!co && dsTk.length) {
+        var tenKenh = [];
+        dsTk.forEach(function (a) {
+          var n = kenhCua(a.channel).nhan;
+          if (tenKenh.indexOf(n) < 0) tenKenh.push(n);
+        });
+        koNhom.textContent = window.t("cb2.ko_nhom", { kenh: tenKenh.join(", ") });
+      }
       apGoiY();
       veRw();
       if (tabs.length) taiChats();
@@ -1103,7 +1116,10 @@
       var ds = tkDangChon();
       t.innerHTML = '<span class="cb-tom-l">' + esc(window.t("cb.tra_loi_o")) + '</span> ' +
         (ds.length ? ds.map(function (a) {
-          return '<span class="cb-kenh-chip">' + logoKenh(a.channel) + " " + esc(a.ten) + "</span>";
+          // Tên KÊNH đi kèm tên tài khoản (0.102.1): Zalo Bot và Zalo cá nhân dùng chung một logo, mà hai kênh
+          // khác nhau đúng ở chỗ có nhóm hay không, nên chỉ nhìn logo thì không hiểu vì sao mục nhóm biến mất.
+          return '<span class="cb-kenh-chip">' + logoKenh(a.channel) + " " + esc(a.ten) +
+                 ' <span class="cb-tom-kenh">· ' + esc(kenhCua(a.channel).nhan) + "</span></span>";
         }).join(" ") : '<span class="cb-warn">' + esc(window.t("cb.chua_chon_tk")) + '</span>') +
         ' <button type="button" class="cb-doi-tk">' + esc(window.t("cb.doi")) + '</button>';
       var nut = t.querySelector(".cb-doi-tk");

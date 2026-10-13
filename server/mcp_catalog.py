@@ -391,6 +391,13 @@ def _loai_hanh_dong_con(rule, item):
     v = str(v).strip()
     if [x for x in rule.get("read_values", []) if str(x).lower() == v.lower()]:
         return "read"
+    # Tool gộp nhiều lệnh theo một tham số (GitHub `label_write`: method create/update/delete):
+    # khai lệnh nào là ghi, lệnh nào nguy hiểm, để tạo nhãn chạy ở Ghi nháp mà xoá nhãn vẫn cần
+    # Toàn quyền. Lệnh lạ (bên thứ 3 thêm sau) không có trong danh sách nào thì rơi về `else`.
+    if [x for x in rule.get("danger_values", []) if str(x).lower() == v.lower()]:
+        return "danger"
+    if [x for x in rule.get("write_values", []) if str(x).lower() == v.lower()]:
+        return "write"
     tu = {w for w in re.split(r"[^A-Za-z0-9]+", v.upper()) if w}
     doc = {str(x).upper() for x in rule.get("read_tokens", [])}
     ghi = {str(x).upper() for x in rule.get("write_tokens", [])}
@@ -407,8 +414,8 @@ def _loai_theo_call_rule(rule, args):
     tren_loi = str(rule.get("else") or "danger")
     # Luật KHÔNG khai `items`: tool cổng chạy MỘT hành động con, tên nằm ngay ở cấp ngoài của
     # args (Hostinger 2.x `execute`: {"operation": ..., "params": ...}), nên chính args là món.
-    items = args.get(rule["items"]) if rule.get("items") else [args]
-    if not isinstance(items, list) or not items:
+    items = _call_rule_items(rule, args)
+    if items is None:
         return tren_loi
     muc = "read"
     for it in items:
@@ -416,6 +423,25 @@ def _loai_theo_call_rule(rule, args):
         if _MUC.get(loai, 2) > _MUC.get(muc, 0):
             muc = loai
     return muc
+
+
+def _call_rule_items(rule, args):
+    """Danh sách hành động con của một lời gọi theo luật, hoặc None khi args sai kiểu."""
+    items = args.get(rule["items"]) if rule.get("items") else [args]
+    return items if isinstance(items, list) and items else None
+
+
+def call_rule_floor(rule):
+    """Mức NHẸ NHẤT mà một luật `call_rules` có thể cho ra. Dùng lúc LIỆT KÊ tool (chưa có args):
+    tool có lệnh đọc thì hiện ở mức Chỉ đọc, tool chỉ có lệnh ghi (vd `label_write`) thì chỉ hiện
+    từ mức Ghi nháp. Hiện nó ở mức Chỉ đọc là mời model gọi một tool chắc chắn bị chặn."""
+    if rule.get("read_values") or rule.get("read_tokens"):
+        return "read"
+    if rule.get("write_values") or str(rule.get("else") or "danger") == "write":
+        return "write"
+    if str(rule.get("else") or "danger") == "read":
+        return "read"
+    return "danger"
 
 
 def call_rule(connector, tool):
@@ -450,7 +476,7 @@ def classify(connector, tool, args=None):
     cr = call_rule(c, tool)
     if cr is not None:
         if not isinstance(args, dict):
-            return "read"   # lúc LIỆT KÊ: để hiện ra, chặn thật lúc gọi (giống arg_rules)
+            return call_rule_floor(cr)   # lúc LIỆT KÊ: mức nhẹ nhất có thể, chặn thật lúc gọi
         return _loai_theo_call_rule(cr, args)
 
     rules = c.get("arg_rules") or {}
@@ -501,14 +527,18 @@ def allowed(connector, perm, mode, tool, args=None):
     # model tưởng cả cổng hỏng, trong khi các lệnh đọc đi cùng cổng đó vẫn chạy được.
     cr = call_rule(connector, tool)
     if cr is not None and isinstance(args, dict):
-        items = args.get(cr.get("items") or "")
+        # Lệnh con VƯỢT mức hiệu lực: ở Chỉ đọc là mọi lệnh không đọc, ở Ghi nháp là lệnh nguy hiểm.
+        tran = _MUC["read"] if eff == "readonly" else _MUC["write"]
         ten = [str((it or {}).get(cr.get("key") or "") or cr.get("default") or "?")
-               for it in (items if isinstance(items, list) else [])
-               if _loai_hanh_dong_con(cr, it) != "read"]
+               for it in (_call_rule_items(cr, args) or [])
+               if _MUC.get(_loai_hanh_dong_con(cr, it), 2) > tran]
         if ten:
+            con_chay = ("Lệnh đọc vẫn chạy được ở mức này" if eff == "readonly"
+                        else "Lệnh đọc và lệnh ghi thường vẫn chạy được ở mức này")
+            if cr.get("items") and eff == "readonly":
+                con_chay = "Lệnh đọc (LIST, GET, FETCH, SEARCH...) vẫn chạy được ở mức này"
             return False, (f"Lệnh {', '.join(ten[:8])} qua '{tool}' bị chặn: thao tác {loai} trong khi "
-                           f"{vi_sao} (mức hiệu lực: {eff}). Lệnh đọc (LIST, GET, FETCH, SEARCH...) "
-                           f"vẫn chạy được ở mức này. Muốn sửa/gửi/xoá thì bảo người dùng nâng quyền "
-                           f"ở trang Kết nối.")
+                           f"{vi_sao} (mức hiệu lực: {eff}). {con_chay}. Muốn sửa/gửi/xoá thì bảo "
+                           f"người dùng nâng quyền ở trang Kết nối.")
     return False, (f"Tool '{tool}' bị chặn: thao tác {loai} trong khi {vi_sao} (mức hiệu lực: {eff}). "
                    f"Nâng quyền ở trang Kết nối nếu thật sự cần.")

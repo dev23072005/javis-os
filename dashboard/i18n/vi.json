@@ -3318,6 +3318,7 @@
   "cb2.pk_dang_tai": "Đang tải…",
   "cb2.pk_goi_nhom": "Bot chỉ trả lời trong những nhóm bạn tick.",
   "cb2.pk_goi_nguoi": "Bot chỉ trả lời những người bạn tick.",
+  "cb2.ko_nhom": "{kenh} chỉ nhắn riêng, không đứng được trong nhóm, nên không có tùy chọn cho nhóm (Được gọi tên, Tự đánh giá, Mọi tin). Muốn bot làm việc trong nhóm thì gắn thêm một tài khoản Zalo cá nhân, Telegram, Slack hoặc Lark.",
   "cb2.rw_lb": "Trong nhóm, bot lên tiếng khi",
   "cb2.rw_mention": "Được gọi tên",
   "cb2.rw_auto": "Tự đánh giá",

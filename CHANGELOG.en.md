@@ -8,11 +8,37 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.105.100] - 2026-10-13
+### Improved
+- Sync with upstream 0.105.0 pinned at `1dd593ba2748c821d3a211264d9729f949f13fc2`.
+- Preserve the Afftera fork reminder execution gate and per-job Codex permission level.
+- Built by SAFE_AUTO_UPDATE_V1; production is promoted only after every gate passes.
+
+## [0.105.0] - 2026-10-13
+### Fixed
+- **Self-learning no longer makes an agent forget rules you gave it.** Before, each time self-learning improved an agent it rewrote the agent's whole instructions, so a rule like "no markdown in Zalo messages" could vanish after a few rounds. Now self-learning can only add new rules at the end, and what you wrote stays as it is.
+- **Rules you give in chat are kept for good.** When you give an agent a lasting rule, it goes into an **Owner rules** section of the agent's memory. That section is never pushed out the way self-made lessons are (only the 15 newest are kept).
+- **A last safety check.** Any write that would drop even one line you wrote in an agent or its memory is refused.
+
+## [0.103.0] - 2026-10-13
+### Improved
+- **Permissions per command for bundled tools.** An MCP tool that bundles several commands, such as GitHub's label tool that creates, edits and deletes labels, is now checked against the command actually called. Create and edit run at Draft level, delete still needs Full access.
+- **Tools with only write commands no longer show at Read-only.** Before, they were offered and then blocked on every call. Now they only appear from the level that can run them, and the block message names the blocked command.
+
 ## [0.102.100] - 2026-10-12
 ### Improved
 - Sync staging with upstream 0.102.0 pinned at `57c40348515d652a887b9b2141e47fe0aa43f01d`.
 - Preserve the Afftera fork reminder execution gate and per-job Codex permission level.
 - This is a staging candidate; production is not promoted during this preparation.
+
+## [0.102.1] - 2026-10-12
+### Fixed
+- **Bots no longer apologise to people who did not ask them.** In Auto-judge mode a bot looks at group messages that do not name it. Before, when such a turn failed, the bot tagged the sender and posted its "I'm having technical trouble" apology to the whole group. Now it stays quiet, the error still goes to the bot log and the on-duty person is still told. Someone who called the bot and hit an error still gets the apology.
+- **Full-access bots no longer show technical text to customers.** Lines such as "error during the turn" or the model warning now appear only in the bot log, not in the reply.
+- **Full-access bots no longer change your main model.** When the Agent's model does not run on the ChatGPT plan, the bot still runs on a replacement, but no longer overwrites the model you picked on the Models page.
+
+### Improved
+- **The bot form says "Zalo Bot" or "personal Zalo".** The two share one logo but only personal Zalo can join groups. When a bot only has private-chat channels, the form says why there are no group options (Mentioned, Auto-judge, Every message) and which channel to add to get them.
 
 ## [0.102.0] - 2026-10-12
 ### Added

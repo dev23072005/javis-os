@@ -2826,6 +2826,7 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
   padding: 9px 11px; border-radius: 10px; background: var(--surface-3);
   border: 1px solid var(--border); }
 .cb-tom-l { color: var(--text3); }
+.cb-tom-kenh { color: var(--text3); font-weight: 400; }
 .cb-doi-tk { margin-left: auto; background: none; border: 0; cursor: pointer; padding: 0 2px;
   font: inherit; font-weight: 600; color: var(--accent); text-decoration: underline; }
 .cb-trong-tk { font-size: 13.5px; color: var(--text2); padding: 12px; border-radius: 10px;

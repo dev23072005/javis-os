@@ -1101,11 +1101,14 @@ async def discover_all(mode="full", vault_root=None, include_plugins=True, inclu
         # Tool ĐA HÀNH ĐỘNG (schema có tham số arg_rules.param, vd action của Pancake) → coi là
         # "read" lúc LIST để còn liệt kê được; chặn thật lúc call (đã có args). Tool thường →
         # phân loại tĩnh theo tool_meta/heuristic.
+        # Tool có `call_rules` → classify(args=None) trả mức NHẸ NHẤT luật cho ra (call_rule_floor):
+        # tool gộp chỉ toàn lệnh ghi như GitHub `label_write` thì không hiện ở mức Chỉ đọc.
         rules = (connector or {}).get("arg_rules") or {}
         props = ((t.get("schema") or {}).get("properties") or {})
-        multiplexed = (bool(rules.get("param") and rules["param"] in props)
-                       or mcp_catalog.call_rule(connector, raw["tool"]) is not None)
-        cls = "read" if multiplexed else mcp_catalog.classify(connector, raw["tool"], None)
+        theo_lenh = mcp_catalog.call_rule(connector, raw["tool"]) is not None
+        multiplexed = bool(rules.get("param") and rules["param"] in props) or theo_lenh
+        cls = ("read" if multiplexed and not theo_lenh
+               else mcp_catalog.classify(connector, raw["tool"], None))
         # Lọc lúc LIST: readonly ẩn tool ghi/nguy hiểm tĩnh; safe ẩn tool nguy hiểm tĩnh.
         if (eff == "readonly" and cls in ("write", "danger")) or (eff == "safe" and cls == "danger"):
             h = hidden.setdefault(conn["id"], {"perm": eff, "ns": conn.get("namespace"), "tools": []})

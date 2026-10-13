@@ -39,6 +39,7 @@ import system_sync   # is_system_skill: chặn tự học ghi đè skill do app 
 import git_brain
 import aux_engine   # engine viec nen theo model phu nguoi dung chon
 import skill_router
+import agent_rules   # sửa agent chỉ THÊM luật + chốt chặn giữ dòng của chủ
 
 
 def _now_vn() -> datetime:
@@ -119,6 +120,10 @@ def _skill_frontmatter(name: str, desc: str, group: str, today: str) -> str:
 #   3. Giữ nguyên những thứ THUỘC VỀ CHỦ: tên hiển thị, trạng thái bật/tắt, model đã chọn,
 #      và MỌI field lạ chủ tự thêm trong frontmatter (merge chứ không render đè).
 #   4. Chủ ghim `learn_lock: true` vào frontmatter là tự học cấm đụng file đó.
+# AGENT từ 0.105.0 chặt hơn nữa: sửa vai chỉ được THÊM (add_rules vào mục "Bổ sung (tự học)",
+# owner_rules vào mục "Luật chủ dặn" của bộ nhớ agent), không bao giờ thay cả thân, và mọi dòng
+# chủ viết phải còn nguyên sau khi ghi (agent_rules.missing_owner_lines). Lý do: fork chỉ thấy
+# slug + vai trò, viết lại cả thân là làm rơi luật chủ dặn (sự cố 13/10, luật Zalo).
 # Cộng thêm git-commit sẵn có nên vẫn hoàn tác được bằng một chạm.
 #
 # SKILL có thêm HAI rào nữa, vì hai đường hỏng dưới đây không tồn tại với agent/workflow:
@@ -216,6 +221,23 @@ def append_history(body: str, reason: str, today: str, old_body: str = "") -> st
     if sau:
         out += [""] + sau
     return "\n".join(out).strip()
+
+
+# Mục do Javis quản trong THÂN agent: ngoài hai mục này là của chủ, chốt chặn
+# agent_rules.missing_owner_lines bắt mọi lần ghi phải giữ nguyên.
+_AGENT_MANAGED = (_HISTORY_HEADER, agent_rules.LEARNED_ADDITIONS_HEADER)
+# Mục bài học trong bộ nhớ agent (main._BAI_HOC_HEADER), quay vòng 15 dòng nên được phép mất dòng.
+_AGENT_MEMORY_MANAGED = ("## Bài học (tự học)",)
+
+
+def _rule_list(raw) -> List[str]:
+    """add_rules/owner_rules từ manifest: chỉ chuỗi, đã cắt, tối đa 5 mục mỗi lần."""
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [str(r).strip()[:agent_rules.RULE_MAX_CHARS] for r in raw
+            if isinstance(r, str) and str(r).strip()][:5]
 
 
 # Dòng mục lục trong MEMORY.md: "- [Tên](facts/<slug>.md) - mô tả ngắn".
@@ -709,6 +731,28 @@ class LearnFeature:
             return ""
         return "\n".join(out)
 
+    def _write_owner_rules(self, brain: str, slug: str, rules: List[str],
+                           written_paths: List[str], root, rep: dict) -> None:
+        """Luật CHỦ dặn mà fork nhận ra → mục Luật chủ dặn trong bộ nhớ agent, cùng chỗ với
+        JAVIS_RULE khi chủ dặn thẳng agent. Không trần, không bao giờ bị đẩy ra."""
+        fp = self.deps.brain_memory_dir(brain) / "agents" / slug / "MEMORY.md"
+        try:
+            text = fp.read_text(encoding="utf-8") if fp.exists() else ""
+        except OSError:
+            text = ""
+        moi = agent_rules.merge_bullets(text, agent_rules.OWNER_RULES_HEADER, rules)
+        if agent_rules.missing_owner_lines(text, moi, _AGENT_MEMORY_MANAGED):
+            rep["blocked"].append(f"agent '{slug}': ghi luật chủ dặn làm rơi dòng cũ → không ghi")
+            return
+        if moi.strip() == text.strip():
+            return
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        self.deps.atomic_write_text(fp, moi.rstrip() + "\n")
+        try:
+            written_paths.append(str(fp.relative_to(root)).replace("\\", "/"))
+        except ValueError:
+            pass   # bộ nhớ nằm ngoài root brain (legacy): vẫn ghi, chỉ không vào commit học
+
     def _agent_lines(self, brain: str) -> str:
         """Agent hiện có, mỗi dòng 'slug (Tên): vai trò' - đủ để fork dedup và biết sửa cái nào."""
         out = []
@@ -899,7 +943,9 @@ class LearnFeature:
             schema_bits.append(
                 '"agents":[{"op":"create|update","slug":"kebab-ascii","name":"Tên tiếng Việt",'
                 '"role":"vai trò 1 câu","group":"tên nhóm","skills":["slug-skill-đã-có-hoặc-rỗng"],'
-                '"body":"system prompt theo KHUNG METAPROMPT bên dưới",'
+                '"body":"CHỈ khi op=create: system prompt theo KHUNG METAPROMPT bên dưới",'
+                '"add_rules":["CHỈ khi op=update: luật/bước cần THÊM, mỗi mục một câu"],'
+                '"owner_rules":["CHỈ khi op=update: luật CHỦ dặn rõ trong hội thoại, giữ nguyên ý"],'
                 '"reason":"BẮT BUỘC khi op=update: sửa gì và vì sao, dẫn từ hội thoại",'
                 '"confidence":0..3}]')
         if caps.get("workflow"):
@@ -992,9 +1038,13 @@ class LearnFeature:
                "  4. skills chỉ gán slug skill ĐÃ tồn tại; không chắc thì để mảng rỗng.\n"
                "  5. SỬA VAI ĐÃ CÓ thay vì đẻ bản sao: hội thoại cho thấy một agent trong "
                "danh sách dưới đây làm sai/thiếu/lạc việc, hoặc chủ nói rõ muốn đổi cách nó làm "
-               "→ trả op=\"update\" với ĐÚNG slug đó, body là bản system prompt MỚI ĐẦY ĐỦ (không "
-               "phải đoạn vá), kèm reason nêu sửa gì và vì sao. TUYỆT ĐỐI không tạo slug gần "
-               "giống (viet-email-v2, viet-email-moi) - đó là đẻ bản sao.\n"
+               "→ trả op=\"update\" với ĐÚNG slug đó, kèm reason nêu sửa gì và vì sao. Sửa vai "
+               "là CHỈ THÊM: add_rules = luật/bước mới rút từ hội thoại, owner_rules = luật chủ "
+               "dặn rõ (vd \"nhắn Zalo thì không dùng markdown\"). KHÔNG gửi body khi update: "
+               "bạn không thấy thân hiện có, viết lại là làm mất luật chủ đã dặn, và Python sẽ "
+               "chặn. Luật mới trái luật cũ thì viết rõ trong add_rules là nó thay luật nào. "
+               "TUYỆT ĐỐI không tạo slug gần giống (viet-email-v2, viet-email-moi) - đó là đẻ "
+               "bản sao.\n"
                "  6. KHÔNG update chỉ để viết lại cho hay hơn. Phải có căn cứ trong hội thoại; "
                "không có thì để yên. Agent ghi [chủ đã khoá] thì cấm đụng.\n"
                "  7. Đa số batch KHÔNG có agent nào → để agents rỗng.\n\n" if caps.get("agent") else "")
@@ -1341,15 +1391,19 @@ class LearnFeature:
                     slug = _slugify(a.get("slug") or a.get("name") or "")
                     body = (a.get("body") or "").strip()
                     role = (a.get("role") or "").strip()
-                    if not slug or not body or int(a.get("confidence", 0)) < 2:
+                    upd = is_update(a)
+                    add_rules = _rule_list(a.get("add_rules"))
+                    owner_rules = _rule_list(a.get("owner_rules"))
+                    if not slug or int(a.get("confidence", 0)) < 2:
                         continue
-                    blob = f"{a.get('name','')}\n{role}\n{body}"
+                    if not upd and not body:
+                        continue
+                    blob = "\n".join([str(a.get("name") or ""), role, body] + add_rules + owner_rules)
                     if secret_hits(blob):
                         rep["blocked"].append(f"agent '{slug}': chứa secret"); continue
                     if injection_in_output(blob):
                         rep["blocked"].append(f"agent '{slug}': chứa câu injection"); continue
                     old_fp = self._cap_file(brain, "agents", "Javis/agents", slug)
-                    upd = is_update(a)
                     old_fm, old_body = (read_md(old_fp) if (upd and old_fp) else ({}, ""))
                     if not upd:
                         if old_fp:
@@ -1366,6 +1420,13 @@ class LearnFeature:
                         if learn_locked(old_fm):
                             rep["blocked"].append(f"agent '{slug}': chủ đã khoá (learn_lock)")
                             continue
+                        if not add_rules and not owner_rules:
+                            # Trước 0.105.0 update = thay CẢ thân bằng bản fork viết, mà fork chỉ
+                            # thấy slug và 100 ký tự vai trò: luật chủ dặn rơi mất sau vài vòng.
+                            rep["blocked"].append(
+                                f"agent '{slug}': sửa vai chỉ được THÊM luật (add_rules/owner_rules)"
+                                + (", không viết lại cả thân" if body else ""))
+                            continue
                     # skills chỉ giữ slug ĐÃ tồn tại thật - fork có thể bịa tên skill.
                     sk_ok = [_slugify(s) for s in (a.get("skills") or []) if isinstance(s, str)
                              and skill_router.resolve_skill_file(root, _slugify(s))]
@@ -1373,17 +1434,27 @@ class LearnFeature:
                         # Fork bỏ trống skills khi sửa = "không đụng tới", không phải "gỡ hết".
                         sk_ok = [str(s) for s in (old_fm.get("skills") or []) if isinstance(s, str)]
                     if upd:
-                        # merge: giữ NGUYÊN thứ tự + mọi field lạ chủ tự thêm, chỉ thay phần
-                        # chuyên môn. name/model là lựa chọn của chủ → không đụng.
+                        # merge: giữ NGUYÊN thứ tự + mọi field lạ chủ tự thêm. name/model/role
+                        # là lựa chọn của chủ → không đụng.
                         fm_data = dict(old_fm)
                         fm_data.update({"type": "agent", "slug": slug, "skills": sk_ok,
                                         "updated": today, "learned_updated": today})
-                        if role:
+                        if role and not str(old_fm.get("role") or "").strip():
+                            # Vai trò chủ đã viết cũng là của chủ: chỉ điền khi đang trống.
                             fm_data["role"] = role
                         fm_data.setdefault("name", a.get("name") or slug)
                         fm_data.setdefault("model", "")
-                        new_body = append_history(body, str(a.get("reason") or "").strip(),
-                                                  today, old_body=old_body)
+                        # Thân của CHỦ giữ nguyên, luật mới nối vào mục Bổ sung (tự học).
+                        new_body = agent_rules.merge_bullets(
+                            old_body, agent_rules.LEARNED_ADDITIONS_HEADER, add_rules,
+                            cap=agent_rules.LEARNED_ADDITIONS_MAX) if add_rules else old_body
+                        new_body = append_history(new_body, str(a.get("reason") or "").strip(), today)
+                        mat = agent_rules.missing_owner_lines(old_body, new_body, _AGENT_MANAGED)
+                        if mat:
+                            rep["blocked"].append(
+                                f"agent '{slug}': bản sửa làm rơi {len(mat)} dòng chủ viết "
+                                f"(vd \"{mat[0][:60]}\") → không ghi")
+                            continue
                     else:
                         fm_data = {"type": "agent", "name": a.get("name") or slug, "slug": slug,
                                    "role": role, "group": _nhom(a), "skills": sk_ok, "model": "",
@@ -1392,6 +1463,8 @@ class LearnFeature:
                     fp = old_fp if (upd and old_fp) else (ag_dir / f"{slug}.md")
                     self.deps.atomic_write_text(fp, f"---\n{dump_fm(fm_data)}\n---\n{new_body}\n")
                     written_paths.append(str(fp.relative_to(root)).replace("\\", "/"))
+                    if upd and owner_rules:
+                        self._write_owner_rules(brain, slug, owner_rules, written_paths, root, rep)
                     rep["agents_updated" if upd else "agents"].append(slug)
                     written_agents.add(slug)
 

@@ -95,6 +95,7 @@ voice_privacy.install()
 import zalo_login
 import oauth_mcp
 import system_sync   # tầng năng lực HỆ THỐNG (skill/loop mặc định) - update theo phiên bản app
+import agent_rules   # mục Luật chủ dặn / Bổ sung (tự học) + chốt chặn giữ dòng của chủ
 import skill_router   # nguồn chân lý khám phá skill (canonical <brain>/skills) dùng chung mọi engine
 import skill_usage     # telemetry: đếm skill nào THẬT SỰ được dùng qua javis_use_skill (tín hiệu DƯƠNG một chiều)
 import share_bundle   # xuất/nhập gói agent/skill/workflow (.zip) để chia sẻ giữa brain/người dùng
@@ -6616,44 +6617,41 @@ def _boc_bai_hoc(out):
     sach = re.sub(r"\n{3,}", "\n\n", _BAI_HOC_RE.sub("", out)).strip()
     return [l for l in lessons if l], sach
 
-def _ghi_bai_hoc(brain, slug, lessons):
-    """Ghi bài học vào mục tự học của MEMORY.md. Vùng NGOÀI mục là của chủ - giữ nguyên
-    từng ký tự. Trong mục: loại trùng (chuẩn hoá bỏ dấu câu/hoa thường) rồi cắt về
-    _BAI_HOC_TRAN dòng mới nhất."""
-    if not lessons:
+def _ghi_muc_bo_nho_agent(brain, slug, header, items, cap):
+    """Ghi bullet vào MỘT mục của memory/agents/<slug>/MEMORY.md (agent_rules.merge_bullets).
+
+    Chốt chặn chung cho mọi lần ghi (sự cố 13/10, luật Zalo không markdown biến mất): mọi dòng
+    nằm ngoài mục Bài học phải còn nguyên sau khi ghi, gồm phần chủ viết tay và mục Luật chủ
+    dặn. Thiếu dù một dòng là KHÔNG ghi, thà mất một bài học còn hơn mất một luật của chủ."""
+    if not items:
         return
     try:
         f = _brain_memory_dir(brain) / "agents" / slug / "MEMORY.md"
         f.parent.mkdir(parents=True, exist_ok=True)
         text = f.read_text(encoding="utf-8") if f.exists() else ""
-        lines = text.splitlines()
-        i0 = next((i for i, l in enumerate(lines) if l.strip() == _BAI_HOC_HEADER), None)
-        if i0 is None:
-            truoc, bullets, sau = lines, [], []
-        else:
-            i1 = next((i for i in range(i0 + 1, len(lines)) if lines[i].startswith("## ")),
-                      len(lines))
-            truoc = lines[:i0]
-            bullets = [l.rstrip() for l in lines[i0 + 1:i1] if l.strip().startswith("- ")]
-            sau = lines[i1:]
-        def _chuan(s):
-            return re.sub(r"\W+", "", s).casefold()
-        seen = {_chuan(b) for b in bullets}
-        for l in lessons:
-            b = "- " + l
-            if _chuan(b) in seen:
-                continue
-            bullets.append(b)
-            seen.add(_chuan(b))
-        bullets = bullets[-_BAI_HOC_TRAN:]
-        while truoc and not truoc[-1].strip():
-            truoc.pop()
-        moi = truoc + ([""] if truoc else []) + [_BAI_HOC_HEADER] + bullets
-        if sau:
-            moi += [""] + sau
-        _atomic_write_text(f, "\n".join(moi).rstrip() + "\n")
+        moi = agent_rules.merge_bullets(text, header, items, cap=cap)
+        mat = agent_rules.missing_owner_lines(text, moi, [_BAI_HOC_HEADER])
+        if mat:
+            print(f"[agent-memory] chặn ghi {header} ({slug}): làm rơi {len(mat)} dòng của chủ",
+                  file=sys.stderr)
+            return
+        _atomic_write_text(f, moi.rstrip() + "\n")
     except Exception as e:
-        print(f"[agent-memory] ghi bài học lỗi ({slug}): {e}", file=sys.stderr)
+        print(f"[agent-memory] ghi bộ nhớ lỗi ({slug}): {e}", file=sys.stderr)
+
+
+def _ghi_bai_hoc(brain, slug, lessons):
+    """Ghi bài học vào mục tự học của MEMORY.md. Vùng NGOÀI mục là của chủ - giữ nguyên
+    từng ký tự. Trong mục: loại trùng (chuẩn hoá bỏ dấu câu/hoa thường) rồi cắt về
+    _BAI_HOC_TRAN dòng mới nhất."""
+    _ghi_muc_bo_nho_agent(brain, slug, _BAI_HOC_HEADER, lessons, _BAI_HOC_TRAN)
+
+
+def _ghi_luat_chu(brain, slug, rules):
+    """Ghi luật CHỦ dặn vào mục "## Luật chủ dặn": chống trùng, KHÔNG có trần, không bao giờ
+    bị đẩy ra. Trước 0.105.0 luật của chủ chỉ có đường JAVIS_LESSON, nên trôi khỏi cửa sổ 15
+    dòng sau 15 bài học khác."""
+    _ghi_muc_bo_nho_agent(brain, slug, agent_rules.OWNER_RULES_HEADER, rules, None)
 
 def _log_agent_run(brain, slug, task, out):
     try:
@@ -9509,6 +9507,12 @@ def _workflow_agent_helpers(brain, tools):
               f"{_BAI_HOC_TRAN} dòng mới nhất). KHÔNG tự sửa file bộ nhớ trực tiếp - phần ngoài mục "
               "đó là của chủ. Lượt chạy không có gì đáng nhớ thì ĐỪNG phát JAVIS_LESSON, và đừng "
               "lặp lại bài học đã có trong bộ nhớ.\n"
+            + "\n# Luật chủ dặn: khi CHỦ nói rõ một luật lâu dài cho vai này (\"từ giờ\", \"luôn\", "
+              "\"đừng bao giờ\", vd \"nhắn Zalo thì không dùng markdown\"), làm theo ngay VÀ kết thúc "
+              "câu trả lời bằng một dòng riêng `JAVIS_RULE: <luật một câu, giữ nguyên ý chủ>`. Javis ghi "
+              f"vào mục `{agent_rules.OWNER_RULES_HEADER}` của file bộ nhớ trên, mục này không bao giờ "
+              "bị tự xoá. CHỈ dùng cho lời chủ dặn; bài học bạn tự rút ra thì vẫn là JAVIS_LESSON. "
+              "Luật đã có trong mục đó thì đừng phát lại.\n"
             + _AGENT_TOOLKIT_BLOCK
             + "\nLàm việc trong vault. Tập trung hoàn thành nhiệm vụ, trả kết quả rõ ràng, ngắn gọn."
         )
@@ -9522,7 +9526,12 @@ def _workflow_agent_helpers(brain, tools):
     def _learn(aslug, out):
         """Bóc JAVIS_LESSON khỏi output, ghi vào bộ nhớ agent, trả output ĐÃ SẠCH
         (marker không được chảy vào {{prev}} của bước sau hay lên UI)."""
+        # JAVIS_RULE ở đây (bước workflow, việc nền) KHÔNG có chủ đang nói chuyện trực tiếp nên
+        # không đủ căn cứ là luật chủ dặn: bóc khỏi output và hạ xuống thành bài học. Đường chat
+        # với chủ (_ket_luot_agent) bóc JAVIS_RULE TRƯỚC khi gọi tới đây.
+        rules, out = agent_rules.extract_rules(out or "")
         lessons, sach = _boc_bai_hoc(out or "")
+        lessons = lessons + rules
         if not lessons:
             return out
         _ghi_bai_hoc(brain, aslug, lessons)
@@ -9595,7 +9604,12 @@ def _ket_luot_agent(brain, slug, user_message, final_text) -> str:
     """Cuối một lượt chat với trợ lý: bóc JAVIS_LESSON vào bộ nhớ trợ lý, ghi nhật ký chạy của
     trợ lý (memory/agents/<slug>/runs), trả về text SẠCH để lưu phiên và hiện lên chat."""
     _mk, _agent_sysprompt, _log, _learn = _workflow_agent_helpers(brain, None)
-    sach = _learn(slug, final_text or "")
+    rules, text = agent_rules.extract_rules(final_text or "")
+    if rules and (user_message or "").strip():
+        _ghi_luat_chu(brain, slug, rules)
+        rules = []
+    # Không có câu của chủ trong lượt thì JAVIS_RULE không có căn cứ: hạ xuống bài học.
+    sach = _learn(slug, text + "".join(f"\nJAVIS_LESSON: {r}" for r in rules))
     _log(slug, user_message or "", sach or "")
     return sach
 
@@ -19078,11 +19092,21 @@ def _manual_session_undo(key: str, keep: int) -> None:
     _tg_ngat_mach(s)
 
 
-def _tg_ket(clean_out, files, canh_bao="", loi=()):
+def _tg_ket(clean_out, files, canh_bao="", loi=(), khach=False):
     """Gói câu trả lời Telegram: cảnh báo hệ thống lên đầu, lỗi giữa lượt xuống cuối.
 
     Lỗi giữa lượt KHÔNG huỷ câu trả lời (dashboard vốn coi lỗi là không chí mạng), nhưng cũng
-    không được giấu: giấu đi thì user tưởng lượt chạy sạch trong khi có tool đã hỏng."""
+    không được giấu: giấu đi thì user tưởng lượt chạy sạch trong khi có tool đã hỏng.
+
+    `khach=True` (a full-access dedicated bot, 0.102.1): the person reading is a CUSTOMER, not the owner.
+    The system warning and the mid-turn error then go to `canh_bao`, which the bot log shows the owner,
+    instead of being glued to the reply ("⚠ Có lỗi giữa lượt: ..." in a customer group)."""
+    if khach:
+        ghi_chu = [str(canh_bao or "").strip()] + (["Có lỗi giữa lượt: " + str(loi[0])] if loi else [])
+        ket = {"text": clean_out or "", "files": files or []}
+        if any(ghi_chu):
+            ket["canh_bao"] = " · ".join(x for x in ghi_chu if x)[:500]
+        return ket
     txt = (canh_bao or "") + (clean_out or "")
     if loi:
         txt += "\n\n⚠ Có lỗi giữa lượt: " + str(loi[0])
@@ -19910,12 +19934,15 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         if api_model and actual_model != api_model:
             # Tự chữa như dashboard: ghi lại model đúng để lượt sau khỏi ép lại nữa, VÀ nói cho
             # user biết. Trước đây Telegram lặng lẽ đổi, user cứ tưởng đang chạy model mình chọn.
-            try:
-                _fix = cfgmod.read_settings()
-                _set_main_model(_fix, "openai-oauth", actual_model)
-                cfgmod.write_settings(_fix)
-            except Exception as _e:
-                print(f"[codex model self-heal] {_e}", file=__import__('sys').stderr)
+            # NOT for a dedicated bot (0.102.1): its model is the Agent's, and writing the owner's MAIN
+            # model because a customer bot's Agent named a stale model changed the owner's own brain.
+            if not _bot_full:
+                try:
+                    _fix = cfgmod.read_settings()
+                    _set_main_model(_fix, "openai-oauth", actual_model)
+                    cfgmod.write_settings(_fix)
+                except Exception as _e:
+                    print(f"[codex model self-heal] {_e}", file=__import__('sys').stderr)
             canh_bao = (f"⚠ Model '{api_model}' không chạy được qua Codex (tài khoản ChatGPT) - "
                         f"đã tự đổi sang '{actual_model}'. Đổi model khác ở trang Models nếu muốn.\n\n")
         openai_oauth.write_codex_auth()
@@ -20022,7 +20049,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         clean_out = channel_context.strip_attached_media(
             channel_context.strip_control_blocks(out), files, _brain_root(brain)
         )
-        return _tg_ket(clean_out, files, canh_bao, loi)
+        return _tg_ket(clean_out, files, canh_bao, loi, khach=_bot_full)
     if (kind == "api" and api_key) or kind == "oauth":
         label = _api_label(prov)
         if sess["or"] is None:
@@ -20085,7 +20112,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         clean_out = channel_context.strip_attached_media(
             channel_context.strip_control_blocks(out), files, _brain_root(brain)
         )
-        return _tg_ket(clean_out, files, "", loi)
+        return _tg_ket(clean_out, files, "", loi, khach=_bot_full)
     else:
         _goc = _brain_root(brain)
         if sess["cli"] is None or getattr(sess["cli"], "cwd", None) != _goc:
@@ -20189,7 +20216,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         clean_out = channel_context.strip_attached_media(
             channel_context.strip_control_blocks(out), files, _brain_root(brain)
         )
-        return _tg_ket(clean_out, files, "", loi)
+        return _tg_ket(clean_out, files, "", loi, khach=_bot_full)
 
 
 async def _tg_help_text(brain):

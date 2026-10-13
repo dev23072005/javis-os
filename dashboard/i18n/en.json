@@ -3318,6 +3318,7 @@
   "cb2.pk_dang_tai": "Loading…",
   "cb2.pk_goi_nhom": "The bot only answers in the groups you tick.",
   "cb2.pk_goi_nguoi": "The bot only answers the people you tick.",
+  "cb2.ko_nhom": "{kenh} only has private chats and cannot join groups, so there are no group options (Mentioned, Auto-judge, Every message). For a bot that works in groups, add a personal Zalo, Telegram, Slack or Lark account.",
   "cb2.rw_lb": "In groups, the bot speaks when",
   "cb2.rw_mention": "Mentioned",
   "cb2.rw_auto": "Auto-judge",

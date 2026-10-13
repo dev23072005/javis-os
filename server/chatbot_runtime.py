@@ -1186,6 +1186,31 @@ def ghi_tin_khach(cfg: dict, meta: dict, text: str) -> None:
         print(f"[chatbot conversations] {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def _ghi_loi_tu_dong(bot_id: str, cfg: dict, meta: dict, text: str, loi: str) -> None:
+    """A Tự đánh giá turn failed (0.102.1): record it for the owner and alert the on-duty person once, send nothing.
+
+    Before, the failure went out as "Em đang gặp trục trặc kỹ thuật..." tagged to whoever had written in the group,
+    though that person never asked the bot anything."""
+    try:
+        chatbot_log.ghi(bot_id, {
+            "chat_id": str((meta or {}).get("chat_id") or ""), "chat_type": (meta or {}).get("chat_type"),
+            "user_name": (meta or {}).get("user_name"), "hoi": text,
+            "dap": "(lượt Tự đánh giá hỏng, bot không gửi gì)", "loi": str(loi or "")[:1000],
+            "bo_qua": "loi_tu_dong", "chuyen_nguoi": False, "bi": False,
+            "muc_quyen": cfg.get("muc_quyen") or "suggest",
+        })
+    except Exception as e:      # noqa: BLE001 - logging must not cost anything else
+        print(f"[chatbot {bot_id}] ghi lỗi tự đánh giá hỏng: {type(e).__name__}: {e}", file=sys.stderr)
+    if cfg.get("handoff_to") and bot_id not in _DA_BAO_LOI:
+        _DA_BAO_LOI.add(bot_id)
+        try:
+            asyncio.ensure_future(_gui_nhan_vien(
+                cfg, str(cfg["handoff_to"]), str((meta or {}).get("chat_id") or ""),
+                localefmt.chu(f"Bot đang LỖI: {str(loi)[:300]}", f"The bot is FAILING: {str(loi)[:300]}")))
+        except Exception as e:      # noqa: BLE001
+            print(f"[chatbot {bot_id}] báo người trực lỗi: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def ghi_tin_bot(cfg: dict, meta: dict, text: str, loi: str = "", files=None) -> None:
     """Câu BOT trả lời (hoặc câu xin lỗi khi lượt gãy - vẫn là thứ khách nhìn thấy)."""
     try:
@@ -1369,6 +1394,12 @@ def _make_answer_fn(bot_id: str):
             if (meta or {}).get("member_join"):
                 # Nobody asked anything: an apology tagged to a newcomer would only confuse them.
                 return {"text": "", "files": [], "im_lang": True}
+            if tu_dong:
+                # Tự đánh giá: the message did not call the bot. Same rule as a newcomer: an apology tagged to
+                # someone who never asked would only confuse a whole group (2026-10-12, 69-member group).
+                _rp_retract(rp_dec, "turn_failed")
+                _ghi_loi_tu_dong(bot_id, cfg, meta, text, f"{type(e).__name__}: {e}")
+                return {"text": "", "files": [], "im_lang": True}
             xin_loi = "Em đang gặp trục trặc, anh chị nhắn lại giúp em sau ít phút ạ."
             ghi_tin_bot(cfg, meta or {}, xin_loi, loi=f"{type(e).__name__}: {e}")
             return {"text": xin_loi, "files": []}
@@ -1385,6 +1416,12 @@ def _make_answer_fn(bot_id: str):
         if isinstance(out, str):
             loi_ky_thuat = out.strip()
             print(f"[chatbot {bot_id}] lượt hỏng: {loi_ky_thuat[:300]}", file=sys.stderr)
+            if tu_dong:
+                # Tự đánh giá: nobody called the bot, so a failure stays out of the chat. The owner still
+                # sees it in the bot log, and the on-duty person is told on the first failure, as before.
+                _rp_retract(rp_dec, "turn_failed")
+                _ghi_loi_tu_dong(bot_id, cfg, meta, text, loi_ky_thuat)
+                return {"text": "", "files": [], "im_lang": True}
             out = {"text": "Em đang gặp trục trặc kỹ thuật, anh chị nhắn lại giúp em sau ít phút ạ.",
                    "files": []}
 

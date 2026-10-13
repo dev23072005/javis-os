@@ -65,6 +65,7 @@ LIST_CALLS = []         # mỗi lần hỏi zalo_list_threads
 GUI = []                # mọi lần gọi zalo_send_message
 KHO_TIN = []            # tin "MCP" sẽ trả ở lần đọc kế tiếp
 TRA_LOI = {"v": "Dạ để em hướng dẫn nhé"}
+LOI_ENGINE = {"v": None}    # a str = the engine core returns an error string; an Exception = the engine raises
 LUOT_ENGINE = []
 
 
@@ -95,6 +96,10 @@ zc.THU_LAI_TEN_GIAY = 0        # và làm mới bảng cuộc chat được ngay
 async def _engine(text, meta, progress, *, channel="", bot=None):
     LUOT_ENGINE.append({"text": text, "channel": channel, "meta": dict(meta or {}),
                         "prompt": chatbot_runtime.build_bot_prompt(bot)})
+    if isinstance(LOI_ENGINE["v"], Exception):
+        raise LOI_ENGINE["v"]
+    if LOI_ENGINE["v"]:
+        return LOI_ENGINE["v"]
     return {"text": TRA_LOI["v"], "files": []}
 
 
@@ -401,6 +406,31 @@ async def chay():
     check("và có TÀI LIỆU tra sẵn trong prompt (căn cứ để trả lời)",
           "7777" in LUOT_ENGINE[-1]["prompt"])
 
+    # ---- 0.102.1: a Tự đánh giá turn that FAILS stays out of the group ----
+    # Seen 2026-10-12 in a 69-member Zalo group: the engine failed on a message nobody addressed to the bot, and the
+    # bot posted "Em đang gặp trục trặc kỹ thuật..." tagged to that person.
+    for ma, loi, cau in (("lt-x", RuntimeError("engine sập"), "Javis báo lỗi cổng 7777 đang bị dùng thì làm sao ạ?"),
+                         ("lt-s", "⚠ Codex không trả về nội dung nào.", "Javis báo lỗi cổng 7777 khi khởi động thì xử lý sao ạ?")):
+        GUI.clear()
+        LOI_ENGINE["v"] = loi
+        n0 = len(LUOT_ENGINE)
+        KHO_TIN.append(nhom_msg(cau, ma, uid="77702" + ma[-1], nguoi="Johnny"))
+        await doc(0.4)
+        ten = "lõi trả chuỗi lỗi" if isinstance(loi, str) else "engine văng lỗi"
+        check(f"Tự đánh giá hỏng ({ten}): bot KHÔNG gửi câu xin lỗi vào nhóm",
+              len(LUOT_ENGINE) == n0 + 1 and not GUI, (len(LUOT_ENGINE) - n0, GUI))
+        ghi = [r for r in chatbot_log.doc(bid, 500) if r.get("bo_qua") == "loi_tu_dong"]
+        check(f"Tự đánh giá hỏng ({ten}): lỗi gốc vẫn vào nhật ký bot cho chủ",
+              ghi and ("Codex" if isinstance(loi, str) else "engine sập") in ghi[0]["loi"], ghi[:1])
+    GUI.clear()
+    LOI_ENGINE["v"] = "⚠ Codex không trả về nội dung nào."
+    KHO_TIN.append(nhom_msg("Javis Vũ ơi lỗi cổng 7777 làm sao em", "lt-g", uid="7770299", nguoi="Học viên C"))
+    await doc(0.4)
+    check("người GỌI bot mà lượt hỏng thì vẫn được báo (câu xin lỗi), không im",
+          len(GUI) == 1 and "trục trặc" in GUI[0].get("message", GUI[0].get("text", str(GUI[0]))), GUI)
+    LOI_ENGINE["v"] = None
+    GUI.clear()
+
     # câu hỏi nhưng tài liệu không có: im, ghi lý do
     GUI.clear()
     n0 = len(LUOT_ENGINE)
@@ -517,7 +547,9 @@ async def chay():
     n_bo = sum(1 for r in ds if r.get("bo_qua"))
     check("tóm tắt tách riêng số tin bỏ qua", tt.get("bo_qua") == n_bo and n_bo >= 2, tt)
     check("và không tính chúng vào số lượt", tt["luot"] == len(ds) - n_bo, (tt, len(ds), n_bo))
-    check("cũng không làm loãng tỉ lệ bí", tt["bi"] == 0 and tt["ty_le_bi"] == 0.0, tt)
+    # Only the turn that really failed while someone CALLED the bot counts as stuck (0.102.1 adds one on purpose).
+    n_hong = sum(1 for r in ds if r.get("loi") and not r.get("bo_qua"))
+    check("cũng không làm loãng tỉ lệ bí", n_hong == 1 and tt["bi"] == n_hong, (tt, n_hong))
 
     chatbot_runtime.stop_bot(bid)
 
