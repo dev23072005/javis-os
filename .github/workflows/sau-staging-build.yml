@@ -1,0 +1,101 @@
+name: SAFE_AUTO_UPDATE_V1 staging build
+
+# Generic immutable staging build for the dev23072005/javis-os fork (SAFE_AUTO_UPDATE_V1, G5).
+# Lives alone on the orphan branch ci/staging-build. Each build = one commit on that branch that only
+# changes .staging/request.json (no workflow change, so the release token needs no Workflows permission
+# after this file exists). Output: ONLY ghcr.io/dev23072005/javis-os:staging-<commit>. Never latest,
+# never a version tag. Pinned CLIs, labels carry commit/tree/version so the supervisor can verify.
+on:
+  push:
+    branches: [ci/staging-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: sau-staging-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Read build request
+        uses: actions/checkout@v4
+        with:
+          path: request
+          fetch-depth: 1
+      - name: Validate request
+        id: req
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          if not os.path.exists('request/.staging/request.json'):
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                  out.write('skip=true\n')
+              raise SystemExit(0)
+          r = json.load(open('request/.staging/request.json'))
+          assert r.get('schema') == 'SAFE_AUTO_UPDATE_V1_BUILD_REQUEST', 'schema'
+          for k in ('source_commit', 'source_tree'):
+              assert re.fullmatch(r'[0-9a-f]{40}', r[k]), k
+          assert re.fullmatch(r'\d+\.\d+\.\d+', r['version']), 'version'
+          for k in ('claude_cli', 'codex_cli'):
+              assert re.fullmatch(r'\d+\.\d+\.\d+', r[k]), k
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for k in ('source_commit', 'source_tree', 'version', 'claude_cli', 'codex_cli', 'run_id'):
+                  out.write('%s=%s\n' % (k, r[k]))
+          PY
+      - name: Checkout frozen source
+        if: steps.req.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.req.outputs.source_commit }}
+          path: src
+          fetch-depth: 1
+      - name: Verify frozen source
+        if: steps.req.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ steps.req.outputs.source_commit }}"
+          test "$(git rev-parse HEAD^{tree})" = "${{ steps.req.outputs.source_tree }}"
+          test "$(tr -d ' \n\r' < VERSION)" = "${{ steps.req.outputs.version }}"
+          test -z "$(git status --porcelain)"
+      - uses: docker/setup-buildx-action@v3
+        if: steps.req.outputs.skip != 'true'
+      - uses: docker/login-action@v3
+        if: steps.req.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build staging tag only
+        if: steps.req.outputs.skip != 'true'
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: src
+          file: src/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/dev23072005/javis-os:staging-${{ steps.req.outputs.source_commit }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.req.outputs.source_commit }}
+            org.opencontainers.image.version=${{ steps.req.outputs.version }}
+            org.opencontainers.image.source=https://github.com/dev23072005/javis-os
+            io.afftera.staging.tree=${{ steps.req.outputs.source_tree }}
+            io.afftera.sau.run=${{ steps.req.outputs.run_id }}
+          build-args: |
+            CLAUDE_CLI_VERSION=${{ steps.req.outputs.claude_cli }}
+            CODEX_CLI_VERSION=${{ steps.req.outputs.codex_cli }}
+            WITH_BROWSER_DEPS=1
+          cache-from: type=gha,scope=sau-staging
+          cache-to: type=gha,mode=max,scope=sau-staging
+      - name: Record immutable image
+        if: steps.req.outputs.skip != 'true'
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          echo "SAU_STAGING_IMAGE ghcr.io/dev23072005/javis-os@${IMAGE_DIGEST} commit=${{ steps.req.outputs.source_commit }} tree=${{ steps.req.outputs.source_tree }} version=${{ steps.req.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
