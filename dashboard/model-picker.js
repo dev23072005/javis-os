@@ -12,7 +12,25 @@
   // chọn xong server lọc về "off" mà giao diện vẫn khoe đang bật.
   const EFFORT = [["off", "models.r_off"], ["low", "models.r_low"], ["medium", "models.r_med"],
                   ["high", "models.r_high"], ["xhigh", "models.r_xhigh"], ["ultra", "models.r_ultra"]];
-  let state = { providers: [], main: { provider: "", model: "" }, reasoning: "off" };
+  // Effort chip labels (0.153.0, English as the owner asked): full keys so the i18n test can read them.
+  const EFF_KEY = { off: "eff.off", low: "eff.low", medium: "eff.medium", high: "eff.high", xhigh: "eff.xhigh", ultra: "eff.ultra" };
+  // FAST_NOTE_BEGIN
+  // Fast mode per brain (researched 2026-10-15, see docs/superpowers/specs/2026-10-15-composer-plus-fast-mode-design.md).
+  // Claude only on Opus 5.5, Opus 5 and Opus 4.8; an empty model means Claude Code's default (Opus), so it counts.
+  function fastNote(provider, model) {
+    const m = String(model || "").toLowerCase();
+    // The Claude Code alias "opus" points at Opus 5.5 (first in the catalog and the fallback default).
+    // Same rule as server/fast_mode.py: the version ends the id or is followed by a date (-YYYYMMDD).
+    const opusOk = !m || m === "opus" || /opus-(?:5-5|4-8|5)(?=$|-\d{8}(?!\d)|[^-\d.])/.test(m);
+    if (provider === "anthropic-cli") return opusOk ? { supported: true, note: "fast.claude" } : { supported: false, note: "fast.model_none" };
+    if (provider === "anthropic-api") return opusOk ? { supported: true, note: "fast.api" } : { supported: false, note: "fast.model_none" };
+    if (provider === "openai-oauth") return { supported: true, note: "fast.codex" };
+    if (provider === "openai" || provider === "openrouter" || provider === "gemini") return { supported: true, note: "fast.api" };
+    return { supported: false, note: "fast.none" };
+  }
+  // FAST_NOTE_END
+  let state = { providers: [], main: { provider: "", model: "" }, reasoning: "off", fast: false };
+  let agentEff = null;   // { slug, level } while the chat in front is an assistant's (0.193.0)
   let sessionPin = null;   // {provider, model} phiên đang mở đã ghim; null = theo mặc định chung
   let pinBroken = false;   // phiên có ghim nhưng ghim HỎNG (provider mất key) - server đang chạy mặc định chung
   let pinSid = null;       // phiên mà sessionPin đang nói về (chống vẽ nhầm khi đổi phiên nhanh)
@@ -22,6 +40,22 @@
 
   const short = (m) => (m || "").split("/").pop().replace(/^(claude-|gpt-)/, "").slice(0, 26) || window.t("models.mp_default");
   const provShort = (lbl) => (lbl || "").split(" ")[0];
+  // Chip text: the model name alone. No model set means the provider's own default, so the provider name stands in
+  // ("Claude") rather than a bare "Default".
+  const chipLabel = (eff, p) => (eff.model ? prettyModel(eff.model) : (p ? provShort(p.label) : "Model"));
+  // "claude-opus-4-8-20260101" -> "Opus 4.8", "gpt-5.1-codex" -> "GPT-5.1 codex", "openai/gpt-4o" -> "GPT-4o",
+  // "gemini-2.5-pro" -> "Gemini 2.5 pro". Pure, so the node test can run it.
+  function prettyModel(id) {
+    let n = String(id || "").split("/").pop().replace(/[-@]\d{8}$/, "").replace(/^claude-/, "");
+    const fam = /^(opus|sonnet|haiku|fable)((?:-\d{1,2})*)(.*)$/i.exec(n);
+    if (fam) {
+      const ver = fam[2] ? " " + fam[2].slice(1).split("-").join(".") : "";
+      return (fam[1][0].toUpperCase() + fam[1].slice(1).toLowerCase() + ver + fam[3].replace(/-/g, " ")).trim();
+    }
+    if (/^gpt-/i.test(n)) return ("GPT-" + n.slice(4)).replace(/-(?=[a-z])/g, " ").replace(/^GPT /, "GPT-");
+    n = n.replace(/-/g, " ").replace(/:/g, " ");
+    return n ? n[0].toUpperCase() + n.slice(1) : n;
+  }
   const $ = (id) => document.getElementById(id);
   const curSid = () => { try { return (window.JavisSessions && window.JavisSessions.current()) || null; } catch (e) { return null; } };
   const curBrain = () => { try { return (window.JavisSessions && window.JavisSessions.brain()) || ""; } catch (e) { return ""; } };
@@ -33,6 +67,14 @@
     fd.append("section", "model");
     fd.append("data", JSON.stringify(patch));
     try { await fetch("/settings", { method: "POST", body: fd }); } catch (e) {}
+  }
+
+  async function saveAgentEffort(slug, level) {
+    const fd = new FormData();
+    fd.append("level", level);
+    fd.append("brain", curBrain() || "brain");
+    try { await fetch(`/agents/${encodeURIComponent(slug)}/reasoning`, { method: "POST", body: fd }); } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent("javis:agent-reasoning", { detail: { slug: slug, level: level } })); } catch (e) {}
   }
 
   async function pinToSession(sid, prov, model) {
@@ -50,6 +92,7 @@
       state.providers = m.providers || [];
       state.main = m.main || { provider: "anthropic-cli", model: "" };
       state.reasoning = m.reasoning || "off";
+      state.fast = m.fast === true;
     } catch (e) {}
   }
 
@@ -58,7 +101,7 @@
   async function loadSessionPin() {
     const sid = curSid();
     pinSid = sid;
-    if (!sid) { sessionPin = null; pinBroken = false; pendingPin = null; return; }
+    if (!sid) { sessionPin = null; pinBroken = false; pendingPin = null; agentEff = null; return; }
     pendingPin = null;
     try {
       const r = await fetch(`/sessions/${encodeURIComponent(sid)}/meta`);
@@ -67,25 +110,91 @@
       // pin_ok=false: ghim còn trong DB nhưng không chạy được (provider mất key) -
       // server đang rơi về mặc định chung, nên hiển thị cũng phải theo mặc định chung.
       pinBroken = !!(d && d.pinned_provider && d.pin_ok === false);
+      // 0.193.0: in an assistant's chat the effort chip shows and sets that assistant's own level (default medium).
+      agentEff = d && d.agent_slug ? { slug: d.agent_slug, level: d.agent_reasoning || "medium" } : null;
       sessionPin = (d && d.pinned_provider && !pinBroken)
         ? { provider: d.pinned_provider, model: d.pinned_model || "" } : null;
-    } catch (e) { if (pinSid === sid) { sessionPin = null; pinBroken = false; } }
+    } catch (e) { if (pinSid === sid) { sessionPin = null; pinBroken = false; agentEff = null; } }
   }
 
   function renderBar() {
     const eff = effective();
     const p = state.providers.find((x) => x.id === eff.provider);
-    const mt = $("mbModelTxt"), et = $("mbEffortTxt");
+    const mt = $("mbModelTxt");
     if (mt) {
-      mt.textContent = (p ? provShort(p.label) : "Model") + " · " + short(eff.model)
-        + (sessionPin ? " · " + window.t("mpick.pin") : pinBroken ? " · " + window.t("mpick.pin_broken") : "");
-      mt.title = sessionPin
+      // 0.180.0 (owner): the chip shows the model name only, like "Opus 5.5" in the Claude app. The provider moves to
+      // the tooltip; the pin state shows as an icon (below).
+      mt.textContent = chipLabel(eff, p);
+      mt.title = (p ? p.label + " · " + (eff.model || window.t("models.mp_default")) + "\n" : "") + (sessionPin
         ? window.t("mpick.pin_title")
         : pinBroken
           ? window.t("mpick.pin_broken_title")
-          : window.t("mpick.follow_default");
+          : window.t("mpick.follow_default"));
+      // The per-session pin keeps a visible mark (owner: "chế độ ghim vẫn hoạt động nhé"): a small pin icon on the
+      // chip instead of the old "· ghim" text, orange-amber when the pin is broken. Screen readers get it in words.
+      const chip = $("mbOpen");
+      if (chip) {
+        chip.classList.toggle("is-pinned", !!sessionPin);
+        chip.classList.toggle("is-pin-broken", pinBroken);
+        let pin = chip.querySelector(".mb-pin");
+        if (!pin) {
+          pin = document.createElement("span");
+          pin.className = "mb-pin";
+          pin.setAttribute("aria-hidden", "true");
+          pin.innerHTML = typeof ic === "function" ? ic("pin") : "";
+          chip.insertBefore(pin, chip.querySelector(".mb-caret"));
+        }
+        pin.hidden = !(sessionPin || pinBroken);
+        chip.setAttribute("aria-label", mt.textContent
+          + (sessionPin ? ", " + window.t("mpick.pin") : pinBroken ? ", " + window.t("mpick.pin_broken") : ""));
+      }
     }
-    if (et) et.textContent = "Effort: " + window.t((EFFORT.find((e) => e[0] === state.reasoning) || EFFORT[0])[1]);
+    const eb = $("effTxt");
+    if (eb) {
+      // A locked Antigravity model runs at the level in its name, so the chip shows that level.
+      const effM = effective();
+      const own = window.JavisEffortSlider && window.JavisEffortSlider.isLocked(effM.provider, effM.model)
+        ? window.JavisEffortSlider.lockedLevel(effM.model) : "";
+      const lvl = agentEff ? agentEff.level : state.reasoning;
+      eb.textContent = window.t(EFF_KEY[own || (EFFORT.find((e) => e[0] === lvl) || EFFORT[0])[0]]);
+      const effB = $("effBtn");
+      if (effB) effB.title = agentEff ? window.t("mpick.eff_agent") : "";
+    }
+    renderFast();
+  }
+
+  function renderFast() {
+    const fb = $("fastBtn");
+    if (!fb) return;
+    const eff = effective();
+    const n = fastNote(eff.provider, eff.model);
+    fb.setAttribute("aria-pressed", n.supported && state.fast ? "true" : "false");
+    fb.setAttribute("aria-disabled", n.supported ? "false" : "true");
+    // 0.164.0: the last real state this brain reported (cooldown, provider refusal) as an extra line.
+    const st = fastStates[eff.provider];
+    const key = n.supported && state.fast ? fastStateKey(st) : "";
+    fb.title = "Fast mode\n" + window.t(n.note) + (key ? "\n" + window.t(key, { reason: (st && st.reason) || "" }) : "");
+  }
+  // FAST_STATE_BEGIN
+  // Tooltip line for the last Fast mode state a brain reported (server: fast_mode.states()).
+  function fastStateKey(st) {
+    const s = st && st.state;
+    if (s === "cooldown") return "fast.state_cooldown";
+    if (s === "fallback") return "fast.state_fallback";
+    // Claude Code reports off with a reason (e.g. out_of_credits when usage credits are not enabled).
+    if (s === "off" && st.reason) return st.reason === "out_of_credits" ? "fast.state_credits" : "fast.state_off";
+    return "";
+  }
+  // FAST_STATE_END
+  let fastStates = {};
+  // Read on hover/focus: cheap, and always fresh after the last turn.
+  async function refreshFastState() {
+    try {
+      const r = await fetch("/model/fast-state");
+      const d = r.ok ? await r.json() : null;
+      fastStates = (d && d.states) || {};
+    } catch (e) {}
+    renderFast();
   }
 
   // Màn cảm ứng (điện thoại, máy tính bảng): focus một ô nhập là bật bàn phím ảo.
@@ -101,8 +210,7 @@
     // (o.cho). Trước đây popup mở ra trống trơn trong lúc chờ (Codex mất vài giây).
     const o = {
     // Thân bảng (ô tìm + nhà + model + hàng khoá) dựng bởi model-list.js, dùng CHUNG với ô
-    // Model của trợ lý bên Studio. Ở đây chỉ nối thêm hàng Effort - thứ duy nhất riêng của
-    // thanh chat.
+    // The assistant's model on the Studio side. The thinking level has its own chip and popover since 0.153.0.
       providers: state.providers,
       expanded, filter,
       selected: effective(),
@@ -113,9 +221,6 @@
     };
     let html = await window.JavisModelList.render(o);
     if (luot !== luotVe || pop.hidden) return;
-    html += `<div class="mb-eff-row"><span class="lbl">Effort</span>` +
-      EFFORT.map(([v, l]) => `<button class="mb-eff-btn ${state.reasoning === v ? "cur" : ""}" data-eff="${v}">${window.t(l)}</button>`).join("") +
-      `</div>`;
     // Ô tìm đang được gõ thì giữ con trỏ ở đó sau khi vẽ lại. Mới MỞ bảng thì chỉ tự focus
     // trên máy có bàn phím thật: trên điện thoại focus là bật bàn phím ảo che nửa bảng, người
     // dùng chỉ muốn bấm chọn model (chủ repo báo 27/09 "tự nhảy lên bàn phím").
@@ -135,6 +240,7 @@
   function open() {
     const pop = $("mbPop");
     if (!pop) return;
+    effClose(); closePlus();
     // Đang gõ trong ô chat mà bấm chip model: hạ bàn phím xuống trước, kẻo bàn phím che bảng.
     if (camUng()) {
       const a = document.activeElement;
@@ -144,6 +250,41 @@
   }
   function close() { const pop = $("mbPop"); if (pop) pop.hidden = true; }
   function isOpen() { const pop = $("mbPop"); return pop && !pop.hidden; }
+
+  // Effort chip (0.153.0): split from the model picker, opens a small popover with a slider.
+  let effSlider = null;
+  function effOpen() {
+    const pop = $("effPop"), btn = $("effBtn");
+    if (!pop || !window.JavisEffortSlider) return;
+    close(); closePlus();
+    const eff = effective();
+    pop.hidden = false;
+    const locked = window.JavisEffortSlider.isLocked(eff.provider, eff.model);
+    if (btn) btn.setAttribute("aria-expanded", "true");
+    effSlider = window.JavisEffortSlider.mount(pop, {
+      value: agentEff ? agentEff.level : state.reasoning,
+      locked: locked,
+      lockedValue: locked ? window.JavisEffortSlider.lockedLevel(eff.model) : "",
+      onChange: async (v) => {
+        if (agentEff) { agentEff.level = v; renderBar(); await saveAgentEffort(agentEff.slug, v); return; }
+        state.reasoning = v; renderBar(); await saveModel({ reasoning: v });
+      },
+    });
+    // Keep the popover inside the card: on a narrow phone the chip sits far enough right that a
+    // popover opened at its left edge would spill past the screen.
+    const card = pop.offsetParent;
+    const maxLeft = card ? Math.max(8, card.clientWidth - pop.offsetWidth - 8) : 8;
+    pop.style.left = (btn ? Math.min(btn.offsetLeft, maxLeft) : 8) + "px";
+    if (effSlider.focus) effSlider.focus();
+  }
+  function effClose() {
+    const pop = $("effPop"), btn = $("effBtn");
+    if (effSlider) { effSlider.destroy(); effSlider = null; }
+    if (pop) pop.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+  function effIsOpen() { const pop = $("effPop"); return pop && !pop.hidden; }
+  function closePlus() { try { if (window.JavisComposerMenu) window.JavisComposerMenu.close(); } catch (e) {} }
 
   // Chọn một model: ghi mặc định chung (chat mới sau này theo cái vừa chọn) + GHIM cho phiên
   // đang mở (phiên này giữ đúng model kể cả khi mặc định chung bị đổi ở chỗ khác). Dùng chung
@@ -163,6 +304,7 @@
       sessionPin = null;
     }
     await loadState(); renderBar();
+    if (effIsOpen()) { effClose(); effOpen(); }   // the new model may lock or unlock the slider
   }
 
   // `/model <tên>`: tìm trong model của các nhà ĐÃ KẾT NỐI. Khớp NGUYÊN id thì thắng ngay; nếu
@@ -190,9 +332,24 @@
     return { kind: "none" };
   }
 
+  // Hovering or focusing the bolt refreshes its tooltip with the brain's last real Fast mode state.
+  ["mouseover", "focusin"].forEach((t) => document.addEventListener(t, (e) => {
+    if (e.target && e.target.closest && e.target.closest("#fastBtn") && state.fast) refreshFastState();
+  }));
+
   document.addEventListener("click", async (e) => {
     if (e.target.closest("#mbOpen")) { isOpen() ? close() : open(); return; }
-    if (!e.target.closest("#modelBar") && !e.target.closest("#mbPop") && !e.target.closest("#mbOpen")) { if (isOpen()) close(); return; }
+    if (e.target.closest("#effBtn")) { effIsOpen() ? effClose() : effOpen(); return; }
+    if (e.target.closest("#fastBtn")) {
+      const eff = effective();
+      if (!fastNote(eff.provider, eff.model).supported) return;
+      state.fast = !state.fast;
+      renderFast();
+      await saveModel({ fast: state.fast });
+      return;
+    }
+    if (!e.target.closest("#effPop") && effIsOpen()) effClose();
+    if (!e.target.closest("#mbPop") && !e.target.closest("#mbOpen")) { if (isOpen()) close(); return; }
 
     const goto = e.target.closest("[data-goto]");
     if (goto) {
@@ -206,13 +363,6 @@
       close();
       return;
     }
-    const eff = e.target.closest(".mb-eff-btn");
-    if (eff) {
-      state.reasoning = eff.dataset.eff;      // cập nhật lạc quan để UI phản hồi ngay
-      await saveModel({ reasoning: eff.dataset.eff });
-      renderBar(); renderPop();
-      return;
-    }
     const prov = e.target.closest(".mb-prov");
     // Bấm lại tên nhà đang mở là THU lại: OpenRouter hơn 300 model, không thu được thì phải
     // cuộn hết mới sang được nhà khác (chủ repo báo 27/09).
@@ -222,7 +372,11 @@
     }
   });
 
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen()) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (isOpen()) close();
+    if (effIsOpen()) { effClose(); const b = $("effBtn"); if (b) b.focus(); }
+  });
 
   window.initModelBar = async function () {
     await loadState(); await loadSessionPin(); renderBar();
@@ -248,6 +402,8 @@
       if (r.kind === "one") { await chonModel(r.prov, r.model); return { kind: "one", label: provShort(r.label), model: r.model }; }
       return r;
     },
+    fastNote: fastNote,
+    prettyModel: prettyModel,
     hienTai: function () {
       const eff = effective();
       const p = state.providers.find((x) => x.id === eff.provider);

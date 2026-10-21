@@ -34,8 +34,7 @@ Left navigation rail, group **Assistant** → item **Javis**. This is also the d
 | VAULT | Left column | The folder tree of the selected brain, a **Find note...** box, two filter modes **Name** / **Content**, and three buttons **＋** (new file), **📁** (new folder), **⟳** (refresh the tree) |
 | Knowledge graph + status | Centre | The note network, the status line (READY, LISTENING...), and the **AGENTS** / **SKILLS** / **WORKFLOWS** counters at the bottom |
 | CONVERSATION | Right column | Chat history, the engine badge, and the **⛶** button that opens the Chat page |
-| Model bar | Just above the input | The model and Effort chip, plus the **SYSTEM** and **MCP** strips currently in use |
-| Input bar | Bottom | Mic button, attach button, the text box, and the send button (which becomes a stop button while a turn runs) |
+| Composer | Bottom | One rounded card: attachments, the text box, then a row with **＋**, the model chip, the Effort chip, the Fast mode bolt, the pinned folder chip (when there is one), the mic and the send button (which becomes a stop button while a turn runs) |
 
 The left column **no longer** holds a grid of business metric cards; it is the vault explorer, and clicking a note opens it for editing right there (see [File manager](05-file-manager.md)). Clicking the AGENTS / SKILLS / WORKFLOWS numbers jumps straight to the matching page in the **Capabilities** group.
 
@@ -94,6 +93,18 @@ While Javis is thinking or speaking, the send button turns into a **stop button*
 **Esc hangs up; it does not stop the answer.** Esc turns off the mic and silences the voice, while the answer keeps being written and appears as text. Esc also closes any open popup. The "(Esc)" hint on the stop button is leftover text from an older build.
 
 The stop button only stops **the session you are looking at**; other sessions running in the background continue. See [Sessions](04-sessions.md).
+
+### Sending more while Javis is working
+
+From 0.206.0 you can keep typing and sending while Javis works, like in Claude Code or Codex. As soon as there is text in the box, the send button comes back next to the stop button (tooltip "Send to the work in progress"); Enter works too on a computer. The running work is **not stopped**:
+
+- With Claude Code and the API-key brains, Javis reads the new message at its **next step** (after the tool call in progress) and acts on it. A correction is applied at once; a new task is taken on as well, in parallel where possible, and both are answered.
+- From 0.213.0 Codex (ChatGPT plan) also reads the new message within the turn, like Enter in the Codex app itself: a message sent while Codex runs a command joins the next step, and one sent while Codex writes its final answer makes Codex do one more round in the same turn to cover it. To go back to the old way (the message waits for the next turn), set the environment variable `JAVIS_CODEX_STEER=0` and restart Javis.
+- With Grok Build and Antigravity CLI (which run in one go and take no input mid-way), or when Javis is already writing its final answer, your message **runs as the next turn** as soon as the current work ends. Nothing is lost.
+
+A small line under the message you sent says where it is: "Javis will read this at its next step", "Javis has read this", "Javis will do this right after the current task" or "Javis is working on this now". You can send several in a row; Javis reads them in order. To drop the current work altogether, press stop as before.
+
+From 0.213.0 the same goes for Telegram, Discord, Slack, Lark, Messenger and Zalo. Before, the bot replied "Still on the previous message, send /stop" and dropped yours. Now it answers with one short line, "↪ Got it, Javis reads this at the next step of the current work" or "📥 Got it, Javis handles this right after the current answer", and then works in the two ways above. /stop ends the current work and drops what was waiting. Customer-facing bots (human mode) keep their old way: no reply line, and follow-up messages are merged into the next turn.
 
 ## Slash "/" commands in the chat box
 
@@ -318,15 +329,35 @@ Common points:
 
 ## Choosing a model, Effort and the engine badge
 
-Just above the input bar there is a dedicated strip:
+The row under the text box holds three controls side by side:
 
-- **Model chip**: shows the short name of the provider and model in use, plus **Effort: Off / Low / Medium / High** (thinking depth). Clicking it opens a picker with a **Find model...** box and a provider list, each expanding into its models. Providers that are not configured show a 🔒 with the line "+ Add an API key on the Models page to unlock". The Effort row sits at the bottom of the picker.
-- **SYSTEM strip**: two status lights, "⬤ Claude Code CLI" and "⬤ Voice (Edge TTS)".
-- **MCP strip**: the data sources and tools Javis called during this session. With nothing called yet it reads "No activity". See [Connections & business data](09-connections-and-business-data.md).
+- **Model chip**: shows the short name of the provider and model in use. Clicking it opens a picker with a **Find model...** box and a provider list, each expanding into its models. Providers that are not configured show a 🔒 with the line "+ Add an API key on the Models page to unlock".
+- **Effort chip** (thinking depth): separate from the model chip because you change it more often. Clicking it opens a six-stop slider **Off / Light / Medium / High / Extra / Ultra**, with "Faster" on the left, "Smarter" on the right and "Recommended" under Medium. Drag it or use the arrow keys, Home and End. Antigravity models that carry the level in their name (e.g. `-high`) lock the slider.
+- **Fast mode bolt**: click to turn it on and the bolt starts an orange wave; click again to turn it off. There is no on/off label; hover to see "Fast mode" and a cost note for the selected brain. Brains or models that do not support it show a dimmed bolt.
+
+  | Brain | What Fast mode does | Notes |
+  |---|---|---|
+  | Claude Code | Turns on Claude Code's fast mode | Opus 5.5, Opus 5, Opus 4.8 only; billed to usage credits at twice the price |
+  | Anthropic API | Sends `speed: "fast"` | Opus 5.5, Opus 5, Opus 4.8 only |
+  | ChatGPT (Codex) | Runs the Fast tier (`priority`) | With the bolt off Javis forces the normal tier, even when the model or the Codex config defaults to Fast |
+  | OpenAI API | `service_tier: "fast"` | |
+  | OpenRouter, Gemini | `service_tier: "priority"` | Gemini: Tier 2/3 accounts only |
+  | Grok, Antigravity, Groq, DeepSeek, Ollama | None | Dimmed bolt |
+
+  When a provider refuses Fast mode (account not eligible, limit reached), Javis resends at normal speed and the turn does not fail; hover the bolt to see why. Background runs (loops, reminders, Kanban, teams) always run at normal speed.
 
 The badge next to **CONVERSATION** (and in the top right of the Chat page) shows the **real** engine and model of the last turn, taken from the server rather than from what the model claims about itself. If the badge disagrees with what you expected, trust the badge.
 
 On phones, the model chip moves into the header and the picker opens in the middle of the screen.
+
+### Pin a working folder
+
+**Pin working folder** in the **＋** menu lets a conversation work right inside a folder, for example a code project. The list shows the folders in the brain with a search box; the last row, **Browse another folder...**, picks a folder outside the brain.
+
+- Once pinned, a 📁 chip with the folder name appears next to the bolt. Hover for the full path; click to change it or **Unpin**.
+- The pin is **per conversation**: a new conversation starts in the brain as usual. Pinning on an empty chat carries the folder into the conversation from its first message.
+- CLI brains (Claude Code, ChatGPT via Codex, Grok Build, Antigravity) run commands right inside that folder. API brains read and write files through the brain's tools, so they work with folders **inside** the brain; a folder outside the brain only works with CLI brains.
+- The Coding page uses the same chip instead of its own folder button. The branch, worktree, restore point and permission chips stay on the Coding page.
 
 ## How Javis formats answers
 
@@ -444,6 +475,32 @@ The fixed grid of metric cards in the left column was removed in version 0.9.166
 
 Now, when you want numbers, just ask in chat ("how is revenue today", "compare with last week"). Javis calls the right connected source (POS, sales channels, ads...) and answers in words, so it only runs when you actually need it. Details about data sources are in [Connections & business data](09-connections-and-business-data.md).
 
+## Charts, number tiles and buttons in an answer
+
+When an answer is built on real numbers (revenue, orders, ad spend), Javis can draw them right in the chat:
+
+- **Charts**, bars or a line, for a trend over days or weeks (up to 24 points and 3 series).
+- **Number tiles**: a few key figures with their change, drawn red when they fall.
+- **Buttons** (up to 4) when it needs a quick choice from you, for example "Approve draft A" or "Redo it". A press sends that text as if you typed it; a button grants nothing.
+
+Cards are drawn from data inside the answer, so reopening the chat shows them again. Telegram, Zalo and the terminal get a text version: a chart becomes one line of numbers per label, buttons become a numbered list you answer with a number. Text in a card that looks like an API key is masked before drawing.
+
+## Javis recalls earlier conversations
+
+Start a new chat that refers to an old one ("carry on with the fish sauce landing page from last time") and Javis searches your other chats in this brain and adds up to 3 short excerpts to the question for context. Only the owner's chats are searched (the main chat, chats with partners, Javis Core); team chats, chatbots and customer conversations never feed it. The excerpts are not saved in the chat history. To turn it off, set `recall.enabled` to `false` in the settings.
+
+## Voice notes
+
+Ask Javis to "read it to me", "send a voice note", or say you would rather hear a report than read it, and Javis calls the `javis_voice_note` tool: a short spoken message (up to 1000 characters) is saved as an mp3 in the brain's `attachments/voice/`. The chat shows a player next to the link, Telegram receives it as audio, and Javis still writes the words as text below. The voice is a free Edge voice picked by the language of the text.
+
+Reminders also have a **Read it aloud** box: at the set time, the reminder or the report arrives with a voice note. If Javis is open on a computer or phone, the voice note plays at once like a call (press play when the browser blocks autoplay).
+
+To have Javis **call you at a set time**, tick **Call me** (or say in chat "call me at 7am and read the sales report"). At that time an open Javis tab rings and shows an incoming-call card with **Answer** and **Decline**. Answer starts the voice call just like the mic button (ChatGPT Live when it is set up, the basic voice otherwise): Javis reads the reminder or report briefly, asks if you need anything else, and the call goes on as usual. Unanswered for 45 seconds, it counts as missed and the content stays in the chat. With no Javis tab open nothing rings: Telegram gets the message like any other reminder. This is a call inside the Javis app, not a call to a phone number.
+
+## Keep the prompt cache warm (Claude Code, Pro/Max plan)
+
+A Pro/Max plan keeps Claude Code's prompt cache for one hour. After a longer break, the next message reloads the whole conversation, which costs a lot of allowance on a long chat. On the **Token usage** page, the budget section has a **Keep the prompt cache warm** box: with it on, about 50 minutes after the last message Javis sends one tiny request (no tools, nothing written to the conversation) that keeps the cache for another hour. It only runs within 2 hours of the last message, never while the chat is answering, and stops at once when the plan reports a usage limit or the cache has gone cold. It is still background use of the plan, so it is off by default.
+
 ## Using it on a phone
 
 Below 860px wide, the interface changes to fit the screen:
@@ -475,14 +532,17 @@ Buttons around the chat frame:
 
 | Button | Where | What it does |
 |---|---|---|
-| Large mic | Left of the input | Call Javis; during a call it becomes **Hang up** |
-| Paperclip | Next to the mic | Pick files to attach |
-| Arrow | Right of the input | Send the message |
+| ＋ | Start of the button row | Open the menu: attach a file or photo, **pin a working folder**, pick a file from the brain, commands and skills "/", **Connections** (with health), **Assistants and workflows** |
+| Mic | Next to send | Call Javis; during a call it becomes **Hang up** |
+| Arrow | End of the button row | Send the message |
 | Square | Replaces send while running | Stop the running turn and stop speaking |
 | ⛶ | Corner of the CONVERSATION panel | Enlarge the chat |
 | 🕘 History | Top right | Open the wide chat with conversation history |
 | Engine badge | Next to CONVERSATION | The real engine and model of the last turn |
-| Model chip · Effort | Above the input | Change provider, model and thinking depth |
+| Model chip | Button row under the text box | Change provider and model |
+| Effort chip | Next to the model chip | Thinking depth slider |
+| Bolt | Next to the Effort chip | Turn Fast mode on or off |
+| 📁 Folder chip | Next to the bolt, only when pinned | The folder this conversation works inside. Click to change it or unpin |
 
 Keyboard shortcuts:
 
@@ -491,6 +551,7 @@ Keyboard shortcuts:
 | **Enter** | Send the message you typed |
 | **Shift + Enter** | Line break inside a message |
 | **Ctrl + V** | Paste an image, or paste long text as an attached .txt file |
+| **Ctrl + U** | Pick files to attach |
 | **/** (start of the input) | Open the command menu; ↑ ↓ to move, Enter or Tab to confirm |
 | **Esc** | Hang up the voice call; close the command menu; close the artifact panel. Does **not** stop the answer |
 

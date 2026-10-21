@@ -215,6 +215,7 @@
   // muon sua mot chu thi phai sua ngoai roi tai len lai. Trinh sua da co san ca hai nut
   // "Mo tab moi" va "Tai ve", nen mo trinh sua la duong ngan hon cho CA hai y dinh.
   var DOWNLOAD_EXT_RE = /\.(?:svg|png|jpe?g|gif|webp|bmp|ico|mp4|webm|mov|avi|mkv|m4v|mp3|wav|m4a|ogg|flac|pdf|docx?|xlsx?|pptx?|zip|rar|7z|tar|gz)$/i;
+  var AUDIO_EXT_RE = /\.(?:mp3|wav|m4a|ogg|oga|opus)$/i;
   function isDownloadFile(rawpath) {
     var clean = String(rawpath || "").split(/[?#]/)[0].replace(/\/+$/, "");
     return DOWNLOAD_EXT_RE.test(clean);
@@ -594,10 +595,11 @@
   }
 
   function _mdToHtmlThan(raw) {
-    raw = visibleMarkdown(raw);
-
     var ph = [];
     function put(html) { ph.push(html); return OPEN + (ph.length - 1) + CLOSE; }
+    // 0.201.0: JAVIS_CARD blocks (charts, number tiles, buttons) are drawn in place before hidden comments go (chat-card.js).
+    if (typeof window !== "undefined" && window.JavisCard) raw = window.JavisCard.replaceIn(raw, put);
+    raw = visibleMarkdown(raw);
 
     // 0) frontmatter YAML o DAU file .md -> khoi rieng, KHONG cho sua, giu nguyen van de luu lai
     //    dung tung ky tu. Xem frontmatterHtml ben duoi de biet vi sao day la mot loi mat du lieu.
@@ -666,7 +668,15 @@
       if (/^(https?:|mailto:)/i.test(href)) return put('<a href="' + esc(href) + '" title="' + esc(href) + '" target="_blank" rel="noopener">' + esc(t) + "</a>");
       // URL that thi GIU nguyen ma hoa (do la duong dan mang); chi duong dan trong vault moi go
       // ra, vi no se di thang toi ten file tren dia. Xem decodeVaultPath.
-      if (isVaultRel(href)) return put('<a ' + vaultLink(decodeVaultPath(href)) + ">" + esc(t) + "</a>");
+      if (isVaultRel(href)) {
+        var vp = decodeVaultPath(href);
+        var lk = '<a ' + vaultLink(vp) + ">" + esc(t) + "</a>";
+        // 0.202.0: a voice note or any audio file in the brain gets a player next to its link (server/voice_note.py).
+        if (AUDIO_EXT_RE.test(vp.split(/[?#]/)[0])) {
+          lk = '<audio class="jv-audio" controls preload="none" src="' + esc(fileUrl(vp.replace(/^\.?\//, ""))) + '"></audio> ' + lk;
+        }
+        return put(lk);
+      }
       var resolved = resolveSrc(href);
       return put('<a href="' + esc(resolved) + '" title="' + esc(resolved) + '" target="_blank" rel="noopener">' + esc(t) + "</a>");
     });
@@ -1127,6 +1137,11 @@
     _lb.querySelector(".jv-lb-ten").textContent = _lbTen;
     var img = _lb.querySelector(".jv-lb-img");
     var khung = _lb.querySelector(".jv-lb-khung");
+    // An image from another site (a customer's Zalo photo on zdn.vn) is shown with no referrer, the same way the
+    // inbox thumbnail is, or the CDN refuses it (0.231.0).
+    try {
+      if (/^https?:/i.test(url) && new URL(url).origin !== location.origin) img.referrerPolicy = "no-referrer";
+    } catch (e) {}
     img.src = url;
     img.alt = _lbTen;
     var zoom = { scale: 1, x: 0, y: 0 };

@@ -117,7 +117,7 @@ Javis OS **不是**聊天机器人。它是一个运行在你自己的机器或 
 | **工作** | 回答完就等着 | **后台 Loop、提醒和由 AI 运行的任务队列**，并把结果汇报给你 |
 | **界面** | 一个聊天框 | 仪表盘 + 知识图谱 + **免手动语音** + Telegram、Slack、WhatsApp、Zalo + CLI |
 | **你的成果** | 留在厂商的服务器上，用的是厂商的格式 | **你机器上的普通文件**：历史、记忆、Skill、Agent 和 Workflow 都能带到任何新模型 |
-| **部署** | 别人的云 | **自托管**：Hostinger 一键部署、Docker，或任意 VPS |
+| **部署** | 别人的云 | **自托管**：[Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) 一键部署、Docker，或任意 VPS |
 
 > 💡 **设计理念：能力在 Javis 身上，而不在模型身上。** 每个大脑都通过同一个共享连接中心（MCP Hub）获得同一套工具箱。从 Claude 切换到 Gemini 不会让你失去任何东西，唯一的例外是 shell 访问，只有 CLI 引擎才有。
 
@@ -247,6 +247,8 @@ flowchart LR
 <details open>
 <summary><b>方式一：Hostinger Docker Manager（域名 + HTTPS，一键部署）</b></summary>
 
+> 🛒 **还没有 VPS？** [在这里购买 Hostinger VPS](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN)。它自带 Docker Manager，一键即可安装 Javis。开通后回到下面的步骤。
+
 Hostinger VPS → **Docker Manager → Compose → URL** → 粘贴 Hostinger 专用文件，然后点击 **Deploy**：
 
 ```
@@ -272,6 +274,8 @@ https://raw.githubusercontent.com/blogminhquy/javis-os/main/docker-compose.hosti
 
 <details>
 <summary><b>方式二：在任意 VPS 上使用 Docker（无需克隆仓库）</b></summary>
+
+> 🛒 **需要 VPS？** [Hostinger VPS](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) 同样适用这种方式。
 
 ```bash
 # Docker required (don't have it?  curl -fsSL https://get.docker.com | sh)
@@ -390,7 +394,7 @@ Dashboard:                             http://localhost:7777
 | `JAVIS_ALLOWED_HOSTS` | 额外加入允许列表的主机名（CSRF 和 DNS 重绑定防护） | localhost + 你的域名 |
 | `JAVIS_STATE_DIR` | 设置、会话和加密密钥的存放位置 | `server/`（Docker：`/data/state`） |
 | `BRAINS_DIR` | 存放所有 Brain 的上级文件夹 | `brains/`（Docker：`/brains`） |
-| `JAVIS_ENABLE_USER_PLUGINS` | 设为 `true` 后允许运行你自己的 Plugin（在服务器内运行真正的 Python 代码） | *（关闭）* |
+| `JAVIS_ENABLE_USER_PLUGINS` | 设为 `false` 会关闭你自己的 Plugin（它们在服务器内运行真正的 Python 代码） | *（开启）* |
 | `TTS_VOICE` / `TTS_RATE` | Edge TTS 的声音和语速 | `en-US-EmmaMultilingualNeural` / `+5%` |
 
 ---
@@ -401,7 +405,7 @@ Dashboard:                             http://localhost:7777
 - **2FA（TOTP）**、登录频率限制、至少 8 个字符的密码、HTTPS 下的 `Secure` cookie，以及 30 天后过期的会话。
 - **CSRF 和 DNS 重绑定防护**：任何来自未知来源的写入请求都会被拒绝。
 - `settings.json` 中的**密钥均已加密**（API key、OAuth 令牌、机器人令牌），使用每台机器独有的密钥。
-- **你自己的 Plugin 默认被阻止**，直到你设置 `JAVIS_ENABLE_USER_PLUGINS=true`。
+- **你自己的 Plugin 默认会加载，但每个 Plugin 在你于应用中开启前都保持关闭**；设置 `JAVIS_ENABLE_USER_PLUGINS=false` 可全部关闭。
 - **连接权限由 Hub 强制执行**，而不是由模型：只读账号无法被用来发送消息、付款或发布内容。
 
 发现了漏洞？请按照 [SECURITY.md](../../../SECURITY.md) 的说明处理，而不是公开提交 issue。

@@ -34,8 +34,7 @@ Rail điều hướng bên trái, nhóm **Trợ lý** → mục **Javis**. Đây
 | VAULT | Cột trái | Cây thư mục của brain đang chọn, ô **Tìm note...**, hai chế độ lọc **Tên** / **Nội dung**, ba nút **＋** (tạo file), **📁** (tạo thư mục), **⟳** (làm mới cây) |
 | Đồ thị tri thức + trạng thái | Chính giữa | Mạng ghi chú, dòng chữ trạng thái (SẴN SÀNG, ĐANG NGHE...), dải số **AGENTS** / **SKILLS** / **WORKFLOWS** ở đáy |
 | HỘI THOẠI | Cột phải | Lịch sử chat, badge engine, nút **⛶** sang trang Trò chuyện |
-| Thanh model | Ngay trên thanh nhập | Chip chọn model + Effort, dải **HỆ THỐNG** và **MCP** đang dùng |
-| Thanh nhập liệu | Dưới cùng | Nút mic, nút kẹp file, ô gõ chữ, nút gửi (đang chạy thì thành nút dừng) |
+| Khung nhập | Dưới cùng | Một thẻ bo tròn: file đính kèm, ô gõ chữ, rồi hàng nút **＋**, chip model, chip Effort, tia sét Fast mode, chip thư mục đang ghim (nếu có), mic và nút gửi (đang chạy thì thành nút dừng) |
 
 Cột trái **không còn** bảng thẻ số liệu kinh doanh; đó là Vault explorer, bấm một note là mở ra sửa ngay trên màn hình (xem [Quản lý tệp tin](05-quan-ly-tep-tin.md)). Bấm vào số AGENTS / SKILLS / WORKFLOWS thì nhảy thẳng sang trang tương ứng trong nhóm **Năng lực**.
 
@@ -111,6 +110,18 @@ Khi Javis đang suy nghĩ hoặc đang đọc, nút gửi ở thanh nhập biế
 
 Nút dừng chỉ dừng **phiên bạn đang xem**; phiên khác đang chạy nền vẫn tiếp tục. Xem [Phiên hội thoại](04-phien-hoi-thoai.md).
 
+### Gửi thêm việc khi Javis đang làm
+
+Từ 0.206.0, trong lúc Javis đang làm bạn vẫn gõ và gửi tiếp được, giống Claude Code hay Codex. Gõ chữ vào ô nhập thì nút gửi hiện lại ngay cạnh nút dừng (chú thích "Gửi thêm vào việc đang làm"), trên máy tính nhấn Enter cũng được. Việc đang làm **không bị dừng**:
+
+- Với Claude Code và các bộ não dùng API key, Javis đọc tin mới ở **bước kế tiếp** (sau lần dùng công cụ đang chạy) rồi làm luôn. Tin là lời sửa hướng thì Javis áp dụng ngay, là việc mới thì Javis nhận thêm, làm song song nếu được, và trả lời cả hai.
+- Từ 0.213.0, Codex (gói ChatGPT) cũng đọc tin mới ngay trong lượt, giống nút Enter của chính ứng dụng Codex: tin gửi lúc Codex đang chạy lệnh được chèn vào bước kế tiếp, tin gửi lúc Codex đang viết câu cuối thì Codex làm thêm một vòng trong cùng lượt để trả lời nốt. Muốn quay về cách cũ (để tin chờ tới lượt sau) thì đặt biến môi trường `JAVIS_CODEX_STEER=0` rồi khởi động lại Javis.
+- Với Grok Build và Antigravity CLI (chạy một mạch, không nhận tin giữa chừng), hoặc khi Javis đang viết câu trả lời cuối, tin của bạn **tự chạy thành lượt kế tiếp** ngay khi việc hiện tại xong. Không tin nào bị mất.
+
+Dưới tin bạn vừa gửi có một dòng nhỏ cho biết nó đang ở đâu: "Javis sẽ đọc tin này ở bước kế tiếp", "Javis đã đọc tin này", "Javis làm tin này ngay sau khi xong việc hiện tại" hoặc "Javis đang làm tin này". Gửi được nhiều tin liên tiếp, Javis đọc theo đúng thứ tự. Muốn bỏ hẳn việc đang làm thì vẫn bấm nút dừng như cũ.
+
+Từ 0.213.0, Telegram, Discord, Slack, Lark, Messenger và Zalo cũng vậy. Trước đây bot trả lời "Đang xử lý câu trước, gửi /stop" rồi bỏ tin đó. Giờ bot đáp một dòng ngắn: "↪ Đã nhận, Javis đọc tin này ngay ở bước kế tiếp" hoặc "📥 Đã nhận, Javis làm tin này ngay sau câu đang trả lời", rồi làm theo đúng hai cách ở trên. Gửi /stop thì dừng việc đang làm và bỏ luôn các tin đang chờ. Bot chăm sóc khách (chế độ người thật) giữ cách cũ: không đáp gì, gộp các tin khách nhắn thêm vào lượt sau.
+
 ## Lệnh gạch chéo "/" trong ô chat
 
 Gõ dấu **`/`** là một menu lệnh hiện lên ngay phía trên ô gõ - **ở đầu ô nhập hay giữa câu đều được**.
@@ -185,18 +196,19 @@ Mức chặn khác nhau theo bộ não, nên nói cho rõ: với **Claude Code, 
 
 #### `/goal` - làm tới khi đạt
 
-Gõ `/goal mọi đơn hôm nay đã được đối soát xong`. Javis làm một vòng, tự kiểm tra bằng dữ liệu thật xem mục tiêu đã đúng chưa, và nếu chưa thì **tự gửi vòng kế tiếp** mà bạn không phải nhắc. Mỗi vòng có một dòng ghi chú ngắn nói còn thiếu gì.
+Gõ `/goal mọi đơn hôm nay đã được đối soát xong`. Javis làm một vòng, tự kiểm tra bằng dữ liệu thật xem mục tiêu đã đúng chưa, và nếu chưa thì **tự gửi vòng kế tiếp** mà bạn không phải nhắc. Mỗi vòng tự nhắc hiện thành một dòng "Javis tự nhắc làm tiếp (vòng n/5)": bấm vào để xem vòng trước còn thiếu gì, và nút **Tắt mục tiêu** ngay cạnh để dừng bất cứ lúc nào (dừng rồi thì nút mờ đi). Các dòng này còn nguyên sau khi tải lại trang.
 
 Javis đề xuất "xong hay chưa", còn **việc có chạy tiếp hay không do mã quyết định**, để một mục tiêu không bao giờ đạt được không thành vòng lặp đốt token vô hạn. Vòng tự động dừng khi:
 
 - mục tiêu đã đạt;
-- đã chạy **8 vòng** mà chưa đạt;
+- Javis báo **không làm tiếp được** vì thiếu quyền, thiếu công cụ, thiếu kết nối hay thiếu dữ liệu: dừng ngay ở vòng đó, nói rõ lý do và gợi ý cách gỡ, thay vì nhắc đi nhắc lại;
+- đã chạy **5 vòng** mà chưa đạt;
 - hai vòng liền báo còn thiếu y hệt nhau (không có tiến triển);
 - Javis hỏi ngược bạn một câu cần bạn quyết;
 - một vòng bị lỗi, hoặc Javis không báo được mục tiêu đã đạt hay chưa;
 - **bạn gõ một tin mới, bấm Dừng, mở hội thoại khác hoặc gõ `/goal clear`** - lời của bạn luôn lên trước.
 
-Chế độ này chạy trong **tab chat đang mở**: đóng tab hay tải lại trang thì dừng. Khác với `/plan`, `/goal` làm việc thật (đúng quyền hạn bạn đã cấp cho Javis), nên hãy viết mục tiêu cụ thể, kiểm chứng được.
+Khi dừng, mục tiêu tự tắt và câu báo luôn kèm việc bạn có thể làm tiếp (gỡ chỗ thiếu rồi gõ `/goal` lại). Chế độ này chạy trong **tab chat đang mở**: đóng tab hay tải lại trang thì dừng (các dòng vòng đã chạy vẫn còn để xem lại). Khác với `/plan`, `/goal` làm việc thật (đúng quyền hạn bạn đã cấp cho Javis), nên hãy viết mục tiêu cụ thể, kiểm chứng được.
 
 #### Trên Telegram
 
@@ -334,15 +346,35 @@ Vài điểm hay gặp:
 
 ## Chọn model, Effort và badge engine
 
-Ngay trên thanh nhập có một dải riêng:
+Hàng nút dưới ô gõ có ba thứ đứng cạnh nhau:
 
-- **Chip model**: hiện tên rút gọn của nhà cung cấp và model đang dùng, kèm **Effort: Tắt / Thấp / Vừa / Cao** (độ sâu suy nghĩ). Bấm chip mở bảng chọn: ô **Tìm model...**, danh sách nhà cung cấp, mỗi cái bung ra danh sách model. Nhà cung cấp chưa cấu hình hiện ổ khoá 🔒 kèm dòng "+ Thêm API key ở trang Models để mở khoá". Hàng Effort nằm cuối bảng.
-- **Dải HỆ THỐNG**: hai đèn trạng thái "⬤ Claude Code CLI" và "⬤ Voice (Edge TTS)".
-- **Dải MCP**: các nguồn dữ liệu / công cụ Javis vừa gọi trong phiên. Chưa gọi gì thì ghi "Chưa có hoạt động". Xem [Kết nối & số liệu kinh doanh](09-mcp-va-so-lieu.md).
+- **Chip model**: hiện tên rút gọn của nhà cung cấp và model đang dùng. Bấm chip mở bảng chọn: ô **Tìm model...**, danh sách nhà cung cấp, mỗi cái bung ra danh sách model. Nhà cung cấp chưa cấu hình hiện ổ khoá 🔒 kèm dòng "+ Thêm API key ở trang Models để mở khoá".
+- **Chip Effort** (độ sâu suy nghĩ): tách riêng khỏi chip model vì đổi thường xuyên hơn. Bấm mở một thanh trượt sáu nấc **Off / Light / Medium / High / Extra / Ultra** (để tiếng Anh cho gọn), đầu trái ghi "Faster", đầu phải "Smarter", "Recommended" nằm dưới Medium. Kéo chuột hoặc dùng phím mũi tên, Home, End. Model Antigravity đã ghi sẵn mức trong tên (vd. `-high`) thì thanh trượt bị khoá.
+- **Tia sét Fast mode**: bấm để bật, tia sét chuyển sóng cam; bấm lần nữa để tắt. Không có chữ bật/tắt, rê chuột vào sẽ thấy "Fast mode" kèm ghi chú chi phí của bộ não đang chọn. Bộ não hoặc model không hỗ trợ thì tia sét mờ đi.
+
+  | Bộ não | Fast mode làm gì | Lưu ý |
+  |---|---|---|
+  | Claude Code | Bật chế độ nhanh của Claude Code | Chỉ Opus 5.5, Opus 5, Opus 4.8; tính vào usage credits, giá gấp đôi |
+  | Anthropic API | Gửi `speed: "fast"` | Chỉ Opus 5.5, Opus 5, Opus 4.8 |
+  | ChatGPT (Codex) | Chạy tier Fast (`priority`) | Tắt tia sét là ép về tốc độ thường, kể cả khi model hay cấu hình Codex mặc định đang để Fast |
+  | OpenAI API | `service_tier: "fast"` | |
+  | OpenRouter, Gemini | `service_tier: "priority"` | Gemini chỉ tài khoản Tier 2/3 |
+  | Grok, Antigravity, Groq, DeepSeek, Ollama | Không có | Tia sét mờ |
+
+  Nhà cung cấp từ chối Fast mode (tài khoản không đủ điều kiện, vượt giới hạn) thì Javis tự gửi lại ở tốc độ thường, lượt chat không hỏng; rê chuột vào tia sét sẽ thấy dòng báo lý do. Việc chạy nền (loop, nhắc hẹn, Kanban, nhóm) luôn chạy tốc độ thường.
 
 Badge cạnh chữ **HỘI THOẠI** (và ở góc phải trang Trò chuyện) hiện engine + model **thật** của lượt vừa chạy, lấy từ server chứ không phải model tự khai. Nếu badge khác cái bạn tưởng, tin badge.
 
 Trên điện thoại, chip model dời lên header và bảng chọn mở ra giữa màn hình.
+
+### Ghim thư mục làm việc
+
+Mục **Ghim thư mục làm việc** trong menu **＋** cho một hội thoại làm việc ngay trong một thư mục, ví dụ thư mục dự án code. Danh sách mở ra là các thư mục trong brain, có ô tìm; dòng cuối **Duyệt thư mục khác...** để chọn thư mục ngoài brain.
+
+- Ghim xong, cạnh tia sét hiện chip 📁 kèm tên thư mục. Rê chuột thấy đường dẫn đầy đủ; bấm vào để đổi hoặc **Bỏ ghim**.
+- Ghim theo **từng hội thoại**: hội thoại mới bắt đầu trong brain như thường. Ghim khi khung chat còn trống thì thư mục đi theo hội thoại ngay từ tin đầu.
+- Bộ não CLI (Claude Code, ChatGPT qua Codex, Grok Build, Antigravity) chạy lệnh ngay trong thư mục đó. Bộ não API đọc sửa file qua công cụ của brain, nên làm được với thư mục **trong** brain; thư mục ngoài brain thì chỉ bộ não CLI làm được.
+- Trang Coding dùng chung chip này thay cho nút chọn thư mục riêng. Các chip nhánh, worktree, điểm hồi và mức quyền vẫn ở trang Coding.
 
 ## Javis trình bày câu trả lời thế nào
 
@@ -460,6 +492,32 @@ Bảng thẻ số liệu cố định ở cột trái đã được gỡ (từ b
 
 Giờ muốn xem số thì cứ hỏi thẳng trong chat ("doanh thu hôm nay thế nào", "so với tuần trước"). Javis gọi đúng nguồn đang đấu (POS, kênh, quảng cáo...) và trả lời bằng lời, nên chỉ chạy khi bạn thật sự cần. Chi tiết về nguồn số liệu xem [Kết nối & số liệu kinh doanh](09-mcp-va-so-lieu.md).
 
+## Thẻ biểu đồ, ô số liệu và nút bấm trong câu trả lời
+
+Khi trả lời bằng số thật (doanh thu, đơn, chi phí quảng cáo), Javis có thể vẽ thẳng trong khung chat:
+
+- **Biểu đồ** cột hoặc đường cho xu hướng theo ngày, tuần (tối đa 24 mốc, 3 chuỗi số).
+- **Ô số liệu**: vài con số chính kèm mức tăng giảm, giảm thì hiện màu đỏ.
+- **Nút bấm** (tối đa 4) khi cần bạn chọn nhanh, ví dụ "Duyệt bản A" hay "Sửa lại". Bấm là gửi câu đó như bạn tự gõ; nút không cấp quyền gì thêm.
+
+Thẻ vẽ từ dữ liệu trong câu trả lời nên mở lại hội thoại vẫn thấy. Telegram, Zalo và terminal nhận bản chữ: biểu đồ thành từng dòng số, nút thành danh sách đánh số để trả lời bằng số. Chữ trông giống khoá API trong thẻ được che trước khi vẽ.
+
+## Javis nhớ lại các cuộc trò chuyện trước
+
+Mở chat mới mà nhắc chuyện cũ ("làm tiếp landing page nước mắm hôm trước"), Javis tự tìm trong các chat khác của chính bạn ở brain này và đưa tối đa 3 đoạn trích ngắn vào kèm câu hỏi để hiểu ngữ cảnh. Chỉ chat của chủ (khung chính, chat với cộng sự, Javis Core) được tìm; chat Team, chatbot và hội thoại với khách không bao giờ được đưa vào. Đoạn trích không lưu vào lịch sử chat. Muốn tắt thì đặt `recall.enabled` thành `false` trong cài đặt.
+
+## Tin thoại
+
+Bảo Javis "đọc cho tôi nghe", "gửi tin thoại" hay muốn nghe báo cáo thay vì đọc, Javis gọi công cụ `javis_voice_note`: một đoạn nói ngắn (tối đa 1000 ký tự) được ghi thành file mp3 trong `attachments/voice/` của brain. Khung chat hiện trình phát ngay cạnh link, Telegram nhận dạng âm thanh. Javis vẫn viết nội dung đó bằng chữ bên dưới. Giọng là Edge miễn phí, tự chọn theo ngôn ngữ của câu.
+
+Nhắc hẹn còn có ô **Đọc thành tiếng**: tới giờ, câu nhắc hay kết quả báo cáo được gửi kèm tin thoại. Nếu Javis đang mở trên máy hay điện thoại, tin thoại tự phát ngay như một cuộc gọi (trình duyệt chặn tự phát thì bấm nút phát).
+
+Muốn Javis **gọi điện đúng giờ** thì tick ô **Gọi điện cho tôi** (hoặc nói trong chat "7h sáng gọi đọc báo cáo doanh thu cho anh"). Tới giờ, trang Javis đang mở đổ chuông và hiện thẻ cuộc gọi đến với hai nút **Nghe** và **Từ chối**. Bấm Nghe là vào cuộc gọi giọng nói như khi bấm mic (ChatGPT Live nếu đã bật, giọng cơ bản nếu chưa): Javis đọc ngắn gọn nội dung nhắc hay báo cáo rồi hỏi bạn cần gì thêm, bạn nói tiếp như cuộc gọi thường. Không nghe trong 45 giây thì coi là cuộc gọi nhỡ, nội dung vẫn nằm trong khung chat. Không mở Javis thì không có chuông: Telegram vẫn nhận tin như mọi nhắc hẹn khác. Đây là cuộc gọi trong app Javis, không phải cuộc gọi tới số điện thoại.
+
+## Giữ ấm bộ nhớ đệm (Claude Code, gói Pro/Max)
+
+Gói Pro/Max giữ bộ nhớ đệm của Claude Code 1 giờ. Nghỉ quá 1 giờ thì tin tiếp theo phải nạp lại cả cuộc trò chuyện, tốn nhiều hạn mức với chat dài. Ở trang **Mức dùng token**, mục ngân sách có ô **Giữ ấm bộ nhớ đệm**: bật lên thì khoảng 50 phút sau tin cuối, Javis gửi một yêu cầu rất nhỏ (không công cụ, không ghi vào cuộc trò chuyện) để giữ bộ nhớ đệm thêm 1 giờ. Chỉ chạy trong 2 giờ sau tin cuối, không bao giờ khi chat đang trả lời, và dừng ngay khi gói báo hết lượt hay bộ nhớ đệm đã nguội. Đây vẫn là việc chạy nền trên gói, nên mặc định tắt.
+
 ## Dùng trên điện thoại
 
 Dưới 860px chiều ngang, giao diện đổi hẳn cho vừa màn hình:
@@ -497,14 +555,17 @@ Nút quanh khung chat:
 
 | Nút | Ở đâu | Làm gì |
 |---|---|---|
-| Mic to | Trái thanh nhập | Gọi Javis; trong cuộc gọi nút thành **Cúp máy** |
-| Kẹp giấy | Cạnh nút mic | Chọn file đính kèm |
-| Mũi tên | Phải thanh nhập | Gửi tin nhắn |
+| ＋ | Đầu hàng nút | Mở menu: đính kèm file hoặc ảnh, **ghim thư mục làm việc**, chọn file trong brain, lệnh và skill "/", **Kết nối** (kèm tình trạng), **Trợ lý và quy trình** |
+| Mic | Cạnh nút gửi | Gọi Javis; trong cuộc gọi nút thành **Cúp máy** |
+| Mũi tên | Cuối hàng nút | Gửi tin nhắn |
 | Ô vuông | Thay nút gửi khi đang chạy | Dừng lượt đang trả lời + dừng đọc |
 | ⛶ | Góc mục HỘI THOẠI | Phóng to khung chat |
 | 🕘 Lịch sử | Góc trên phải | Mở khung chat rộng kèm lịch sử hội thoại |
 | Badge engine | Cạnh chữ HỘI THOẠI | Engine + model thật của lượt vừa chạy |
-| Chip model · Effort | Trên thanh nhập | Đổi nhà cung cấp, model và độ sâu suy nghĩ |
+| Chip model | Hàng nút dưới ô gõ | Đổi nhà cung cấp và model |
+| Chip Effort | Cạnh chip model | Thanh trượt độ sâu suy nghĩ |
+| Tia sét | Cạnh chip Effort | Bật/tắt Fast mode |
+| 📁 Chip thư mục | Cạnh tia sét, chỉ hiện khi đã ghim | Thư mục hội thoại này đang làm việc bên trong. Bấm để đổi thư mục hoặc bỏ ghim |
 
 Phím tắt:
 
@@ -513,6 +574,7 @@ Phím tắt:
 | **Enter** | Gửi tin nhắn đang gõ |
 | **Shift + Enter** | Xuống dòng trong tin nhắn |
 | **Ctrl + V** | Dán ảnh, hoặc dán văn bản dài thành file .txt đính kèm |
+| **Ctrl + U** | Chọn file đính kèm |
 | **/** (đầu ô nhập) | Mở menu lệnh; ↑ ↓ chọn, Enter hoặc Tab chốt |
 | **Esc** | Cúp máy (kết thúc cuộc gọi bằng giọng); đóng menu lệnh; đóng panel artifact. **Không** dừng câu trả lời |
 

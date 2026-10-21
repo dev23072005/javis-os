@@ -65,7 +65,11 @@
                  "stalled", "source_drift", "handoff",
                  // A4: phạm vi ghi do chủ dự án cho phép
                  "scope_pending", "scope_denied", "grant_revoked", "grant_missing", "path_rejected",
-                 "publish_settling"];
+                 "publish_settling",
+                 // A5: đội một agent làm, một agent review
+                 "review_pending", "review_changes", "review_retry", "review_rounds", "review_unknown",
+                 "review_input", "review_engine", "budget_maker", "budget_reviewer", "reviewer_off",
+                 "reviewer_missing", "reviewer_retired", "prepare_error"];
     if (known.indexOf(r) >= 0) return "resonance.st_" + r;
     if (g.run_state === "running") return "resonance.st_running";
     if (g.run_state === "blocked") return "resonance.st_blocked";
@@ -99,7 +103,15 @@
     method_followup: "resonance.wake.method_followup",
     trial_recovery: "resonance.wake.recovery",
     // A4: chủ dự án vừa cho phép phạm vi ghi
-    scope_granted: "resonance.wake.scope_granted"
+    scope_granted: "resonance.wake.scope_granted",
+    // A5: lượt của người review và lượt sửa theo góp ý
+    review_due: "resonance.wake.review_due",
+    review_retry: "resonance.wake.review_retry",
+    review_changes: "resonance.wake.review_changes",
+    review_done: "resonance.wake.review_done",
+    review_recheck: "resonance.wake.review_recheck",
+    team_detached: "resonance.wake.team_detached",
+    prepare_recheck: "resonance.wake.prepare_recheck"
   };
 
   /* A3: dòng "cách làm đã học" trên thẻ, theo trạng thái bài học làn M của revision hiện tại. Khoá nguyên văn. */
@@ -222,6 +234,8 @@
   }
 
   /* Chỉ tin báo do host ghi (khối thẻ mang khoá báo cáo `outbox:`) mới có hàng phản hồi; server vẫn kiểm biên nhận. */
+  var A3_REACT_ROW = false;   // xem ghi chú trong ve(): tin báo goal chỉ còn sáu cảm xúc chung
+
   function isNotice(card) {
     return /^outbox:[0-9]+$/.test(String((card || {}).report || ""));
   }
@@ -268,8 +282,6 @@
         row._st = res.j.reaction || {};
         row.innerHTML = reactHtml(row._st, row._open && row._st.value !== "none",
           res.j.proposal ? tw("resonance.react_proposal") : "");
-        // Mục Bài học ở ngăn trợ lý (resonance-agent.js) đang mở thì tải lại: đề xuất mới và số đếm 30 ngày vừa đổi.
-        try { window.dispatchEvent(new CustomEvent("javis:resonance-lessons")); } catch (e) {}
       })
       .catch(function () { row.innerHTML = reactHtml(row._st, row._open, tw("resonance.failed")); });
   }
@@ -291,8 +303,113 @@
   }
 
   /* HTML của thẻ từ trạng thái GET /goals/{id}. Thuần: không đụng DOM, không gọi mạng. */
-  function viewHtml(g, note) {
+  /* A5: dòng đội của thẻ (thiết kế A5 mục 11). Chỉ hiển thị; kho mới là căn cứ. Hai nút của chủ dự án: Bật lại người
+     review (route riêng của thẻ, ghim mã bền reviewer) và Bỏ yêu cầu review (lệnh `team_detach`). Không có nút nào cho
+     agent; tag không có ở đây. */
+  var TEAM_BLOCKS = ["review_rounds", "review_unknown", "review_input", "review_engine", "budget_maker",
+                     "budget_reviewer", "reviewer_off", "reviewer_missing", "reviewer_retired", "source_drift"];
+
+  function teamHtml(g) {
+    var t = g && g.team;
+    if (!t) return "";
+    if (t.legacy) return '<div class="rs-line rs-muted rs-team">' + esc(tw("resonance.a5_legacy")) + "</div>";
+    var mk = (t.maker || {}).slug || "", rv = (t.reviewer || {}).slug || "";
+    if (t.status === "detached") {
+      // 0.142.0: Javis gỡ người review cố định lúc nâng cấp. Mục tiêu đang dừng chờ chủ quyết, không tự chốt.
+      if (t.detached_by === "host:review_removed") {
+        return '<div class="rs-line rs-team rs-review-removed">' + esc(tw("resonance.a5_removed_line")) + "</div>";
+      }
+      return '<div class="rs-line rs-muted rs-team">' + esc(tw("resonance.a5_detached_line")) + "</div>";
+    }
+    var h = '<div class="rs-line rs-team">' + esc(tw("resonance.a5_team", { maker: mk, reviewer: rv })) + "</div>";
+    var lt = t.latest;
+    if (lt) {
+      var v = lt.verdict === "pass" ? tw("resonance.a5_v_pass")
+        : lt.verdict === "needs_changes" ? tw("resonance.a5_v_changes", { k: t.rounds_used || 0, max: t.max_rounds || 0 })
+        : tw("resonance.a5_v_unknown");
+      h += '<div class="rs-line rs-team">' + esc(tw("resonance.a5_reviewed", { sha: lt.sha8 || "", verdict: v })) + "</div>";
+    }
+    var active = g.status === "active";
+    if (active && g.block_reason === "review_pending") {
+      h += '<div class="rs-line rs-team">' + esc(tw("resonance.a5_wait_review", { reviewer: rv })) + "</div>";
+    } else if (active && g.block_reason === "review_changes") {
+      h += '<div class="rs-line rs-team">' + esc(tw("resonance.a5_wait_fix", { maker: mk })) + "</div>";
+    }
+    var c = t.calls || {}, m = c.maker || {}, r = c.reviewer || {};
+    h += '<div class="rs-line rs-muted rs-team">' + esc(tw("resonance.a5_calls", {
+      m: Math.max(0, (m.cap || 0) - (m.used || 0)), mc: m.cap || 0,
+      r: Math.max(0, (r.cap || 0) - (r.used || 0)), rc: r.cap || 0 })) + "</div>";
+    if (lt && lt.verdict === "needs_changes" && ((lt.criteria || []).length || lt.fixes)) {
+      var items = (lt.criteria || []).filter(function (x) { return x && !x.ok && x.reason; }).map(function (x) {
+        return "<li>" + esc(x.reason) + "</li>";
+      }).join("");
+      h += '<details class="rs-details rs-team-fb"><summary>' + esc(tw("resonance.a5_fixes")) + "</summary>" +
+        (items ? '<ul class="rs-list">' + items + "</ul>" : "") +
+        (lt.fixes ? '<div class="rs-line">' + esc(lt.fixes) + "</div>" : "") + "</details>";
+    }
+    if (active) {
+      var btns = "";
+      // Nút ghim MÃ BỀN của reviewer đang hiện (review mã A5 vòng 1, R2): host chỉ bật đúng mã đó nếu mục tiêu vẫn ghim
+      // nó; agent mới cùng slug không bao giờ được bật qua nút này.
+      var rk = (t.reviewer || {}).agent_key || "";
+      if (g.block_reason === "reviewer_off" && rk) {
+        btns += '<button type="button" class="rs-act" data-act="reviewer_enable" data-key="' + esc(rk) + '">' +
+          esc(tw("resonance.btn_reviewer_enable")) + "</button>";
+      }
+      if (TEAM_BLOCKS.indexOf(String(g.block_reason || "")) >= 0) {
+        btns += '<button type="button" class="rs-act" data-act="team_detach">' + esc(tw("resonance.btn_team_detach")) +
+          "</button>";
+      }
+      if (btns) h += '<div class="rs-btns rs-team-acts">' + btns + "</div>";
+    }
+    return h;
+  }
+
+  /* 0.175.0 (chủ repo 16/10/2026: "đã ấn Đúng ý rồi mà thẻ cứ hiện hoài"): thẻ tự THU GỌN khi không còn câu hỏi nào chờ chủ
+     TRẢ LỜI. Thẻ chỉ mở đủ khi chủ phải đọc kỹ rồi quyết: chưa xác nhận cách hiểu, chờ duyệt sản phẩm, xin quyền ghi file, file
+     bị sửa ngoài Javis. Trục trặc vận hành (đang dừng, bị chặn, bộ não việc nền hỏng, mất theo dõi) KHÔNG cần đọc lại cả danh
+     sách ràng buộc: bản gọn tự nói trạng thái bằng một dòng cảnh báo và để sẵn đúng nút cần bấm. Thuần để test. */
+  var LY_DO_EM = ["", "healthy", "scheduled", "discovery_done"];
+  function canChu(g) {
     g = g || {};
+    if (g.status !== "active") return false;
+    if (g.fit !== "confirmed" || g.source_drift) return true;
+    if (g.scope && g.scope.state === "pending" && g.scope.request) return true;
+    return (g.criteria || []).some(function (c) {
+      return c && c.evaluator === "human_confirmation" && g.artifact_ref && c.verdict === "unknown";
+    });
+  }
+  function trucTrac(g) {
+    return g.status === "active" && !!(g.paused || g.run_state === "blocked" ||
+      LY_DO_EM.indexOf(String(g.block_reason || "")) < 0 || (g.observe && g.observe.state === "lost"));
+  }
+
+  /* Bản gọn của thẻ: tiêu đề, trạng thái, cách hiểu (tối đa hai dòng), dòng cảnh báo khi có trục trặc, một dòng nhịp làm tiếp
+     và lượt đã dùng, nút Xem chi tiết. Ràng buộc, giả định, lịch sử và các nút điều khiển khác nằm trong bản đủ. */
+  function gonHtml(g, note) {
+    var dong = [], loi = trucTrac(g);
+    if (g.next_wake && g.status === "active" && !g.paused) dong.push(tw("resonance.next_wake", { at: fmtTime(g.next_wake.at) }));
+    if (g.budget_calls) dong.push(tw("resonance.budget", { used: g.calls_used || 0, total: g.budget_calls || 0 }));
+    var nut = "";
+    if (g.status === "active" && g.paused) nut = '<button type="button" class="rs-act rs-primary" data-act="resume">' + esc(tw("resonance.btn_resume")) + "</button>";
+    else if (g.status === "active" && g.block_reason === "guard") nut = '<button type="button" class="rs-act rs-primary" data-act="resume">' + esc(tw("resonance.btn_reopen")) + "</button>";
+    var canhBao = !loi ? "" : (g.observe && g.observe.state === "lost") ? tw("resonance.observe_lost") : tw(stateKey(g));
+    return '<div class="rs-head"><span class="rs-title">' + esc(tw("resonance.card_title")) + "</span>" +
+      '<span class="rs-state rs-' + esc(String(g.status || "")) + (loi ? " rs-state-warn" : "") + '">' + esc(tw(stateKey(g))) + "</span>" +
+      (g.fit === "confirmed" && g.status === "active" ? '<span class="rs-fit-ok">' + esc(tw("resonance.fit_confirmed")) + "</span>" : "") +
+      "</div>" +
+      '<div class="rs-understanding rs-clamp">' + esc(g.understanding || tw("resonance.no_understanding")) + "</div>" +
+      (canhBao && canhBao !== tw(stateKey(g)) ? '<div class="rs-warn">' + esc(canhBao) + "</div>" : "") +
+      '<div class="rs-gon-foot">' + (dong.length ? '<span class="rs-muted">' + esc(dong.join(" · ")) + "</span>" : "") + nut +
+      '<button type="button" class="rs-tog" data-tog="expand" aria-expanded="false">' + esc(tw("resonance.btn_expand")) +
+      "</button></div>" + (note ? '<div class="rs-note">' + esc(note) + "</div>" : "");
+  }
+
+  function viewHtml(g, note, opts) {
+    g = g || {};
+    var o = opts || {};
+    var can = canChu(g);
+    if (!can && !o.open) return gonHtml(g, note);
     var active = g.status === "active";
     var h = '<div class="rs-head"><span class="rs-title">' + esc(tw("resonance.card_title")) + "</span>" +
       '<span class="rs-state rs-' + esc(String(g.status || "")) + '">' + esc(tw(stateKey(g))) + "</span></div>";
@@ -346,15 +463,17 @@
         "</div>";
     }
     h += scopeHtml(g);
+    h += teamHtml(g);
     h += learnHtml(g);
     h += '<div class="rs-line rs-muted">' + esc(tw("resonance.budget", { used: g.calls_used || 0,
       total: g.budget_calls || 0 })) + "</div>";
     if (active) {
       var fit = g.fit === "confirmed" ? tw("resonance.fit_confirmed")
         : g.fit === "rejected" ? tw("resonance.fit_rejected") : "";
+      // Đã xác nhận rồi thì không mời bấm "Đúng ý" lần nữa; còn "Chưa đúng ý" để đổi ý (0.175.0).
       h += '<div class="rs-actions">' +
         (fit ? '<span class="rs-fit">' + esc(fit) + "</span>" : "") +
-        '<button type="button" class="rs-act" data-act="fit_ok">' + esc(tw("resonance.btn_fit_ok")) + "</button>" +
+        (g.fit === "confirmed" ? "" : '<button type="button" class="rs-act rs-primary" data-act="fit_ok">' + esc(tw("resonance.btn_fit_ok")) + "</button>") +
         '<button type="button" class="rs-act" data-act="fit_no">' + esc(tw("resonance.btn_fit_no")) + "</button>" +
         (g.paused
           ? '<button type="button" class="rs-act" data-act="resume">' + esc(tw("resonance.btn_resume")) + "</button>"
@@ -363,7 +482,12 @@
           ? '<button type="button" class="rs-act" data-act="resume">' + esc(tw("resonance.btn_reopen")) + "</button>"
           : "") +
         '<button type="button" class="rs-act rs-danger" data-act="cancel">' + esc(tw("resonance.btn_cancel")) +
-        "</button></div>";
+        "</button>" +
+        (can ? "" : '<button type="button" class="rs-tog" data-tog="collapse" aria-expanded="true">' +
+          esc(tw("resonance.btn_collapse")) + "</button>") + "</div>";
+    } else if (o.open) {
+      h += '<div class="rs-actions"><button type="button" class="rs-tog" data-tog="collapse" aria-expanded="true">' +
+        esc(tw("resonance.btn_collapse")) + "</button></div>";
     }
     var tl = (g.timeline || []).map(function (x) {
       return "<li>" + esc(fmtTime(x.at)) + " " + esc(x.kind === "publish" ? tw("resonance.kind_publish") : tw("resonance.kind_work")) +
@@ -408,6 +532,11 @@
     if (act === "lesson_dismiss") {
       return { url: "/resonance/lessons/" + encodeURIComponent(String((dir || {}).lesson || "")) + "/decision",
         body: { action: "dismiss" } };
+    }
+    if (act === "reviewer_enable") {
+      // A5 (R2): Bật lại người review gửi mã bền đang hiện trên thẻ; thẻ cũ (mã khác) nhận 409 và vẽ lại.
+      var rvk = String((dir || {}).key || ((g.team || {}).reviewer || {}).agent_key || "");
+      return { url: "/goals/" + id + "/reviewer/enable", body: { agent_key: rvk, expected_revision: rev } };
     }
     if (act === "drop") {
       return { url: "/goals/" + id + "/commands", body: { command: "drop_directive", expected_revision: rev,
@@ -460,7 +589,7 @@
       x._goal = g;
       x.classList.toggle("rs-done", g.status !== "active");
       x.classList.toggle("rs-old", !full);
-      x.innerHTML = full ? viewHtml(g, note) : compactHtml(g);
+      x.innerHTML = full ? viewHtml(g, note, { open: !!x._open }) : compactHtml(g);
     });
   }
 
@@ -513,7 +642,10 @@
     var bubble = msgEl.querySelector(".bubble");
     (bubble || msgEl).appendChild(el);
     load(el);
-    veReact(msgEl, card);
+    // Quyết định của chủ (0.168.0): tin báo goal chỉ dùng sáu cảm xúc chung (reactions.js, có lý do và "nên nói / nên im"),
+    // cảm xúc trên tin báo goal đánh thức goal xem lại phản hồi (lý do `feedback` của A2). Hàng "Hữu ích / Chưa ổn" của A3
+    // không vẽ nữa để khỏi hai hàng phản hồi trên cùng một tin; API và kho của A3 giữ nguyên (dữ liệu cũ vẫn đọc được).
+    if (A3_REACT_ROW) veReact(msgEl, card);
     return el;
   }
 
@@ -534,6 +666,8 @@
       return tw("resonance.a4_approved_draft_pending");
     }
     if (act === "revoke_grant") return tw("resonance.a4_revoked");
+    if (act === "team_detach") return tw("resonance.a5_detached");
+    if (act === "reviewer_enable") return tw("resonance.a5_reviewer_enabled");
     return "";
   }
 
@@ -560,6 +694,8 @@
     if (act === "cancel" && !window.confirm(tw("resonance.cancel_confirm"))) return;
     if (act === "drop" && !window.confirm(tw("resonance.drop_confirm"))) return;
     if (act === "revoke_grant" && !window.confirm(tw("resonance.revoke_confirm"))) return;
+    if (act === "team_detach" && !window.confirm(tw("resonance.a5_detach_confirm"))) return;
+    if (act === "reviewer_enable" && !window.confirm(tw("resonance.a5_enable_confirm"))) return;
     if (act === "draft_preview") { preview(el, g); return; }
     var req = requestFor(act, g, critId, dir, newNonce());
     var btns = el.querySelectorAll("button.rs-act");
@@ -588,6 +724,16 @@
            { field: b.getAttribute("data-field"), key: b.getAttribute("data-key"),
              lesson: b.getAttribute("data-lesson") });
     });
+    // Mở / thu gọn thẻ (0.175.0): chỉ là cách xem, không gửi gì lên server. Nhớ theo từng thẻ để vẽ lại vẫn giữ.
+    document.addEventListener("click", function (ev) {
+      var b = ev.target && ev.target.closest && ev.target.closest("button.rs-tog");
+      if (!b) return;
+      var el = b.closest(".rs-card");
+      if (!el || !el._goal) return;
+      ev.preventDefault();
+      el._open = b.getAttribute("data-tog") === "expand";
+      el.innerHTML = viewHtml(el._goal, "", { open: el._open });
+    });
     document.addEventListener("click", function (ev) {
       var b = ev.target && ev.target.closest && ev.target.closest("button.rs-react-b");
       if (!b) return;
@@ -600,9 +746,9 @@
 
   /* Công tắc theo BRAIN cũ đã bỏ (A1): công tắc nay theo từng trợ lý, ở resonance-agent.js. */
 
-  var api = { tach: tach, viewHtml: viewHtml, compactHtml: compactHtml, requestFor: requestFor, stateKey: stateKey, wakeLabel: wakeLabel,
-    ve: ve, render: render, reactHtml: reactHtml, reactBody: reactBody, learnHtml: learnHtml, isNotice: isNotice,
-    scopeHtml: scopeHtml, noteFor: noteFor, _send: send };
+  var api = { tach: tach, viewHtml: viewHtml, canChu: canChu, gonHtml: gonHtml, compactHtml: compactHtml, requestFor: requestFor, stateKey: stateKey, wakeLabel: wakeLabel,
+    ve: ve, render: render, A3_REACT_ROW: A3_REACT_ROW, reactHtml: reactHtml, reactBody: reactBody, learnHtml: learnHtml, isNotice: isNotice,
+    scopeHtml: scopeHtml, teamHtml: teamHtml, noteFor: noteFor, _send: send };
   if (typeof window !== "undefined") window.JavisResonance = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

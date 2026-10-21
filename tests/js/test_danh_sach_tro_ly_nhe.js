@@ -23,7 +23,7 @@ const check = (name, cond) => { console.log((cond ? "ok   " : "FAIL ") + name); 
 
 // ---- 1. Mọi chỗ lấy DANH SÁCH đều xin bản nhẹ ----
 check("workspace.js (cột trái trang Cộng sự) xin prompt=0",
-  /api\("\/agents\?brain=" \+ b \+ "&prompt=0"\)/.test(WS));
+  /api\("\/agents\?brain=" \+ b \+ "&prompt=0&system=1"\)/.test(WS));   // 0.185.0: + Javis Core first
 check("studio.js loadAgents (lưới thẻ) xin prompt=0",
   /\/agents\?brain=\$\{encodeURIComponent\(brain\(\)\)\}&prompt=0`\);\s*\n\s*_agState\.agents/.test(ST));
 check("studio.js editWorkflow (ô chọn agent của từng bước) xin prompt=0",
@@ -39,7 +39,9 @@ const sot = [["studio.js", ST], ["workspace.js", WS], ["chatbots.js", CB]]
     let at = src.indexOf("/agents?brain=");
     while (at !== -1) {
       const cauGoi = src.slice(at, at + 160).split("\n")[0];
-      if (cauGoi.indexOf("prompt=0") === -1) ra.push(f + ": " + cauGoi.slice(0, 90));
+      // `/resonance/agents?brain=` (T0 nhóm chat team) là endpoint KHÁC: trạng thái Cộng hưởng, không kèm system prompt.
+      const laResonance = src.slice(Math.max(0, at - 10), at) === "/resonance";
+      if (!laResonance && cauGoi.indexOf("prompt=0") === -1) ra.push(f + ": " + cauGoi.slice(0, 90));
       at = src.indexOf("/agents?brain=", at + 1);
     }
     return ra;

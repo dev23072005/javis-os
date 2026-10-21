@@ -631,7 +631,9 @@ def auth_status(bo_qua_cache: bool = False):
     """
     cli = find_claude_cli()
     if not cli:
-        return {"connected": False, "error": cau_thieu_cli("claude", "Claude")}
+        # `cli_missing` lets the Models card show one install step instead of a login button
+        # that can only fail; `error` stays for callers that print it.
+        return {"connected": False, "cli_missing": True, "error": cau_thieu_cli("claude", "Claude")}
     now = time.time()
     if not bo_qua_cache and _AUTH_CACHE["val"] and now - _AUTH_CACHE["ts"] < _AUTH_TTL:
         return dict(_AUTH_CACHE["val"])
@@ -1415,10 +1417,31 @@ def codex_env() -> dict:
     return env
 
 
+# Câu Codex in khi một server MCP `required` không lên (codex-mcp/src/connection_manager/required.rs).
+# Việc nền theo lịch đặt hub là server bắt buộc (mcp_hub.CODEX_REQUIRED_KEY).
+CODEX_REQUIRED_FAIL = "required MCP servers failed to initialize"
+
+
+def codex_loi_hub_bat_buoc(text) -> bool:
+    """Lỗi engine này có phải "hub bắt buộc không lên" của Codex không."""
+    return CODEX_REQUIRED_FAIL in str(text or "")
+
+
 def codex_error_text(returncode, stderr_lines) -> str:
     """Câu lỗi khi Codex thoát giữa chừng. Lỗi không tìm thấy home thì nói bằng lời người
     dùng hiểu và chỉ cách xử lý, dòng gốc của Codex vẫn giữ ở dưới để chẩn đoán."""
     raw = "\n".join(stderr_lines[-5:])
+    # Hub bắt buộc không lên: lý do đứng ĐẦU. stderr của Codex mở đầu bằng vài dòng log rmcp dài
+    # (thử với codex-cli 0.161.0), mà thẻ chat chỉ giữ 300 ký tự và reminders.json 400, nên để
+    # nguyên thì đúng dòng nói lý do bị cắt mất.
+    hub = next((str(l).strip() for l in stderr_lines if CODEX_REQUIRED_FAIL in str(l)), "")
+    if hub:
+        return localefmt.chu(
+            "Cổng công cụ của Javis (hub) không lên kịp nên Codex không mở phiên, việc chưa chạy. "
+            "Chi tiết từ Codex (exit {code}): {ly_do}",
+            "The Javis tool hub did not come up in time, so Codex did not open a session and the job "
+            "did not run. Details from Codex (exit {code}): {ly_do}",
+            code=returncode, ly_do=hub[hub.find(CODEX_REQUIRED_FAIL):][:240])
     if any("could not find home directory" in str(l).lower() for l in stderr_lines):
         return localefmt.chu(
             "Codex không tìm thấy thư mục người dùng trên máy này nên không đọc được đăng nhập "
@@ -1537,6 +1560,9 @@ class CodexCLI:
         # Off otherwise, because an override under mcp_servers.javis with no hub entry would
         # create a broken half-entry.
         self.hub_turn = False
+        # True only on the main engine of a chat turn (web or chat channel, set by main.py): the turn then runs on
+        # `codex app-server` and takes the owner's messages mid-way (codex_steer.py, 0.213.0).
+        self.steer = False
 
     def is_available(self) -> bool:
         return self.cli_path is not None
@@ -1581,6 +1607,28 @@ class CodexCLI:
         return args
 
     async def query(self, prompt: str) -> AsyncIterator[dict]:
+        if self.cli_path:
+            import codex_steer
+            if codex_steer.wanted(self):
+                agen = codex_steer.run(self, prompt)
+                try:
+                    first = await agen.__anext__()
+                except StopAsyncIteration:
+                    return
+                except codex_steer.Fallback:
+                    first = None   # could not start on app-server: the exec path below, as before 0.213.0
+                if first is not None:
+                    try:
+                        yield first
+                        async for ev in agen:
+                            yield ev
+                    finally:
+                        await agen.aclose()   # Stop or an abandoned turn: close app-server now, not at GC
+                    return
+        async for ev in self._query_exec(prompt):
+            yield ev
+
+    async def _query_exec(self, prompt: str) -> AsyncIterator[dict]:
         if not self.cli_path:
             yield {"type": "error", "content": localefmt.chu("Không tìm thấy Codex CLI (cần ChatGPT login qua codex).",
                                                              "Codex CLI not found (ChatGPT sign-in through codex is needed).")}

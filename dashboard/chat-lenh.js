@@ -17,8 +17,10 @@
 
   // Trần số vòng của /goal. Model đề xuất "chưa xong", MÃ quyết định có chạy tiếp không - nếu không
   // có trần thì một mục tiêu không bao giờ đạt được là một vòng lặp đốt token vô hạn.
-  var GOAL_TOI_DA = 8;
+  var GOAL_TOI_DA = 5;   // 0.173.1: five rounds, then stop and say why (owner request)
   var GOAL_RE = /<!--\s*JAVIS_GOAL:\s*([\s\S]*?)\s*-->/g;
+  // Hidden line the server puts inside the /goal block of an automatic round (lenh_he_thong.GOAL_ROUND_TAG).
+  var ROUND_RE = /<!--\s*JAVIS_GOAL_ROUND:\s*(\{[\s\S]*?\})\s*-->/;
 
   // Chữ hiện ra lấy từ từ điển. Trong trình duyệt là window.t; dưới node (test) không có window
   // nên đọc thẳng vi.json. Tên hàm là tw chứ không phải t vì test_i18n quét mặt chữ các lời gọi tw để
@@ -48,11 +50,45 @@
         var o = JSON.parse(j);
         if (o && typeof o.done === "boolean") {
           goal = { done: o.done, left: String(o.left || "").trim().slice(0, 300) };
+          // "blocked": the model says it cannot go on (missing permission, tool, connection or data).
+          var bl = String(o.blocked || "").trim().slice(0, 300);
+          if (bl && !o.done) goal.blocked = bl;
         }
       } catch (e) { /* khối hỏng: bỏ */ }
       return "";
     }).replace(/\n{3,}/g, "\n\n").trim();
     return { clean: clean, goal: goal };
+  }
+
+  // Round info {v, n, left} from the raw text of an automatic /goal round (the saved user message, block
+  // included). Null for anything else, including round 1 (that one is the owner's own /goal message).
+  function docVong(text) {
+    var m = ROUND_RE.exec(String(text == null ? "" : text));
+    if (!m) return null;
+    try {
+      var o = JSON.parse(m[1]);
+      var v = +o.v, n = +o.n;
+      if (!(v >= 2) || !(n >= v)) return null;
+      return { v: v, n: n, left: String(o.left || "").trim().slice(0, 300) };
+    } catch (e) { return null; }
+  }
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // HTML of the collapsible "Javis nudged itself to continue" line. `active`: the goal is still running, so the
+  // Stop goal button can be pressed; otherwise the button shows disabled.
+  function vongHtml(r, active) {
+    if (!r) return "";
+    var left = r.left ? '<div class="goal-round-left">' + escHtml(tw("lenh.goal_round_left", { left: r.left })) + "</div>"
+                      : '<div class="goal-round-left">' + escHtml(tw("lenh.goal_round_noleft_detail")) + "</div>";
+    return '<details class="goal-round"><summary>' + escHtml(tw("lenh.goal_round_line", { v: r.v, n: r.n })) +
+      "</summary>" + left + "</details>" +
+      '<button type="button" class="goal-round-stop"' + (active ? "" : " disabled") + ">" +
+      escHtml(tw("lenh.goal_stop_btn")) + "</button>";
   }
 
   function chuanSo(s) { return String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); }
@@ -67,6 +103,8 @@
     var m = ket.marker;
     if (!m) return { act: "dung", ly: "khong_bao" };
     if (m.done) return { act: "dung", ly: "dat" };
+    // Blocked: only the owner can unblock it, so another round would just repeat the same failure.
+    if (m.blocked) return { act: "dung", ly: "khong_lam_duoc", why: m.blocked };
     if (st.vong >= st.toiDa) return { act: "dung", ly: "het_vong" };
     // Hai vòng liền báo Y HỆT phần còn thiếu = không tiến triển: chạy thêm chỉ tốn token.
     if (st.left && m.left && chuanSo(st.left) === chuanSo(m.left)) {
@@ -284,21 +322,23 @@
     if (!arg) {
       var dong = [tw("lenh.brain_title")];
       brains.forEach(function (b) {
-        dong.push("- " + b.name + (giaTri(b) === sel.value ? " " + tw("lenh.brain_cur") : ""));
+        dong.push("- " + (b.label || b.name) + (giaTri(b) === sel.value ? " " + tw("lenh.brain_cur") : ""));
       });
       dong.push("", tw("lenh.brain_hint"));
       return ghi(dong.join("\n"));
     }
-    var k = khopTen(brains, arg, function (b) { return b.name; });
+    // 0.219.0: gõ tên mới (đã đổi) hay tên thư mục cũ đều được.
+    var k = khopTen(brains, arg, function (b) { return b.label || b.name; });
+    if (!k.hit && !k.nhieu.length) k = khopTen(brains, arg, function (b) { return b.name; });
     if (k.hit) {
       var v = giaTri(k.hit);
       sel.value = v;
       try { localStorage.setItem("javis.graphSource", v); } catch (e) { /* chế độ riêng tư */ }
       sel.dispatchEvent(new Event("change"));
-      return ghi(tw("lenh.brain_set", { ten: k.hit.name }));
+      return ghi(tw("lenh.brain_set", { ten: k.hit.label || k.hit.name }));
     }
     if (k.nhieu.length) {
-      return ghi(tw("lenh.brain_many", { q: arg, ds: k.nhieu.slice(0, 6).map(function (b) { return b.name; }).join(", ") }));
+      return ghi(tw("lenh.brain_many", { q: arg, ds: k.nhieu.slice(0, 6).map(function (b) { return b.label || b.name; }).join(", ") }));
     }
     ghi(tw("lenh.brain_none", { q: arg }));
   }
@@ -375,9 +415,17 @@
   }
 
   // ---- /goal ----
+  // Every path that ends the goal goes through here, so the Stop goal buttons on earlier round lines grey out.
+  function ketThucMucTieu() {
+    goal = null;
+    if (typeof document === "undefined") return;
+    var btns = document.querySelectorAll(".goal-round-stop");
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+  }
+
   async function lenhGoal(arg) {
     if (laLenhTat(arg)) {
-      if (goal) { goal = null; return ghi(tw("lenh.goal_stopped")); }
+      if (goal) { ketThucMucTieu(); return ghi(tw("lenh.goal_stopped")); }
       return ghi(tw("lenh.goal_none"));
     }
     if (!arg) {
@@ -400,14 +448,14 @@
   // họ lên trước. Tiếp tục chạy vòng tự động ngay dưới một câu họ vừa nói là giành lời của họ.
   function chenNgang(sid) {
     if (goal && (!goal.sid || goal.sid === sid)) {
-      goal = null;
+      ketThucMucTieu();
       ghi(tw("lenh.goal_takeover"));
     }
   }
 
   function dungMucTieu() {
     if (!goal) return;
-    goal = null;
+    ketThucMucTieu();
     ghi(tw("lenh.goal_stopped"));
   }
 
@@ -424,11 +472,10 @@
     var g = goal;
     if (!g || g.sid !== sid) return;
     g.vong += 1;
-    var khoi = await layKhoi({ kind: "goal", dk: g.dk, vong: g.vong, toi_da: g.toiDa });
-    if (goal !== g) return;   // bị huỷ trong lúc chờ khối chỉ dẫn
-    if (!khoi) { goal = null; return ghi(tw("lenh.err_net")); }
-    ghi(g.left ? tw("lenh.goal_round", { v: g.vong, n: g.toiDa, left: g.left })
-               : tw("lenh.goal_round_noleft", { v: g.vong, n: g.toiDa }));
+    var khoi = await layKhoi({ kind: "goal", dk: g.dk, vong: g.vong, toi_da: g.toiDa, left: g.left || "" });
+    if (goal !== g) return;   // cancelled while waiting for the block
+    if (!khoi) { ketThucMucTieu(); return ghi(tw("lenh.err_net")); }
+    // No local note here: the round message itself is drawn as the collapsible round line (app.js).
     chatApi().send(tw("lenh.goal_cont"), { prefix: khoi, goal: true });
   }
 
@@ -437,7 +484,7 @@
     var g = goal;
     var a = chatApi();
     if (!g || !a || g.sid !== sid) return;
-    if (a.sid() !== sid) { goal = null; return; }   // người dùng đã sang hội thoại khác: thôi
+    if (a.sid() !== sid) { ketThucMucTieu(); return; }   // the owner moved to another chat
     if (a.dangChay(sid)) return;                    // đã có lượt mới chạy (tin chen ngang)
     var qd = quyetDinhVongTiep(g, g.ket);
     g.ket = null;
@@ -446,9 +493,10 @@
       setTimeout(function () { tiepVong(sid); }, 300);
       return;
     }
-    goal = null;
+    ketThucMucTieu();
     var v = g.vong, n = g.toiDa;
     if (qd.ly === "dat") return ghi(tw("lenh.goal_done", { v: v }));
+    if (qd.ly === "khong_lam_duoc") return ghi(tw("lenh.goal_blocked", { why: qd.why || "" }));
     if (qd.ly === "het_vong") return ghi(tw("lenh.goal_max", { n: n }));
     if (qd.ly === "khong_tien_trien") return ghi(tw("lenh.goal_stuck", { left: qd.left || "" }));
     if (qd.ly === "hoi_lai") return ghi(tw("lenh.goal_ask"));
@@ -502,6 +550,9 @@
     baoLoi: baoLoi,
     hetLuot: hetLuot,
     dangCoMucTieu: function () { return !!goal; },
+    docVong: docVong,
+    vongHtml: vongHtml,
+    ketThucMucTieu: ketThucMucTieu,
   };
 
   if (typeof window !== "undefined") {
@@ -509,7 +560,7 @@
     // Đổi sang hội thoại khác thì mục tiêu của hội thoại cũ hết nghĩa: dừng lặng lẽ.
     window.addEventListener("javis:sessions-changed", function () {
       var a = chatApi();
-      if (goal && goal.sid && a && a.sid() !== goal.sid) goal = null;
+      if (goal && goal.sid && a && a.sid() !== goal.sid) ketThucMucTieu();
     });
   }
   if (typeof module !== "undefined" && module.exports) module.exports = api;

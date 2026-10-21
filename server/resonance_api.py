@@ -38,6 +38,18 @@ class ResonanceApiDeps:
     # hay None (slug hợp lệ và file có thật).
     agents_meta: Callable[[str], list] = lambda root: []
     agent_file: Callable[[str, str], Any] = lambda root, slug: None
+    # T0 nhóm chat team: phát một gói tới mọi tab đang mở (ChatRuntime.publish) để tải lại trạng thái Cộng hưởng.
+    broadcast: Optional[Callable[[dict], Any]] = None
+
+
+async def _announce_agents(deps: "ResonanceApiDeps") -> None:
+    """Báo mọi tab rằng trạng thái Cộng hưởng của trợ lý vừa đổi. Gói phụ: lỗi thì bỏ qua, không làm hỏng lệnh của chủ."""
+    if deps.broadcast is None:
+        return
+    try:
+        await deps.broadcast({"type": "resonance_agents"})
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _body(request: Request) -> dict:
@@ -93,7 +105,7 @@ def register(app, deps: ResonanceApiDeps):
         return root, RS.Principal("owner", "owner", root)
 
     def _off(why: str) -> JSONResponse:
-        return _err(403, f"Trợ lý chưa bật Cộng hưởng ({why})", f"The assistant has Resonance turned off ({why})",
+        return _err(403, f"Trợ lý chưa bật Auto ({why})", f"The assistant has Auto turned off ({why})",
                     reason=why)
 
     @app.get("/resonance/settings")
@@ -276,7 +288,20 @@ def register_agents(app, deps: ResonanceApiDeps):
                 "enabled": bool((reg or {}).get("enabled")), "status": (reg or {}).get("status") or "unregistered",
                 "config_version": (reg or {}).get("config_version"),
                 "goals_open": len(store.list_open(RS.Principal("owner", "owner", root), agent_key=reg["agent_key"]))
-                if reg else 0}
+                if reg else 0,
+                "reviewer": _reviewer_of(store, root, reg)}
+
+    def _reviewer_of(store, root: str, reg: Optional[dict]) -> Optional[dict]:
+        """A5: người review đang chọn cho agent làm này (theo mã bền), hay None. Không suy từ tag hay slug."""
+        if reg is None or not hasattr(store, "team_pair"):
+            return None
+        pr = store.team_pair(root, reg["agent_key"])
+        if not pr or not pr.get("enabled"):
+            return None
+        rv = store.agent_by_key(root, pr["reviewer_agent_key"]) or {}
+        return {"agent_key": pr["reviewer_agent_key"], "slug": rv.get("slug") or "", "status": rv.get("status") or "",
+                "enabled": bool(rv.get("enabled")), "pair_version": pr.get("config_version")}
+
 
     @app.get("/resonance/agents")
     async def resonance_agents(brain: str = "brain", slug: str = "", session_id: str = ""):
@@ -293,7 +318,7 @@ def register_agents(app, deps: ResonanceApiDeps):
             return {"ok": True, "agents": [{"slug": m["slug"], "name": m.get("name") or m["slug"],
                                             "support": R.engine_support(m.get("provider") or ""), "registered": False,
                                             "agent_key": None, "enabled": False, "status": "unregistered",
-                                            "config_version": None, "goals_open": 0} for m in metas],
+                                            "config_version": None, "goals_open": 0, "reviewer": None} for m in metas],
                     "orphans": [], "unassigned": 0, "legacy_brain_switch": R.enabled_for(root),
                     "session": "needs_new_session" if slug and session_id else None}
         store = deps.store()
@@ -338,6 +363,10 @@ def register_agents(app, deps: ResonanceApiDeps):
         on = str(body.get("enabled", "")).strip().lower() in ("1", "true", "on", "yes")
         if not slug:
             return _err(400, "Thiếu trợ lý", "Missing assistant")
+        if slug.lower() == "javis-core":
+            # Javis Core (0.185.0) is the system assistant: it is not an Auto assistant and cannot be switched.
+            return _err(403, "Javis Core là trợ lý hệ thống, không bật hay tắt Auto được",
+                        "Javis Core is the system assistant; Auto cannot be switched for it")
         if on and deps.agent_file(root, slug) is None:
             store = deps.store() if _store_exists() else None
             live = store.agent(root, slug) if store else None
@@ -345,6 +374,7 @@ def register_agents(app, deps: ResonanceApiDeps):
                 store.agent_mark_missing(root, live["agent_key"])
             return _err(404, "Không có file trợ lý này trong brain", "No such assistant file in this brain")
         if not on and not _store_exists():
+            await _announce_agents(deps)
             return {"ok": True, "agent": None, "session": None}
         store = deps.store()
         try:
@@ -354,6 +384,7 @@ def register_agents(app, deps: ResonanceApiDeps):
                         agent=store.agent(root, slug))
         if on and a is not None:
             store.wake_agent_goals(root, a["agent_key"])
+        await _announce_agents(deps)
         return {"ok": True, "agent": a,
                 "session": _session_state(store, root, slug, str(body.get("session_id") or "")) if on else None}
 
@@ -380,6 +411,7 @@ def register_agents(app, deps: ResonanceApiDeps):
             return _err(409, str(e), str(e), agent=cur)
         if same and a["enabled"]:
             store.wake_agent_goals(root, a["agent_key"], "chủ dự án xác nhận trợ lý")
+        await _announce_agents(deps)
         return {"ok": True, "agent": a}
 
     @app.post("/goals/{goal_id}/assign")
@@ -652,3 +684,58 @@ def register_a4(app, deps: ResonanceApiDeps):
         if got is None:
             return _err(404, "Không có bản nháp này", "No such draft")
         return {"ok": True, **got}
+
+
+def register_a5(app, deps: ResonanceApiDeps):
+    """Route của A5 (đội làm và review), đăng ký SAU mọi route có sẵn (bảng route chỉ thêm ở cuối)."""
+    def _ctx(brain: str):
+        root = deps.brain_key(brain or "")
+        if not root or not Path(root).is_dir():
+            return None, None
+        return root, RS.Principal("owner", "owner", root)
+
+    @app.post("/resonance/agents/reviewer")
+    async def resonance_agent_reviewer(request: Request, brain: str = "brain"):
+        """0.142.0: đã bỏ người review cố định cho mục tiêu mới. Route còn lại để dashboard cũ trong cache trình duyệt
+        nhận một câu trả lời rõ thay vì lỗi lạ: bỏ chọn (rỗng) thì thành công và không làm gì, chọn người thì 410.
+        Cần kiểm chứng thì giao một việc riêng cho trợ lý phù hợp ở tab Công việc."""
+        root, _owner = _ctx(brain)
+        if root is None:
+            return _err(404, "Không tìm thấy brain", "Brain not found")
+        body = await _body(request)
+        if not str(body.get("reviewer_slug") or "").strip():
+            return {"ok": True, "pair": None, "removed": True}
+        return _err(410, "Javis đã bỏ người review cố định. Cần kiểm chứng thì giao một việc riêng cho trợ lý phù hợp "
+                         "ở tab Công việc.",
+                    "Fixed reviewers were removed. To get a check, assign a separate job to a suitable assistant on "
+                    "the Jobs tab.", removed=True)
+
+    @app.post("/goals/{goal_id}/reviewer/enable")
+    async def goal_reviewer_enable(goal_id: str, request: Request, brain: str = "brain"):
+        """A5 (review mã vòng 1, R2): nút "Bật lại người review" trên thẻ. Gửi MÃ BỀN của reviewer mà thẻ đang hiện; kho
+        kiểm trong một giao dịch rằng mục tiêu vẫn ghim đúng mã đó và mã còn hoạt động rồi mới bật. Thẻ cũ (reviewer đã
+        nghỉ, agent mới cùng slug, đội đã bỏ) nhận 409 kèm trạng thái mới, không bật ai. Nút bật ở trang trợ lý vẫn đi
+        `/resonance/agents/toggle` như cũ."""
+        root, owner = _ctx(brain)
+        if root is None:
+            return _err(404, "Không tìm thấy brain", "Brain not found")
+        if not _store_exists():
+            return _err(404, "Không có mục tiêu này", "No such goal")
+        body = await _body(request)
+        key = str(body.get("agent_key") or "").strip()
+        store = deps.store()
+        cur = await asyncio.to_thread(store.agent_by_key, root, key) if key else None
+        if cur is not None and cur["status"] == "active" and deps.agent_file(root, cur["slug"]) is None:
+            await asyncio.to_thread(store.agent_mark_missing, root, key)
+            return _err(409, "File của người review không còn trong brain", "The reviewer file is missing from this brain",
+                        goal=await _view(store, owner, goal_id, root))
+        try:
+            a = await asyncio.to_thread(store.team_reviewer_enable, owner, goal_id, key)
+        except RS.ScopeError:
+            return _err(404, "Không có mục tiêu này", "No such goal")
+        except RS.ConflictError as e:
+            return _err(409, f"Người review trên thẻ không còn là người review của mục tiêu ({e})",
+                        f"The reviewer on this card is no longer the goal's reviewer ({e})",
+                        goal=await _view(store, owner, goal_id, root))
+        await asyncio.to_thread(store.wake_agent_goals, root, a["agent_key"])
+        return {"ok": True, "agent": a, "goal": await _view(store, owner, goal_id, root)}

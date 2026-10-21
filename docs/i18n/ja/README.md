@@ -117,7 +117,7 @@ Javis では、モデルは交換できる部品にすぎません。あなた�
 | **作業** | 答えたら待つだけ | 結果を報告してくれる **バックグラウンドの Loop、リマインダー、AI が運用するタスクキュー** |
 | **インターフェース** | チャット欄ひとつ | ダッシュボード + ナレッジグラフ + **ハンズフリー音声** + Telegram、Slack、WhatsApp、Zalo + CLI |
 | **あなたの成果** | ベンダーのサーバー上に、ベンダーの形式のまま残る | **自分のマシン上のプレーンなファイル**：履歴、記憶、Skill、Agent、Workflow をどの新しいモデルにも引き継げる |
-| **デプロイ** | 誰かのクラウド | **セルフホスト**：ワンクリックの Hostinger、Docker、または任意の VPS |
+| **デプロイ** | 誰かのクラウド | **セルフホスト**：ワンクリックの [Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN)、Docker、または任意の VPS |
 
 > 💡 **設計思想：能力はモデルではなく Javis に宿る。** どの頭脳も、ひとつの共有接続ハブ（MCP Hub）を通じて同じツール一式を受け取ります。Claude から Gemini に切り替えても失うものはありません。例外はシェルアクセスだけで、これは CLI エンジンにしかありません。
 
@@ -247,6 +247,8 @@ flowchart LR
 <details open>
 <summary><b>方法 1：Hostinger Docker Manager（ドメイン + HTTPS、ワンクリック）</b></summary>
 
+> 🛒 **VPS をまだお持ちでない方へ：** [Hostinger VPS はこちら](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN)。Docker Manager が標準搭載なので、Javis はワンクリックで入ります。準備ができたら下の手順に戻ってください。
+
 Hostinger VPS → **Docker Manager → Compose → URL** → Hostinger 用のファイルを貼り付けて **Deploy** を押します。
 
 ```
@@ -272,6 +274,8 @@ Hostinger の Traefik が HTTPS 証明書を発行できるよう、`DOMAIN_NAME
 
 <details>
 <summary><b>方法 2：任意の VPS で Docker（clone 不要）</b></summary>
+
+> 🛒 **VPS が必要ですか？** この方法も [Hostinger VPS](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) で動きます。
 
 ```bash
 # Docker required (don't have it?  curl -fsSL https://get.docker.com | sh)
@@ -390,7 +394,7 @@ Javis を開くと、セットアップウィザードがブラウザの言語�
 | `JAVIS_ALLOWED_HOSTS` | 許可リストに追加するホスト名（CSRF と DNS リバインディング対策） | localhost + あなたのドメイン |
 | `JAVIS_STATE_DIR` | 設定、セッション、暗号化キーの保存先 | `server/`（Docker：`/data/state`） |
 | `BRAINS_DIR` | すべての Brain を収める親フォルダ | `brains/`（Docker：`/brains`） |
-| `JAVIS_ENABLE_USER_PLUGINS` | `true` で自作 Plugin の実行を許可（サーバー内で本物の Python が動きます） | *（オフ）* |
+| `JAVIS_ENABLE_USER_PLUGINS` | `false` で自作 Plugin をオフにします（サーバー内で本物の Python が動きます） | *（オン）* |
 | `TTS_VOICE` / `TTS_RATE` | Edge TTS の声と速度 | `en-US-EmmaMultilingualNeural` / `+5%` |
 
 ---
@@ -401,7 +405,7 @@ Javis を開くと、セットアップウィザードがブラウザの言語�
 - **2FA（TOTP）**、ログイン試行回数の制限、8 文字以上のパスワード、HTTPS 下での `Secure` Cookie、30 日で期限切れになるセッション。
 - **CSRF と DNS リバインディング対策**：不明なオリジンからの書き込みリクエストはすべて拒否されます。
 - **シークレットは暗号化** して `settings.json` に保存されます（API キー、OAuth トークン、ボットトークン）。暗号化キーはマシンごとに異なります。
-- **自作 Plugin はデフォルトでブロック** され、`JAVIS_ENABLE_USER_PLUGINS=true` を設定するまで動きません。
+- **自作 Plugin はデフォルトで読み込まれますが、アプリでオンにするまで各 Plugin はオフのまま** です。すべて止めるには `JAVIS_ENABLE_USER_PLUGINS=false` を設定します。
 - **接続の権限はモデルではなくハブが強制します**：読み取り専用のアカウントを使って送信、支払い、公開を行うことはできません。
 
 脆弱性を見つけた場合は、公開の Issue を立てるのではなく [SECURITY.md](../../../SECURITY.md) の手順に従ってください。

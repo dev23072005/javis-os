@@ -117,7 +117,7 @@ Was dir das bringt:
 | **Arbeit** | Antwortet und wartet dann | **Hintergrund-Loops, Erinnerungen und eine von der KI gesteuerte Aufgabenwarteschlange**, die dir Bericht erstatten |
 | **Oberfläche** | Ein Chatfenster | Dashboard + Wissensgraph + **freihändige Sprachsteuerung** + Telegram, Slack, WhatsApp, Zalo + eine CLI |
 | **Deine Arbeit** | Bleibt auf den Servern des Anbieters, im Format des Anbieters | **Einfache Dateien auf deinem Rechner**: Verlauf, Gedächtnis, Skills, Agents und Workflows lassen sich zu jedem neuen Modell mitnehmen |
-| **Bereitstellung** | Die Cloud von jemand anderem | **Selbst gehostet**: Hostinger mit einem Klick, Docker oder ein beliebiger VPS |
+| **Bereitstellung** | Die Cloud von jemand anderem | **Selbst gehostet**: [Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) mit einem Klick, Docker oder ein beliebiger VPS |
 
 > 💡 **Die Philosophie: Die Fähigkeiten stecken in Javis, nicht im Modell.** Jedes Gehirn bekommt denselben Werkzeugkasten über einen gemeinsamen Verbindungs-Hub (den MCP Hub). Der Wechsel von Claude zu Gemini kostet dich nichts außer dem Shell-Zugriff, den nur die CLI-Engines haben.
 
@@ -247,6 +247,8 @@ flowchart LR
 <details open>
 <summary><b>Option 1: Hostinger Docker Manager (Domain + HTTPS, ein Klick)</b></summary>
 
+> 🛒 **Noch keinen VPS?** [Hol dir hier einen Hostinger VPS](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN). Docker Manager ist eingebaut, Javis installiert sich also mit einem Klick. Sobald er bereit ist, mach mit den Schritten unten weiter.
+
 Hostinger VPS → **Docker Manager → Compose → URL** → füge die Hostinger-Datei ein und klicke auf **Deploy**:
 
 ```
@@ -272,6 +274,8 @@ Details und Fehlerbehebung: [DEPLOY.en.md](../../../DEPLOY.en.md).
 
 <details>
 <summary><b>Option 2: Docker auf einem beliebigen VPS (ohne Klonen)</b></summary>
+
+> 🛒 **Brauchst du einen VPS?** Ein [Hostinger VPS](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) eignet sich auch für diese Option.
 
 ```bash
 # Docker required (don't have it?  curl -fsSL https://get.docker.com | sh)
@@ -390,7 +394,7 @@ Jede Zeile darf leer bleiben, und Javis läuft trotzdem. Kopiere `env.example` �
 | `JAVIS_ALLOWED_HOSTS` | Zusätzliche Hostnamen auf der Allow-List (Schutz vor CSRF und DNS-Rebinding) | localhost + deine Domain |
 | `JAVIS_STATE_DIR` | Wo Einstellungen, Sitzungen und der Verschlüsselungsschlüssel liegen | `server/` (Docker: `/data/state`) |
 | `BRAINS_DIR` | Übergeordneter Ordner mit allen Brains | `brains/` (Docker: `/brains`) |
-| `JAVIS_ENABLE_USER_PLUGINS` | `true` erlaubt das Ausführen eigener Plugins (echtes Python im Server) | *(aus)* |
+| `JAVIS_ENABLE_USER_PLUGINS` | `false` schaltet eigene Plugins ab (sie führen echtes Python im Server aus) | *(an)* |
 | `TTS_VOICE` / `TTS_RATE` | Stimme und Geschwindigkeit für Edge TTS | `en-US-EmmaMultilingualNeural` / `+5%` |
 
 ---
@@ -401,7 +405,7 @@ Jede Zeile darf leer bleiben, und Javis läuft trotzdem. Kopiere `env.example` �
 - **2FA (TOTP)**, Begrenzung der Anmeldeversuche, Passwörter mit mindestens 8 Zeichen, `Secure`-Cookies unter HTTPS, Sitzungen, die nach 30 Tagen ablaufen.
 - **Schutz vor CSRF und DNS-Rebinding**: Jede schreibende Anfrage von einem unbekannten Ursprung wird abgelehnt.
 - **Geheimnisse werden verschlüsselt** in `settings.json` (API-Schlüssel, OAuth-Tokens, Bot-Tokens), mit einem Schlüssel pro Rechner.
-- **Eigene Plugins sind standardmäßig blockiert**, bis du `JAVIS_ENABLE_USER_PLUGINS=true` setzt.
+- **Eigene Plugins werden standardmäßig geladen, jedes bleibt aber aus, bis du es in der App einschaltest**; mit `JAVIS_ENABLE_USER_PLUGINS=false` schaltest du alle ab.
 - **Verbindungsberechtigungen werden durchgesetzt** vom Hub, nicht vom Modell: Mit einem Nur-Lese-Konto kann nichts gesendet, bezahlt oder veröffentlicht werden.
 
 Eine Sicherheitslücke gefunden? Bitte folge [SECURITY.md](../../../SECURITY.md), statt ein öffentliches Issue zu eröffnen.

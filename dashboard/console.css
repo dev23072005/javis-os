@@ -156,34 +156,47 @@ body.in-console .hud-actions { display: none; }
 .prov-shield.on { color: var(--green); filter: drop-shadow(0 0 6px rgba(34,197,94,0.45)); }
 .prov-info { flex: 1; min-width: 0; }
 .prov-name { font-family: var(--font); font-weight: 700; font-size: 16px; }
-.prov-kind { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--accent2-wash-2); color: var(--accent2-ink); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 6px; vertical-align: middle; }
-.prov-status { font-family: var(--font); font-size: 13px; color: var(--text3); margin-top: 3px; }
+.prov-kind { font-size: 16px; padding: 2px 6px; border-radius: 5px; background: var(--accent2-wash-2); color: var(--accent2-ink); margin-left: 6px; vertical-align: middle; font-weight: 500; }
+.prov-status { font-family: var(--font); font-size: 16px; color: var(--text3); margin-top: 3px; line-height: 1.45; }
 .prov-status.on { color: var(--green); }
-.prov-badge { font-family: var(--font); font-size: 11px; letter-spacing: 1px; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 2px 6px; }
-.prov-action { display: flex; gap: 8px; margin-top: 12px; }
+.prov-badge { font-family: var(--font); font-size: 16px; letter-spacing: 0.5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; padding: 2px 6px; }
+.prov-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+/* Messages under the buttons of a provider card. They used to sit INSIDE the flex row of buttons,
+   so a long CLI message became a narrow column and stretched the buttons to its height (owner's
+   screenshot 2026-10-17). Here they get the full width of the card and vanish when empty. */
+.prov-msg { font-size: 16px; line-height: 1.55; color: var(--text2); margin-top: 8px; overflow-wrap: anywhere; }
+.prov-msg:empty { display: none; }
+.prov-cmd { margin: 4px 0; }
+.prov-help { margin-top: 6px; }
+.prov-help summary { cursor: pointer; color: var(--text2); }
+.prov-help > div { margin-top: 4px; color: var(--text2); }
 .prov-action .js-input { margin-bottom: 0; flex: 1; }
-.prov-action .gcard-btn { width: auto; flex: 0 0 auto; }
-.prov-note { font-size: 13px; color: var(--text3); margin-top: 8px; opacity: 0.7; }
-/* Cảnh báo trên thẻ provider (vd Google đã ngắt Gemini CLI với tài khoản cá nhân). Bỏ luôn
-   opacity 0.7 của .prov-note: đây là thứ người dùng PHẢI đọc, làm mờ đi là phản tác dụng. */
-.prov-note.warn { color: var(--yellow); opacity: 1; }
-.prov-note.warn code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+.prov-action .gcard-btn { width: auto; flex: 0 0 auto; margin-top: 0; font-size: 16px; }
+.prov-note { font-size: 16px; line-height: 1.55; color: var(--text3); margin-top: 8px; overflow-wrap: anywhere; }
+/* Warning box on a provider card (missing CLI, a vendor cutting off a plan). Something the user
+   MUST read, so it gets its own colors and frame instead of the muted note style. */
+.prov-note.warn { color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line);
+  border-radius: 8px; padding: 10px 12px; }
+.prov-note.warn code { background: var(--bg3); padding: 1px 5px; border-radius: 5px; font-size: 16px; }
+/* A command name stays whole; only the long install command may wrap, and only where it must. */
+.prov-note.warn b code { white-space: nowrap; }
+.prov-cmd code { overflow-wrap: anywhere; word-break: normal; }
 /* Ba bước cài + đăng nhập Gemini CLI. Có <code> nên cần dễ đọc hơn .prov-note một chút. */
-.prov-steps { font-size: 13px; color: var(--text2); margin-top: 8px; line-height: 1.75; }
+.prov-steps { font-size: 16px; color: var(--text2); margin-top: 8px; line-height: 1.6; overflow-wrap: anywhere; }
 .prov-steps code { background: var(--bg3); padding: 1px 6px; border-radius: 5px;
-  font-size: 12.5px; word-break: break-all; }
+  font-size: 16px; overflow-wrap: anywhere; }
 /* Nguồn xác thực của gói Claude Code (subscription / API key) */
 .prov-auth { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--glass-brd); }
-.prov-auth-title { font-family: var(--font); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); margin-bottom: 8px; }
+.prov-auth-title { font-family: var(--font); font-size: 16px; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); margin-bottom: 8px; }
 /* Một dòng nói TRƯỚC cái mà hai lựa chọn bên dưới KHÔNG đổi. Thiếu nó thì người đọc thấy
    "API key Anthropic" ở đây và thẻ "Anthropic (API)" bên dưới, tưởng trùng nhau rồi hỏi làm
    thêm nút này chi (chủ repo hỏi đúng câu đó 2026-08-13). */
-.prov-auth-note { font-size: 12.5px; line-height: 1.6; color: var(--text2); margin-bottom: 10px; }
-.prov-auth-opt { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text2); line-height: 1.5; margin-bottom: 6px; cursor: pointer; }
+.prov-auth-note { font-size: 16px; line-height: 1.6; color: var(--text2); margin-bottom: 10px; }
+.prov-auth-opt { display: flex; gap: 8px; align-items: flex-start; font-size: 16px; color: var(--text2); line-height: 1.5; margin-bottom: 6px; cursor: pointer; }
 .prov-auth-opt input { margin-top: 3px; flex: 0 0 auto; }
 .prov-auth-opt b { color: var(--text); font-weight: 600; }
 .prov-auth-opt i { color: var(--text3); }
-.prov-auth-warn { font-size: 13px; line-height: 1.55; color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
+.prov-auth-warn { font-size: 16px; line-height: 1.55; color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
 
 /* Auxiliary model chips */
 .aux-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -685,7 +698,9 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   .hud-top #themeToggle, .hud-top #studioOpenBtn,
   .hud-top #settingsBtn, .hud-top #ttsToggle, .hud-top #resetBtn { display: none; }
   .hud-center-title { display: none; }                /* mobile: ẩn tên workspace + ngày; chip model làm giữa header */
-  .hud-top #mbOpen { display: inline-flex; margin-left: auto; margin-right: auto; }  /* chip model căn giữa, đẩy ＋ sang phải */
+  /* 0.182.0 (owner: putting the chip in the composer on a phone "là sai lầm"): back to the top bar, centred, as before 0.180.0.
+     It keeps the short model name and the pin icon from 0.180.0, so it stays narrow. */
+  .hud-top #mbOpen { display: inline-flex; margin-left: auto; margin-right: auto; max-width: 56vw; }  /* chip model căn giữa, đẩy ＋ sang phải */
   .hud-top .notification-trigger {
     flex: 0 0 34px; width: 34px; min-width: 34px; height: 34px; padding: 0;
   }
@@ -716,6 +731,10 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
     gap: 4px;
     border-top: 0; border-right: 1px solid var(--glass-brd);
     transform: translateX(-100%); transition: transform .22s ease; z-index: 60; overflow-y: auto;
+    /* 0.216.0 (owner, iPhone): the drawer slid in then vanished, leaving only the dim backdrop. Safari can stop painting
+       a box that is blurred (backdrop-filter), moved (transform) and scrolled at once. The drawer sits over the dim
+       backdrop anyway, so it needs no blur: a solid background and its own layer. */
+    background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; will-change: transform;
   }
   body.nav-open .rail { transform: translateX(0); box-shadow: 8px 0 40px var(--shadow-veil); }
   .rail-top, .rail-foot { display: flex; }            /* hiện lại brand + version trong ngăn kéo */
@@ -736,8 +755,8 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   .rail-sys-btns .hud-icon-btn { display: inline-flex; }
 
   /* Nền mờ khi mở ngăn kéo */
-  .nav-backdrop { position: fixed; inset: 0; background: var(--scrim); z-index: 55; }
-  .nav-backdrop[hidden] { display: none; }
+  /* Shown by the drawer's own state only (0.216.0): a dim screen with no drawer on it can no longer stay behind. */
+  .nav-backdrop, .nav-backdrop[hidden] { position: fixed; inset: 0; background: var(--scrim); z-index: 55; display: none; }
   body.nav-open .nav-backdrop { display: block; }
 
   /* Không còn chừa 56px đáy cho rail; chat chiếm hết */
@@ -1355,6 +1374,8 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
    của họ. Nên trật tự đọc được đặt cứng: đây là gói gì, đến từ tệp nào và vân tay ra sao, nó
    chạm vào đâu, cảnh báo, rồi mới tới hai cái nút. */
 .mp-box.pkm { width: 560px; max-height: min(88vh, 760px); }
+/* 0.214.0: the (i) block of the trust note sits right in the modal, which has no side padding. */
+.mp-box.pkm > .info-body { margin: 10px 20px 0; }
 .pkm-dau { display: flex; align-items: flex-start; gap: 14px; padding: 20px 20px 0; }
 .pkm-dau .kho-ava { width: 46px; height: 46px; border-radius: 13px; font-size: 17px; }
 .pkm-dau .kho-ava-img svg, .pkm-dau .kho-ava-img img { width: 40px; height: 40px; }
@@ -1603,7 +1624,9 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
    mặc định của .cside-tab làm chữ tràn ra ngoài viền.
    Khung nội dung tự cuộn chứ không để cả cột cuộn: cây thư mục có thanh cuộn riêng, để nó
    nằm trong luồng chung là hai thanh cuộn lồng nhau. */
-.ws-rtabs .cside-tab { padding: 7px 4px; gap: 5px; min-width: 0; font-size: 12.5px;
+/* 0.191.0 (owner, 16/10/2026: "vệt màu cam đang bị dính quá sát vào chữ"): 10px each side so the active pill has room
+   around its label, and each tab is as wide as its label (flex auto) instead of three equal thirds. */
+.ws-rtabs .cside-tab { flex: 1 1 auto; padding: 7px 10px; gap: 6px; min-width: 0; font-size: 12.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-rtabs .cside-tab svg { flex: none; }
 /* Cột phải co xuống 272px ở màn hẹp hơn: chia ba thì mỗi tab còn 76px, không đủ cho cả icon
@@ -1826,6 +1849,16 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
 @keyframes aa-think { 0%,100% { transform:translateY(0) rotate(-5deg); } 50% { transform:translateY(-3px) rotate(5deg); } }
 @keyframes aa-talk { 0%,100% { transform:scaleY(.7); } 50% { transform:scaleY(1.1); } }
 .aa-preview { display:flex; justify-content:center; padding:12px 0; min-height:112px; }
+/* Ảnh tự tải lên (0.176.0): tròn, phủ kín ô, cùng cỡ với hình Javis ở mọi chỗ vẽ. Hàng nút tải ảnh nằm ngay dưới ô xem thử. */
+.agent-avatar.has-img { border-radius:50%; overflow:hidden; background:var(--surface-2); }
+.agent-avatar.has-img img { display:block; width:100%; height:100%; object-fit:cover; }
+.aa-upload { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin:0 0 6px; }
+.aa-upload .ws-btn { display:inline-flex; align-items:center; gap:6px; }
+.aa-upload .ws-btn svg { width:15px; height:15px; }
+.aa-upload-msg { text-align:center; font-size:13px; color:var(--text2); min-height:0; margin-bottom:6px; }
+.aa-upload-msg:empty { display:none; }
+.aa-upload-msg.loi { color:var(--red, #e5484d); }
+@media (pointer: coarse) { .aa-upload .ws-btn { min-height:44px; } }
 .aa-options { text-align:center; margin-bottom:18px; }
 .aa-options summary { cursor:pointer; font-size:12px; color:var(--text2); padding:6px; }
 .aa-options[open] { background:var(--surface-1); border:1px solid var(--border); border-radius:12px; padding:8px; }
@@ -1917,12 +1950,16 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
 .ws-item-more:hover { color: var(--accent); background: var(--surface-1); }
 /* Màn cảm ứng KHÔNG có trỏ vào: ẩn theo hover là nút vĩnh viễn không thấy trên điện thoại. */
 @media (hover: none) { .ws-item-more { opacity: .75; } }
-/* Dấu ghim là một Ô RIÊNG ở mép phải hàng, KHÔNG nằm trong thẻ tên: tên cắt bằng ellipsis
-   nên dấu ghim để trong đó thì tên dài một chút là nó bị cắt mất, ghim rồi mà nhìn y như
-   chưa ghim (chủ dự án báo 16/09). Chừa chỗ cho nút "..." bằng margin-right. */
-.ws-item-pin { flex: none; display: inline-flex; margin-left: auto; margin-right: 22px;
-  color: var(--accent); }
-.ws-item-pin svg { width: 14px; height: 14px; }
+/* T0 nhóm chat team: công tắc Cộng hưởng của trợ lý, một dải nhỏ ngay dưới tên, thẳng hàng với chữ (sau ảnh 42px).
+   Nằm NGOÀI nút chọn mục (nút trong nút là HTML sai). Trạng thái luôn có chữ, không chỉ màu. */
+/* inline-flex: chỉ phần chữ và công tắc bấm được, không cả dải rộng dưới tên (chạm nhầm là bật mục tiêu thật). */
+.ws-rs{display:inline-flex;align-items:center;gap:8px;margin:-6px 30px 6px 64px;font-size:11.5px;color:var(--text3);
+  min-height:28px;white-space:nowrap;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+.ws-rs[hidden]{display:none}
+.ws-rs .ws-rs-text{overflow:hidden;text-overflow:ellipsis}
+.ws-rs .toggle{flex:none}
+.ws-rs-confirm{color:var(--warning, #b7791f);text-decoration:underline;text-underline-offset:2px}
+@media (max-width: 600px){ .ws-rs{min-height:44px;margin-left:58px} }
 /* Cả hàng ghim mang một vạch màu bên trái - dấu ghim nhỏ, vạch mới là thứ đọc được khi liếc. */
 .ws-item-wrap.ghim > .ws-item { border-left: 3px solid var(--accent); border-radius: 9px; }
 /* Nhãn nhóm "Đã ghim" / "Còn lại", cùng bộ mặt với nhãn nhóm ngày của cột lịch sử. */
@@ -2020,6 +2057,11 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
 .ht-f[hidden], .ht-fclear[hidden] { display: none; }
 .ht-fsum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text3);
   min-height: 20px; padding: 0 4px; }
+/* 0.216.0: kết quả hỏi Zalo khi ô tìm là một số điện thoại. */
+.ht-sdt { margin: 0 4px 6px; padding: 8px 10px; border-radius: 9px; background: var(--accent-wash); color: var(--text);
+  font-size: 16px; line-height: 1.45; display: flex; flex-direction: column; gap: 4px; }
+.ht-sdt[hidden] { display: none; }
+.ht-sdt svg { width: 16px; height: 16px; vertical-align: -3px; color: var(--accent); }
 .ht-fclear { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer;
   text-decoration: underline; }
 .ht-item-tags { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
@@ -2060,12 +2102,24 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   white-space: nowrap; text-overflow: ellipsis; }
 .ht-item.unread .ht-item-top strong { color: var(--text); }
 .ht-item-time { flex: none; font-size: 11.5px; color: var(--text3); }
+/* Nút ghim của hòm thư (0.223.0): hiện khi rê chuột, luôn hiện ở hàng đã ghim và trên màn cảm ứng. */
+.ht-pin { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  margin: -4px -4px -4px 0; border-radius: 6px; color: var(--text3); opacity: 0; cursor: pointer; }
+.ht-pin svg { width: 14px; height: 14px; }
+.ht-item:hover .ht-pin, .ht-pin:focus-visible { opacity: .8; }
+.ht-pin:hover { background: var(--surface-2); color: var(--text); opacity: 1; }
+.ht-pin.on { opacity: 1; color: var(--accent); }
+.ht-item.ghim { box-shadow: inset 3px 0 0 var(--accent); }
+@media (hover: none) { .ht-pin { opacity: .6; width: 32px; height: 32px; } .ht-pin.on { opacity: 1; } }
 .ht-item-sub { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .ht-item-sub small { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--text3); overflow: hidden;
   white-space: nowrap; text-overflow: ellipsis; }
 .ht-item.unread .ht-item-sub small { color: var(--text2); font-weight: 600; }
 .ht-badge { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent);
   color: var(--on-accent); font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; }
+/* Tổng số tin của cuộc (0.148.0): viên xám trung tính, tách hẳn số đỏ (cam) của tin chưa đọc. */
+.ht-count { flex: none; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border);
+  color: var(--text3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ht-mode { flex: none; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--warn-wash);
   color: var(--warn-ink); font-weight: 600; }
 .ht-thread { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border);
@@ -2169,7 +2223,7 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   .ht-wrap.thread-on .ht-thread { display: flex; min-height: 70vh; }
   .ht-back { display: inline-flex; }
   .ht-item-top strong, .ht-bubble, .ht-src-text strong { font-size: 16px; }
-  .ht-item-sub small, .ht-head-text small, .ht-foot, .ht-intro, .ht-src-text small, .ht-switch { font-size: 14px; }
+  .ht-item-sub small, .ht-head-text small, .ht-foot, .ht-intro, .ht-src-text small, .ht-switch, .ht-count { font-size: 14px; }
   .ht-msg { max-width: 88%; }
 }
 
@@ -2269,11 +2323,10 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
    ============================================================
    Khung trang dùng lại nguyên bộ lớp `.chatpage*` của trang Trò chuyện (luật xếp khung nằm
    trong _injectChatCss của console.js), và cột trái là chính module lịch sử `.cside-*`. Nên ở
-   đây chỉ còn ba thứ trang này thật sự đẻ ra: dải chip ngữ cảnh, menu bật lên từ chip, và
-   tấm thêm thư mục. */
-.cd-id { flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--text3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cd-cwd.dim { opacity: .75; }
+   đây chỉ còn hai thứ trang này thật sự đẻ ra: dải chip ngữ cảnh và menu bật lên từ chip.
+   0.159.0: errors sit in their own slot (#cdErr) in the page bar. */
+.cd-err { margin-left: auto; font-size: 12.5px; }
+.cd-err:empty { display: none; }
 
 /* Hàng chip ngữ cảnh: nhét vào chính #modelBar đã mượn, đứng TRƯỚC chip Model, nên một hàng
    đọc từ trái sang là thư mục, nhánh, worktree, điểm hồi, chế độ, rồi model. */
@@ -2283,10 +2336,6 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   background: var(--bg3); color: var(--text2); cursor: pointer; white-space: nowrap; }
 .cd-chip:hover { border-color: var(--info-line); color: var(--text); }
 .cd-chip.on { border-color: var(--ok-line); color: var(--text); }
-.cd-chip-tm { font-weight: 600; color: var(--text); }
-/* Chip mời gắn thư mục: nét đứt để đọc ra ngay là "chỗ trống chờ chọn", không phải một giá
-   trị đã đặt. Chưa gắn thì đây là chip DUY NHẤT trên hàng. */
-.cd-chip-mo { border-style: dashed; }
 /* Ba chế độ, ba sắc thái. Plan đọc là "an toàn", Toàn quyền phải NHÌN ra được từ xa vì ở mức
    đó engine commit, push và deploy được.
 
@@ -2331,24 +2380,40 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
    VIỀN, alpha 0,35, nên đặt làm màu CHỮ thì chữ mờ đến khó đọc (chủ dự án báo 22/09). Dùng
    biến -ink dành cho chữ, kèm in đậm để mắt bắt ngay mục đang chọn. */
 .cd-menu button.on { color: var(--info-ink); font-weight: 600; }
-/* Mục TÍCH CHỌN: ô vuông bên trái nói rõ bấm vào là THÊM/BỚT chứ không phải THAY. */
-.cd-menu button.tich { display: flex; align-items: flex-start; gap: 8px; }
-/* Ô chữ phải CO ĐƯỢC: mặc định con của flex không hẹp hơn nội dung, nên đường dẫn dài đâm
-   thẳng ra mép menu và bị cắt cụt không dấu "...". */
-.cd-menu button.tich > span:not(.cd-tich) { flex: 1 1 auto; min-width: 0; }
-.cd-tich { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 2px; border-radius: 4px;
-  border: 1px solid var(--glass-brd); display: inline-flex; align-items: center;
-  justify-content: center; color: var(--info-ink); }
-.cd-menu button.on .cd-tich { border-color: var(--info-line); background: var(--info-wash); }
-.cd-tich svg { width: 12px; height: 12px; }
-/* Đang gắn nhiều thư mục: chip mang tên thư mục chính kèm "+N". */
-.cd-chip-them { font-weight: 600; color: var(--info-ink); }
-.cd-menu button.moi { border-top: 1px solid var(--glass-brd); border-radius: 0 0 8px 8px; }
-/* Chưa gắn thư mục nào thì "Thêm thư mục" là mục DUY NHẤT: vạch ngăn phía trên chẳng ngăn gì cả. */
-.cd-menu button.moi:first-child { border-top: 0; border-radius: 8px; }
 .cd-menu button.nguy { color: var(--red); }   /* --danger không có trong bảng màu */
 .cd-menu button small { display: block; font-size: 12px; color: var(--text3); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Bảng Hoàn tác (0.256.0): danh sách file đổi từ một mốc tự động, xem diff, khôi phục. Chữ 16px
+   kể cả trên máy tính: người dùng đọc tên file và diff để quyết định có trả lại hay không, nên
+   đây là chữ CHÍNH chứ không phải chữ phụ. */
+.cd-undo { position: fixed; inset: 0; z-index: 70; background: var(--shadow-veil);
+  display: flex; align-items: center; justify-content: center; padding: 16px; }
+.cd-undo-box { width: min(720px, 100%); max-height: min(86vh, 900px); overflow-y: auto;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+  font-size: 16px; line-height: 1.5; color: var(--text); box-shadow: 0 16px 40px var(--shadow-veil); }
+.cd-undo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 10px; }
+.cd-undo-x { background: none; border: 0; color: var(--text2); cursor: pointer; padding: 6px;
+  border-radius: 8px; min-width: 40px; min-height: 40px; }
+.cd-undo-x:hover { background: var(--surface-2); }
+.cd-undo-note { color: var(--text2); margin: 0 0 12px; }
+.cd-undo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cd-undo-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cd-undo-row code { font-size: 15px; word-break: break-all; flex: 1 1 200px; }
+.cd-undo-row button, .cd-undo-go { font: inherit; font-size: 16px; cursor: pointer; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); padding: 8px 14px;
+  min-height: 40px; }
+.cd-undo-st { font-size: 14px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.cd-undo-st.st-A { color: var(--ok-ink, var(--text)); border-color: var(--ok-line); }
+.cd-undo-st.st-D { color: var(--red); }
+.cd-undo-diff { font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+  margin: 8px 0 0; max-height: 50vh; overflow: auto; }
+.cd-undo-act { margin-top: 14px; display: flex; justify-content: flex-end; }
+.cd-undo-go { border-color: var(--warn-line); color: var(--warn-ink); font-weight: 600; }
+.cd-undo-go:disabled { opacity: .5; cursor: default; }
+.cd-undo-kq { margin-top: 10px; }
 
 /* Không có kiểu dáng riêng cho hộp "thêm thư mục": nó là JavisFolderPicker, mặc bộ lớp
    .folder-modal/.fm-* có sẵn trong style.css. */
@@ -2468,3 +2533,1260 @@ body.has-rail .hud { margin-left: var(--rail-w); width: calc(100% - var(--rail-w
   .ach-actions .gcard-btn { flex: 1 1 auto; }
   .ach-actions { justify-content: stretch; }
 }
+
+/* ── Trang Nhóm (nhóm chat team; teams.js). T5 gọn kiểu app chat: danh sách nhóm (trái) và khung chat; ngăn "Việc | Nhóm"
+   là cột phải trên máy tính, ngăn kéo dưới 1060px, trang trượt lên dưới 760px (danh sách là trang đầu, chạm nhóm mở khung
+   chat toàn màn). Trang chiếm trọn chiều cao (console.js thêm .cview-flush), khung soạn luôn ở đáy.
+   Mọi lớp flex/grid kèm luật [hidden] riêng vì display của lớp đè thuộc tính hidden. */
+.tm-page { display: grid; grid-template-columns: 280px minmax(0, 1fr); height: 100%; min-height: 0; gap: 0; position: relative; }
+.tm-page[data-side="0"] { grid-template-columns: 280px minmax(0, 1fr); }
+.tm-page[data-side="1"] { grid-template-columns: 280px minmax(0, 1fr) 360px; }
+.tm-page[hidden] { display: none; }
+/* .ws-btn đặt display:inline-flex nên đè thuộc tính hidden (vd. nút Trang sau khi không còn trang). */
+.tm-page .ws-btn[hidden] { display: none; }
+.tm-page .ws-btn.tm-primary { background: var(--accent); color: var(--on-accent, #fff); border-color: var(--accent); }
+.tm-list, .tm-chat, .tm-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.tm-list[hidden], .tm-chat[hidden], .tm-side[hidden] { display: none; }
+.tm-list { border-right: 1px solid var(--border); padding: 8px; gap: 2px; overflow-y: auto; }
+.tm-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-height: 36px; }
+.tm-bar[hidden] { display: none; }
+.tm-list-bar { padding: 2px 4px 6px; }
+.tm-list-title { font-size: 16px; }
+/* 0.176.0: no page header any more (owner, 2026-10-16: the rail already says "Nhóm", the room goes to the chat), and the
+   list keeps only its Create button on a computer. Chưa có nhóm: thẻ hướng dẫn đã có nút Tạo nhóm. */
+body.on-teams .cview-head { display: none; }
+@media (min-width: 761px) { .tm-list-title { display: none; } .tm-list-bar .tm-new { margin-left: auto; } }
+.tm-list-bar-empty .tm-new { display: none; }
+
+/* Ảnh đại diện: chữ đầu trên nền màu cố định theo tên. */
+.tm-ava { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface-2); color: #fff; font-size: 12px; font-weight: 600; flex: none; }
+.tm-ava-c0 { background: #5b7bd5; } .tm-ava-c1 { background: #2f8f80; } .tm-ava-c2 { background: #c0703b; }
+.tm-ava-c3 { background: #8c62c4; } .tm-ava-c4 { background: #c4566e; } .tm-ava-c5 { background: #4f8f3f; }
+.tm-ava-c6 { background: #a8822a; } .tm-ava-c7 { background: #3f86b3; }
+
+/* Ảnh trợ lý thật (bộ JavisAvatar) trong khung tròn; ảnh nhóm ghép từ ảnh thành viên (1, 2 chéo, 3 tam giác, lưới 2x2,
+   ô đếm "+N"). Viền màu nền tách các ảnh chồng nhau. */
+.tm-face { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; overflow: hidden;
+  background: var(--surface-2); }
+.tm-face[hidden] { display: none; }
+.tm-gava { position: relative; display: inline-block; flex: none; width: var(--gava, 44px); height: var(--gava, 44px); }
+.tm-gava[hidden] { display: none; }
+.tm-gava-img { border-radius: 50%; overflow: hidden; background: var(--surface-2); }
+.tm-gava-img > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* Ô Ảnh nhóm trong cài đặt nhóm (0.176.0): ảnh bên trái, nút tải ảnh bên phải; hẹp quá thì nút xuống dòng. */
+.tm-ava-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tm-ava-acts { flex: 1 1 160px; min-width: 0; }
+.tm-ava-acts .aa-upload { justify-content: flex-start; margin: 0; }
+.tm-ava-acts .aa-upload-msg { text-align: left; margin: 6px 0 0; }
+.tm-gava > .tm-face, .tm-gava > .tm-ava, .tm-gava-more { position: absolute; width: var(--face); height: var(--face);
+  box-shadow: 0 0 0 2px var(--bg); }
+.tm-gava-1 > :nth-child(1) { inset: 0; }
+.tm-gava-2 > :nth-child(1) { top: 0; left: 0; }
+.tm-gava-2 > :nth-child(2) { right: 0; bottom: 0; }
+.tm-gava-3 > :nth-child(1) { top: 0; left: calc(50% - var(--face) / 2); }
+.tm-gava-3 > :nth-child(2) { bottom: 0; left: 0; }
+.tm-gava-3 > :nth-child(3) { bottom: 0; right: 0; }
+.tm-gava-4 > :nth-child(1) { top: 0; left: 0; }
+.tm-gava-4 > :nth-child(2) { top: 0; right: 0; }
+.tm-gava-4 > :nth-child(3) { bottom: 0; left: 0; }
+.tm-gava-4 > :nth-child(4) { bottom: 0; right: 0; }
+.tm-gava-more { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--surface-2);
+  color: var(--text2); font-size: 10px; font-weight: 600; line-height: 1; }
+.tm-pinned { display: inline-flex; flex: none; color: var(--text3); }
+.tm-pinned[hidden] { display: none; }
+.tm-pin-row { margin-bottom: 8px; }
+/* 0.176.0: one "..." button per row (Pin or Unpin, Rename, Delete), shown on hover or focus and always while its menu is
+   open; it sits over the time so the preview line keeps its full width. Touch screens open the same menu by long press.
+   The pin mark sits right after the name, small, like Zalo. */
+.tm-team-wrap { position: relative; }
+.tm-team-wrap[hidden] { display: none; }
+.tm-row-more { position: absolute; top: 8px; right: 6px; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--surface-2); color: var(--text2); cursor: pointer;
+  opacity: 0; transition: opacity .12s; }
+.tm-row-more[hidden] { display: none; }
+.tm-team-wrap:hover .tm-row-more, .tm-row-more:focus-visible, .tm-team-wrap.is-menu .tm-row-more { opacity: 1; }
+@media (hover: none) { .tm-row-more { display: none; } .tm-team { -webkit-touch-callout: none; } }
+.tm-pinned .ic, .tm-pinned svg { width: 13px; height: 13px; }
+.tm-team-edit { cursor: default; background: var(--accent-wash); border-color: var(--accent-line); }
+.tm-rename-input { flex: 1; min-width: 0; font: inherit; font-weight: 600; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--accent); background: var(--bg2); color: var(--text); }
+.tm-row-menu .tm-danger, .tm-page .ws-btn.tm-danger { color: var(--red, #c0392b); }
+.tm-row-menu { position: absolute; top: 100%; right: 8px; z-index: 6; display: flex; flex-direction: column; min-width: 180px;
+  padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.tm-row-menu[hidden] { display: none; }
+.tm-row-menu:not(.tm-tag-menu) button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: none;
+  border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.tm-row-menu:not(.tm-tag-menu) button:hover, .tm-row-menu:not(.tm-tag-menu) button:focus-visible { background: var(--surface-2); }
+
+/* Danh sách nhóm kiểu app chat: ảnh, tên, giờ, dòng xem trước, nhãn trạng thái. */
+.tm-team { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; min-height: 60px;
+  border-radius: 12px; border: 1px solid transparent; background: none; color: var(--text); cursor: pointer; font: inherit; }
+.tm-team[hidden] { display: none; }
+.tm-team:hover { background: var(--surface-2); }
+.tm-team[aria-current="true"] { background: var(--accent-wash); border-color: var(--accent-line); }
+.tm-team .tm-ava { width: 40px; height: 40px; font-size: 16px; }
+.tm-team-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tm-team-top, .tm-team-bottom { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tm-team-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-team-time { flex: none; font-size: 11.5px; color: var(--text3); }
+.tm-team-sub { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-badge { flex: none; font-size: 11px; border-radius: 999px; padding: 1px 8px; background: var(--surface-2); color: var(--text2); }
+.tm-badge-owner { color: var(--warn-ink); background: var(--warn-wash); }
+.tm-badge-run { color: var(--accent); background: var(--accent-wash); }
+.tm-guide { margin: 8px 4px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-1);
+  display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.tm-guide[hidden] { display: none; }
+.tm-guide ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--text2); }
+.tm-guide .tm-new { align-self: flex-start; }
+.tm-empty { color: var(--text3); font-size: 13px; padding: 12px; }
+.tm-empty-chat { margin: auto; text-align: center; max-width: 340px; }
+
+/* Đầu khung chat: một hàng (quay lại, ảnh, tên và trưởng nhóm, chip việc, tìm, thêm). */
+.tm-chat-head { padding: 6px 10px; border-bottom: 1px solid var(--border); justify-content: flex-start; flex-wrap: nowrap; min-height: 52px; }
+.tm-chat-head .tm-ava { width: 34px; height: 34px; font-size: 14px; }
+.tm-title { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.tm-title strong, .tm-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.tm-title-btn { align-items: flex-start; border: none; background: none; color: var(--text); font: inherit; text-align: left;
+  padding: 2px 6px; margin-left: -6px; border-radius: 8px; cursor: text; }
+.tm-title-btn:hover strong { text-decoration: underline dotted; text-underline-offset: 3px; }
+.tm-sub { font-size: 12px; color: var(--text3); }
+.tm-icon { flex: none; justify-content: center; min-width: 36px; padding: 0 8px; }
+.tm-jobs-chip { display: inline-flex; align-items: center; gap: 4px; flex: none; border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 10px; background: var(--surface-1); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.tm-jobs-chip[hidden] { display: none; }
+.tm-jobs-chip-warn { background: var(--warn-wash); color: var(--warn-ink); border-color: transparent; font-weight: 600; }
+.tm-chip-n { font-variant-numeric: tabular-nums; }
+
+/* Băng báo gọn, có nút giải quyết. */
+.tm-note, .tm-banner { margin: 6px 10px 0; padding: 6px 10px; border-radius: 10px; font-size: 13px; background: var(--warn-wash);
+  color: var(--warn-ink); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tm-note[hidden], .tm-banner[hidden] { display: none; }
+.tm-banner .ws-btn { flex: none; }
+/* Thông báo chung là LỚP NỔI trên cả trang (con trực tiếp của .tm-page, ngoài khung chat): ở danh sách trên điện thoại
+   khung chat bị ẩn mà thông báo vẫn phải nhìn thấy (review 4f6268bd #2). Nền đặc vì nằm đè lên nội dung. */
+.tm-page > .tm-note { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 45; margin: 0;
+  width: max-content; max-width: min(560px, calc(100% - 24px)); background: var(--bg); border: 1px solid var(--warn-ink);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18); }
+.tm-note-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.tm-note-retry { flex: none; }
+.tm-note-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px;
+  border: none; border-radius: 8px; background: none; color: inherit; cursor: pointer; }
+@media (max-width: 760px) { .tm-note-retry, .tm-note-close { min-height: 44px; min-width: 44px; } }
+
+/* Dải việc ở đầu khung chat: việc đang làm và việc chờ chủ (một nút giải quyết). */
+.tm-jobs { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); max-height: 40%; overflow-y: auto; }
+.tm-jobs[hidden] { display: none; }
+.tm-jrun { border-bottom: none; padding: 2px 0; }
+.tm-spin { display: inline-flex; color: var(--accent); }
+.tm-spin .ic { animation: tm-spin 1.4s linear infinite; }
+@keyframes tm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tm-spin .ic { animation: none; } }
+.tm-jcard { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border-radius: 12px; background: var(--warn-wash); margin: 4px 0; }
+.tm-jcard[hidden] { display: none; }
+.tm-jcard-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; }
+.tm-jmore { align-self: flex-start; }
+.tm-filterbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 12.5px;
+  background: var(--accent-wash); }
+.tm-filterbar[hidden] { display: none; }
+
+/* Tin: bong bóng. Của chủ bên phải (không tên, không ảnh); của trợ lý bên trái kèm ảnh và tên; tin hệ thống ở giữa. */
+.tm-msgs { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-x: none; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.tm-msgs[hidden] { display: none; }
+/* Mỗi tin chiếm trọn hàng (để phần trăm bên dưới tính theo bề ngang khung, không theo nội dung), bong bóng dồn về đúng
+   phía. Bề ngang tối đa chừa chỗ cho ảnh và nút bên cạnh để ba thứ nằm một hàng; hàng có wrap cho bảng mở ra bên dưới. */
+.tm-msg { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 6px; width: 100%; }
+.tm-msg[hidden] { display: none; }
+.tm-msg-owner { justify-content: flex-end; }
+.tm-bubble { min-width: 0; flex: 0 1 auto; padding: 8px 12px; border-radius: 16px; background: var(--surface-1); border: 1px solid var(--border); }
+.tm-msg-agent .tm-bubble { border-bottom-left-radius: 6px; max-width: min(680px, calc(100% - 86px)); }
+.tm-msg-owner .tm-bubble { background: var(--accent-wash); border-color: var(--accent-line); border-bottom-right-radius: 6px;
+  max-width: min(680px, 85%); }
+.tm-msg-late .tm-bubble { opacity: .8; border-style: dashed; }
+.tm-msg-result .tm-bubble { border-color: var(--green); }
+.tm-sys { align-self: center; max-width: 90%; text-align: center; font-size: 12px; color: var(--text3); padding: 3px 12px;
+  background: var(--surface-2); border-radius: 12px; }
+.tm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); margin-bottom: 2px; }
+.tm-head[hidden] { display: none; }
+.tm-who { font-weight: 600; color: var(--text); }
+.tm-role, .tm-result, .tm-star { border-radius: 6px; padding: 0 6px; background: var(--surface-2); }
+.tm-result { background: var(--green); color: var(--on-accent, #fff); }
+.tm-star .ic, .tm-tag .ic, .tm-decision .ic, .tm-late .ic, .tm-pin .ic { margin-right: 3px; }
+.tm-tag { display: inline-flex; align-items: center; border: 1px solid var(--border); background: none; color: var(--accent);
+  border-radius: 999px; padding: 0 8px; cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; max-width: 100%;
+  min-width: 0; }
+/* Nhãn việc dài: cắt bằng dấu ba chấm ở phần chữ (inline-flex không tự cắt). */
+.tm-tag-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-levels { border: none; margin: 0; padding: 0; min-width: 0; }
+.tm-levels > legend { padding: 0; }
+.tm-tag-new { cursor: default; border: none; padding: 0; }
+.tm-text { overflow-wrap: anywhere; font-size: 14px; color: var(--text); line-height: 1.45; }
+.tm-late { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--warn-ink); margin-top: 4px; }
+.tm-late[hidden] { display: none; }
+.tm-note-line { font-size: 12px; color: var(--warn-ink); margin-top: 4px; }
+.tm-proposal { margin-top: 8px; padding: 8px; border: 1px dashed var(--accent-line); border-radius: 10px; }
+.tm-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.tm-foot[hidden] { display: none; }
+.tm-decision { display: inline-flex; align-items: center; border: none; border-radius: 999px; padding: 1px 8px; background: var(--surface-2);
+  color: var(--text2); font: inherit; font-size: 11.5px; cursor: pointer; margin-right: auto; }
+.tm-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.tm-actions[hidden] { display: none; }
+/* 0.176.0 reactions, Zalo style (owner, 2026-10-16). The corner of an assistant bubble holds the chosen emoji or an
+   outline thumbs-up; the latest assistant message always shows it, older ones on hover. Hovering the corner opens a
+   floating pill of six native emoji (no boxes around them, they read like the emoji people send). Touch screens: long
+   press opens the sheet under the message. */
+.tm-msg { touch-action: pan-y; position: relative; }
+.tm-msg-agent { margin-bottom: 10px; }
+.tm-bubble { position: relative; transition: transform .15s ease; }
+.tm-msg.is-swiping .tm-bubble { transition: none; }
+.tm-rx { position: absolute; right: -8px; bottom: -14px; z-index: 2; }
+.tm-rx-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 6px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--text3); cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12); opacity: 0; transition: opacity .12s, transform .12s; }
+.tm-rx-btn .ic, .tm-rx-btn svg { width: 15px; height: 15px; }
+.tm-rx.has .tm-rx-btn, .tm-rx.is-last .tm-rx-btn, .tm-msg-agent:hover .tm-rx-btn, .tm-rx-btn:focus-visible { opacity: 1; }
+.tm-rx-btn:hover { color: var(--accent); transform: scale(1.08); }
+.tm-rx-emoji { font-size: 16px; line-height: 1; }
+/* 0.179.0: same steadier hover as the main chat (style.css .jr-rx-bar): fades out only after 0.5 s, wide invisible margin. */
+.tm-rx-bar { display: flex; visibility: hidden; opacity: 0; transform: translateY(4px) scale(.97); position: absolute; right: 0;
+  bottom: calc(100% + 4px); gap: 2px; padding: 4px 6px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18); white-space: nowrap;
+  transition: opacity .16s ease .5s, transform .16s ease .5s, visibility 0s linear .66s; }
+/* Margin stops at the gap above the button, no bridge over it (0.182.0, same fix as .jr-rx-bar in style.css). */
+.tm-rx-bar::before { content: ""; position: absolute; inset: -18px -22px -4px; z-index: -1; }
+@media (hover: hover) {
+  .tm-rx:hover .tm-rx-bar { visibility: visible; opacity: 1; transform: none; transition-delay: 0s; }
+}
+.tm-rx:has(:focus-visible) .tm-rx-bar { visibility: visible; opacity: 1; transform: none; transition-delay: 0s; }
+@keyframes tm-pop { from { opacity: 0; transform: translateY(4px) scale(.96); } to { opacity: 1; transform: none; } }
+.tm-rx-pick { border: none; background: none; padding: 2px; width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+  font-size: 26px; line-height: 1; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  transition: transform .12s ease; }
+.tm-rx-pick:hover, .tm-rx-pick:focus-visible { transform: scale(1.28) translateY(-3px); outline: none; }
+.tm-rx-pick[aria-pressed="true"] { background: var(--accent-wash); }
+@media (prefers-reduced-motion: reduce) { .tm-rx-pick, .tm-rx-btn, .tm-bubble { transition: none; } .tm-rx-bar { animation: none; } }
+/* 0.194.1 (owner, 17/10/2026): the bubble and its action row (time, Reply, Copy, Pin) stack in one column, the row right
+   under the bubble on its own side, like the main chat (.msg-acts). Beside the bubble it looked cluttered. */
+.tm-col { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
+.tm-msg-agent .tm-col { align-items: flex-start; max-width: min(680px, calc(100% - 40px)); }
+.tm-msg-owner .tm-col { align-items: flex-end; max-width: min(680px, 85%); }
+.tm-msg .tm-col > .tm-bubble { max-width: 100%; }
+.tm-hacts { display: flex; align-items: center; gap: 2px; height: 26px; margin-top: 2px; opacity: 0; transition: opacity .12s; }
+.tm-msg:hover .tm-hacts, .tm-hacts:focus-within { opacity: 1; }
+.tm-time { color: var(--text3); font-size: 12px; margin: 0 4px 0 2px; white-space: nowrap; }
+.tm-hact { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 26px; border: none;
+  border-radius: 8px; background: none; color: var(--text3); cursor: pointer; }
+.tm-hact .ic, .tm-hact svg { width: 15px; height: 15px; }
+.tm-hact:hover, .tm-hact:focus-visible { background: var(--surface-2); color: var(--text); }
+@media (hover: none) { .tm-hacts { display: none; } .tm-msg { -webkit-touch-callout: none; } }
+/* Swipe left to reply: a reply arrow shows on the right once the swipe is far enough. */
+.tm-msg.is-armed::after { content: ""; position: absolute; right: 6px; top: 50%; width: 22px; height: 22px; margin-top: -11px;
+  border-radius: 50%; background: var(--accent); opacity: .85; }
+/* Long-press sheet under a message. */
+.tm-sheet { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 8px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--bg); box-shadow: 0 6px 20px rgba(0, 0, 0, .12); }
+.tm-sheet[hidden] { display: none; }
+.tm-sheet .tm-rx-bar { display: flex; visibility: visible; opacity: 1; transform: none; position: static;
+  justify-content: space-between; box-shadow: none; border: none; padding: 0; }
+.tm-sheet .tm-rx-pick { width: 44px; height: 44px; font-size: 30px; }
+.tm-sheet-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.tm-sheet-act { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
+/* Avatar of an assistant is a button: it opens that assistant's settings. */
+.tm-face-btn { flex: none; display: inline-flex; padding: 0; border: none; background: none; border-radius: 50%; cursor: pointer; }
+.tm-face-btn:hover { box-shadow: 0 0 0 2px var(--accent-line); }
+.tm-face-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Message text: the same type and colours as the main chat (style.css .msg-javis .bubble / .msg-user .bubble). The
+   assistant text is wrapped in .msg-javis > .bubble to inherit every markdown rule; only the box of that inner bubble is
+   switched off because .tm-bubble already draws one. */
+.tm-text { font-family: var(--font-chat); font-size: 16px; line-height: 1.55; }
+.tm-mdwrap.msg-javis .bubble { background: none; border: none; padding: 0; border-radius: 0; max-width: none;
+  line-height: 1.65; font-size: 16px; }
+.tm-mdwrap.msg-javis { display: block; }
+.tm-msg-owner .tm-bubble { background: var(--accent-wash-2); }
+.tm-quote { margin: 0 0 6px; padding: 4px 0 4px 10px; border-left: 3px solid var(--accent); color: var(--text2); font-size: 14px;
+  line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow-wrap: anywhere; }
+.tm-quote b { display: block; color: var(--text); font-weight: 600; }
+/* Read-only reaction chips of assistants: small, like the reaction counters of a chat app. */
+.tm-msgs .tm-react-agent { font-size: 13px; padding: 0 8px; border-style: solid; background: var(--bg); }
+.tm-msgs .tm-react-agent .tm-react-emoji { font-size: 14px; margin-right: 3px; }
+@media (hover: hover) { .tm-team-wrap:hover .tm-team-time, .tm-team-wrap.is-menu .tm-team-time { visibility: hidden; } }
+.tm-react-agents { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex: 1 1 100%; }
+.tm-react-agents[hidden] { display: none; }
+.tm-react-agent { display: inline-flex; align-items: center; border: 1px dashed var(--border); border-radius: 999px; padding: 1px 10px;
+  font-size: 16px; line-height: 1.4; color: var(--text2); cursor: default; }
+.tm-react-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap; }
+.tm-pin { display: inline-flex; align-items: center; }
+/* T4: tìm trong nhóm, nhảy tới tin cũ. */
+.tm-search { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.tm-search[hidden] { display: none; }
+.tm-search-row { display: flex; gap: 6px; }
+.tm-search-row[hidden] { display: none; }
+.tm-search-input { flex: 1 1 auto; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-1); color: var(--text); font: inherit; }
+.tm-search-list { max-height: 40vh; overflow-y: auto; margin-top: 6px; }
+.tm-search-count, .tm-search-none { font-size: 12px; color: var(--text2); padding: 2px 0; }
+.tm-search-hit { display: block; width: 100%; text-align: left; border: none; border-top: 1px solid var(--border);
+  background: none; color: var(--text); padding: 6px 4px; cursor: pointer; font-size: 13px; }
+.tm-search-hit:hover, .tm-search-hit:focus-visible { background: var(--surface-2); }
+.tm-search-snip { color: var(--text2); }
+.tm-msg-hit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 16px; }
+.tm-jumped { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px;
+  padding: 6px 8px; border-radius: 8px; background: var(--accent-wash); position: sticky; top: 0; z-index: 1; }
+.tm-jumped[hidden] { display: none; }
+
+/* Khung soạn một hàng: công tắc Giao việc, ô chữ tự cao, nút gửi tròn. */
+.tm-composer { border-top: 1px solid var(--border); padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); position: relative; background: var(--bg); }
+.tm-composer[hidden] { display: none; }
+.tm-row { display: flex; align-items: flex-end; gap: 6px; }
+.tm-row[hidden] { display: none; }
+/* 0.176.0 composer, the same shape as the main chat: "+" (menu: Assign job, Mention, Search), the input, mic, send. */
+.tm-plus, .tm-mic { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.tm-plus:hover, .tm-mic:hover { color: var(--text); border-color: var(--accent-line); }
+.tm-plus[aria-expanded="true"] { background: var(--accent-wash); color: var(--accent); border-color: var(--accent-line); }
+.tm-plus:disabled, .tm-mic:disabled { opacity: .45; cursor: default; }
+.tm-mic { border-color: transparent; background: none; }
+.tm-mic.is-rec { background: var(--red, #d64545); color: #fff; border-color: transparent; animation: tm-rec 1.4s ease-in-out infinite; }
+@keyframes tm-rec { 0%, 100% { box-shadow: 0 0 0 0 rgba(214, 69, 69, .45); } 50% { box-shadow: 0 0 0 6px rgba(214, 69, 69, 0); } }
+@media (prefers-reduced-motion: reduce) { .tm-mic.is-rec { animation: none; } }
+.tm-plus-menu { position: absolute; bottom: calc(100% - 4px); left: 10px; z-index: 6; display: flex; flex-direction: column;
+  min-width: 230px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .22); }
+.tm-plus-menu button { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border: none;
+  border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.tm-plus-menu button > span:not(.tm-plus-on) { flex: 1; }
+.tm-plus-menu button:hover, .tm-plus-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.tm-plus-on { display: inline-flex; color: var(--accent); }
+.tm-plus-menu[hidden], .tm-replying[hidden], .tm-jobmode[hidden], .tm-hacts[hidden] { display: none; }
+/* Bars above the input: replying to a message, Assign job on. */
+.tm-replying, .tm-jobmode { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 6px 6px 10px;
+  border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface-1); color: var(--text2); font-size: 14px; }
+.tm-jobmode { background: var(--accent-wash); color: var(--text); }
+.tm-replying-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tm-replying-main b { color: var(--text); font-weight: 600; }
+.tm-replying-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-bar-x { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px;
+  border: none; border-radius: 8px; background: none; color: var(--text3); cursor: pointer; }
+.tm-bar-x:hover { background: var(--surface-2); color: var(--text); }
+.tm-input { flex: 1; min-width: 0; resize: none; box-sizing: border-box; min-height: 40px; max-height: 132px; overflow-y: auto;
+  border-radius: 20px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); padding: 9px 14px; font: inherit;
+  font-size: 16px; line-height: 20px; }
+/* Chữ gợi ý một dòng: gợi ý xuống dòng làm ô chữ trống cao gấp đôi. */
+.tm-input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-send { flex: none; width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--accent); color: var(--on-accent, #fff);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.tm-send:disabled { opacity: .45; cursor: default; }
+.tm-hint { font-size: 12px; color: var(--text2); margin: 0 4px 6px; }
+.tm-hint[hidden] { display: none; }
+.tm-hint-bad { color: var(--warn-ink); }
+/* Nền đặc (0.142.0): --surface-1 ở giao diện tối là lớp gần trong suốt, danh sách gợi ý đè lên tin phía sau không đọc được. */
+.tm-sug { position: absolute; bottom: 100%; left: 10px; display: flex; flex-direction: column; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 5; min-width: 200px;
+  max-width: calc(100% - 20px); max-height: min(320px, 50vh); overflow-y: auto; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.tm-sug[hidden] { display: none; }
+.tm-sug-item { display: flex; align-items: center; gap: 8px; border: none; background: none; color: var(--text); padding: 6px 8px; text-align: left; cursor: pointer; border-radius: 8px; font: inherit; }
+.tm-sug-item:hover { background: var(--surface-2); }
+
+/* Ngăn "Việc | Nhóm". */
+.tm-side { border-left: 1px solid var(--border); overflow: hidden; background: var(--bg); }
+.tm-side-bar { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.tm-side-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 18px; }
+.tm-scrim { display: none; }
+.tm-tabs { display: flex; gap: 4px; }
+.tm-tabs[hidden] { display: none; }
+.tm-tab { border: none; background: none; color: var(--text2); border-radius: 999px; padding: 6px 16px; cursor: pointer; font: inherit; font-size: 13.5px; }
+.tm-tab[aria-selected="true"] { background: var(--accent-wash); color: var(--text); font-weight: 600; }
+.tm-qhead { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; margin: 14px 0 6px; }
+.tm-qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--hairline, var(--border)); font-size: 13px; }
+.tm-qrow[hidden] { display: none; }
+.tm-qtitle { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tm-qpos { width: 1.6em; text-align: right; color: var(--text3); }
+.tm-qwhy { font-size: 12.5px; color: var(--warn-ink); }
+/* Thành viên: một dòng mỗi người (tên đủ, vai bên dưới), chạm để mở thao tác. */
+.tm-mrow { display: flex; flex-direction: column; border-bottom: 1px solid var(--hairline, var(--border)); }
+.tm-mrow[hidden] { display: none; }
+.tm-mhead { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 6px 2px; border: none; background: none;
+  color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.tm-mhead .tm-ava { width: 34px; height: 34px; font-size: 14px; }
+.tm-mtext { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tm-mname { font-weight: 600; overflow-wrap: anywhere; }
+.tm-mrole { font-size: 12px; color: var(--text3); }
+.tm-chev { display: inline-flex; color: var(--text3); transition: transform .15s; }
+.tm-mhead[aria-expanded="true"] .tm-chev { transform: rotate(180deg); }
+.tm-mact { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 2px 12px 46px; }
+.tm-mact[hidden] { display: none; }
+.tm-rs { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text2); }
+.tm-rs[hidden] { display: none; }
+.tm-add { display: flex; gap: 6px; margin-top: 10px; }
+.tm-add[hidden] { display: none; }
+.tm-add select { flex: 1; min-width: 0; }
+/* Ba mức tự quyết của trưởng nhóm. */
+.tm-level { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 6px; border: 1px solid var(--border);
+  border-radius: 12px; cursor: pointer; }
+.tm-level[hidden] { display: none; }
+.tm-level:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); }
+.tm-level input { margin-top: 3px; flex: none; }
+.tm-level-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tm-level-desc { font-size: 12.5px; color: var(--text2); }
+.tm-usage { font-size: 12.5px; color: var(--text2); margin-top: 6px; }
+.tm-adv { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 6px; }
+.tm-adv-sum { cursor: pointer; font-weight: 600; font-size: 13.5px; padding: 8px 0; }
+.tm-form { display: flex; flex-direction: column; gap: 10px; }
+.tm-form[hidden] { display: none; }
+.tm-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.tm-field[hidden] { display: none; }
+.tm-field input, .tm-field textarea, .tm-field select, .tm-add select { border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); color: var(--text); padding: 6px 8px; font: inherit; }
+.tm-radios { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.tm-radios[hidden] { display: none; }
+.tm-radio, .tm-check { display: inline-flex; align-items: center; gap: 6px; }
+.tm-job[hidden], .tm-sug-item[hidden], .tm-radio[hidden], .tm-check[hidden], .tm-ava[hidden] { display: none; }
+.tm-create { max-width: 560px; padding: 4px; }
+.tm-save, .tm-caps-save, .tm-create-save { align-self: flex-start; }
+.tm-turns { margin-top: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+/* T3: hộp cấp quyền chi tiết (trong Nâng cao). */
+.tm-auth { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.tm-auth[hidden] { display: none; }
+.tm-auth-status { font-size: 13px; color: var(--text2); }
+.tm-auth-on { color: var(--accent); font-weight: 600; }
+.tm-auth-cap { display: flex; flex-direction: column; gap: 4px; }
+.tm-auth-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.tm-auth-pair[hidden] { display: none; }
+.tm-auth-pair input[type="number"] { width: 90px; }
+.tm-auth-lbl { flex: 1 1 110px; min-width: 0; color: var(--text2); }
+.tm-unl { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.tm-unl[hidden] { display: none; }
+.tm-auth-fixed { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text2); }
+/* GOAL T1: trần của chủ có ô Không giới hạn riêng; bảng giới hạn trong Nâng cao. Chữ trong Nâng cao tối thiểu 16px. */
+.tm-cap-num { display: grid; gap: 4px; }
+.tm-cap-num[hidden] { display: none; }
+.tm-adv .tm-field, .tm-adv .tm-unl, .tm-adv .tm-react-sub, .tm-adv .tm-auth-fixed, .tm-adv .tm-auth-status,
+.tm-adv .tm-auth-pair, .tm-adv .tm-sub, .tm-adv .tm-note-line { font-size: 16px; }
+.tm-limits { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 16px; }
+.tm-limits[hidden] { display: none; }
+.tm-limits-cat { margin-top: 10px; }
+.tm-limits-head { font-size: 16px; font-weight: 600; }
+.tm-limits-note { font-size: 16px; color: var(--text2); margin-top: 4px; }
+.tm-limits-list { margin: 6px 0 0; padding-left: 20px; font-size: 16px; line-height: 1.5; }
+.tm-limit-v { font-weight: 600; }
+.tm-back, .tm-close { display: none; }
+.tm-side-bar .tm-close { display: inline-flex; }
+@keyframes tm-in-right { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes tm-in-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (max-width: 1060px) {
+  .tm-page, .tm-page[data-side="0"], .tm-page[data-side="1"] { grid-template-columns: 240px minmax(0, 1fr); }
+  /* Ngăn kéo nằm ĐÈ lên khung chat nên phải đặc: --surface-1 là lớp kính mờ, nhìn xuyên thấy tin bên dưới. */
+  /* .cview là position:fixed (stacking context riêng) nằm DƯỚI thanh trên toàn cục: ngăn kéo bắt đầu từ mép dưới thanh
+     đó, không thì hàng tab và nút đóng bị thanh trên che (review T5 I3). */
+  .tm-side { position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: min(400px, 100%); z-index: 40;
+    box-shadow: 0 0 24px rgba(0, 0, 0, .25); background: var(--bg); animation: tm-in-right .18s ease; }
+  .tm-scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .35); }
+  .tm-scrim[hidden] { display: none; }
+}
+@media (max-width: 760px) {
+  .tm-page, .tm-page[data-side="0"], .tm-page[data-side="1"] { grid-template-columns: minmax(0, 1fr); }
+  .tm-list { border-right: none; }
+  .tm-page[data-view="list"] .tm-chat { display: none; }
+  .tm-page[data-view="chat"] .tm-list { display: none; }
+  .tm-back { display: inline-flex; }
+  .tm-side { top: auto; left: 0; width: 100%; height: min(88vh, calc(var(--vv-h, 100dvh) - var(--topbar-h) - 12px));
+    border-radius: 16px 16px 0 0; border-left: none; animation: tm-in-up .2s ease; }
+  /* Đầu khung chat một hàng: chip việc chỉ còn icon kèm số để tên nhóm còn chỗ (ảnh nhóm giữ lại để nhận ra nhóm). */
+  .tm-chat-head { padding: 4px 6px; gap: 4px; }
+  .tm-chip-label { display: none; }
+  .tm-team, .tm-tab, .tm-back, .tm-gear, .tm-close, .tm-tag, .tm-pin, .tm-sug-item, .tm-actions .ws-btn, .tm-jobs-chip,
+  .tm-filter-clear, .tm-banner .ws-btn, .tm-adv-sum, .tm-decision, .tm-jmore { min-height: 44px; }
+  .tm-save, .tm-caps-save, .tm-create-save, .tm-new, .tm-more-teams, .tm-older, .tm-rs, .tm-radio { min-height: 44px; }
+  .tm-back, .tm-close, .tm-search-btn { min-width: 44px; justify-content: center; }
+  .tm-gear { min-width: 44px; }
+  .tm-plus, .tm-mic, .tm-send { width: 44px; height: 44px; }
+  .tm-bar-x { min-width: 44px; min-height: 44px; }
+  .tm-plus-menu button { min-height: 48px; }
+  .tm-input { min-height: 44px; padding: 11px 14px; }
+  .tm-add select, .tm-add .ws-btn, .tm-field input, .tm-field select { min-height: 44px; }
+  /* 375px: six 44px emoji plus gaps fit the width of the long-press sheet. */
+  .tm-sheet .tm-rx-pick { flex: 1 1 0; min-width: 40px; }
+  .tm-rx-btn { min-width: 32px; height: 32px; }
+  .tm-search-btn, .tm-search-go, .tm-search-input, .tm-search-hit, .tm-jump-back { min-height: 44px; }
+  /* Trang Nhóm trên điện thoại: bỏ đầu trang chung (danh sách tự có tiêu đề, khung chat có đầu riêng) và ẩn linh vật để
+     không che khung soạn. */
+  body.on-teams #javisPet { display: none; }
+}
+
+/* 0.142.0: kết cục từng lượt trả lời dưới tin của chủ nhóm (chờ, đang trả lời, lỗi + Thử lại). Chữ 16px: đọc trên điện thoại. */
+.tm-replies { width: 100%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin: 2px 0 6px; }
+.tm-reply { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: min(560px, 100%); font-size: 16px;
+  line-height: 1.4; color: var(--text3); padding: 6px 10px; border-radius: 12px; background: var(--surface-2); }
+.tm-reply-main { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.tm-reply-main b { color: var(--text); font-weight: 600; }
+.tm-reply-error { background: var(--warn-wash, var(--surface-2)); color: var(--warn-ink); border: 1px solid var(--warn-line, transparent); }
+.tm-reply-detail { display: block; font-size: 16px; opacity: .85; margin-top: 2px; }
+.tm-reply-retry { min-height: 44px; padding: 0 14px; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
+.tm-sug-slug { font-size: 16px; color: var(--text3); margin-left: 4px; }
+.tm-dots { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; }
+.tm-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .35; animation: tm-dot 1.2s infinite; }
+.tm-dots i:nth-child(2) { animation-delay: .2s; }
+.tm-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes tm-dot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tm-dots i { animation: none; opacity: .6; } }
+
+/* 0.142.0: hộp chọn thành viên kiểu Zalo (team-picker.js). Máy tính: hộp giữa màn hình; điện thoại: màn đầy đủ, footer
+   cố định. Chữ tối thiểu 16px, vùng chạm 44px. */
+.tmp-layer { position: fixed; inset: 0; z-index: 3300; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.tmp-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+.tmp-dialog { position: relative; display: flex; flex-direction: column; width: min(560px, 100%); max-height: min(760px, 90vh);
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .25);
+  overflow: hidden; overflow: clip; font-size: 16px; }
+.tmp-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.tmp-title { flex: 1; margin: 0; font-size: 18px; font-weight: 700; }
+.tmp-close { min-width: 44px; min-height: 44px; border: none; background: none; color: var(--text3); cursor: pointer; border-radius: 10px;
+  font-size: 20px; display: inline-flex; align-items: center; justify-content: center; }
+.tmp-close:hover { background: var(--surface-2); }
+.tmp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
+.tmp-namebox { display: flex; gap: 12px; align-items: flex-start; }
+.tmp-namecol { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.tmp-preview-box { flex: 0 0 auto; padding-top: 26px; }
+.tmp-preview { width: 56px; height: 56px; border-radius: 50%; background: var(--surface-2); display: grid; overflow: hidden;
+  grid-template-columns: 1fr 1fr; place-items: center; color: var(--text3); font-size: 22px; }
+.tmp-preview-1, .tmp-preview-empty { grid-template-columns: 1fr; }
+.tmp-preview-2 { grid-template-columns: 1fr 1fr; }
+.tmp-preview .tmp-initial { width: 24px; height: 24px; font-size: 16px; }
+.tmp-preview-1 .tmp-initial { width: 48px; height: 48px; }
+.tmp-desc > summary { cursor: pointer; color: var(--accent); min-height: 44px; display: flex; align-items: center; list-style: none; }
+.tmp-desc > summary::-webkit-details-marker { display: none; }
+.tmp-desc input { font: inherit; font-size: 16px; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--field-bg); color: var(--text); width: 100%; box-sizing: border-box; }
+.tmp-lead { min-height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid var(--accent-line); background: var(--bg2);
+  color: var(--accent); font: inherit; font-size: 16px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; }
+.tmp-lead.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+span.tmp-lead { cursor: default; }
+.tmp-sel.is-lead { border-color: var(--accent); }
+.tmp-leader { color: var(--text3); }
+.tmp-leader-warn { color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line); border-radius: 10px; padding: 8px 12px; }
+.tmp-row.is-joined { cursor: default; opacity: .75; }
+.tmp-row.is-joined:hover { background: none; }
+.tmp-joined { color: var(--accent); }
+.tmp-load-error .ws-btn { min-height: 44px; margin-left: 6px; }
+.tmp-field { display: grid; gap: 4px; font-size: 16px; }
+.tmp-field > span { color: var(--text3); }
+.tmp-field input, .tmp-search-input, .tmp-leader-pick { font: inherit; font-size: 16px; min-height: 44px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--field-bg); color: var(--text); width: 100%; box-sizing: border-box; }
+.tmp-field input:focus, .tmp-search-input:focus, .tmp-leader-pick:focus { outline: none; border-color: var(--accent); }
+.tmp-search { position: relative; }
+.tmp-search-ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text3); pointer-events: none; }
+.tmp-search-input { padding-left: 38px; border-radius: 22px; }
+.tmp-tags { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.tmp-chip { flex: 0 0 auto; min-height: 36px; padding: 6px 14px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); font: inherit; font-size: 16px; cursor: pointer; white-space: nowrap; }
+.tmp-chip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tmp-chip-n { opacity: .7; font-size: 16px; }
+.tmp-selected { display: flex; flex-wrap: wrap; gap: 6px; }
+.tmp-selected-empty { color: var(--text3); }
+.tmp-sel { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 2px; border-radius: 18px; background: var(--accent-wash);
+  border: 1px solid var(--accent-line); max-width: 100%; }
+.tmp-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.tmp-sel-x { min-width: 32px; min-height: 32px; border: none; background: none; color: var(--text3); cursor: pointer; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 16px; }
+.tmp-sel-x:hover { background: var(--surface-2); color: var(--text); }
+.tmp-list { display: flex; flex-direction: column; gap: 2px; }
+/* position: relative giữ ô tick ẩn trong dòng của nó. Thiếu nó, ô tick bám vào .tmp-dialog, nằm ngoài vùng cuộn, và lúc
+   focus lại sau khi chọn thì trình duyệt cuộn CẢ hộp (overflow: hidden vẫn cuộn được bằng code): tiêu đề trôi mất, footer
+   bị kéo lên giữa, đáy hộp trống (0.189.1). overflow: clip ở trên chặn luôn kiểu cuộn đó. */
+.tmp-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 8px; border-radius: 12px; cursor: pointer; }
+.tmp-row:hover { background: var(--surface-2); }
+.tmp-row.is-on { background: var(--accent-wash-2, var(--surface-2)); }
+.tmp-row .tmp-check { position: absolute; opacity: 0; pointer-events: none; }
+.tmp-row:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tmp-owner { cursor: default; }
+.tmp-owner:hover { background: none; }
+.tmp-face { flex: 0 0 auto; display: inline-flex; }
+.tmp-initial { width: 40px; height: 40px; border-radius: 50%; align-items: center; justify-content: center; background: var(--surface-2);
+  color: var(--text); font-weight: 700; }
+.tmp-sel .tmp-initial { width: 24px; height: 24px; font-size: 16px; }
+.tmp-you { background: var(--accent); color: #fff; }
+.tmp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tmp-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmp-role { color: var(--text3); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmp-badge { font-size: 16px; padding: 2px 10px; border-radius: 10px; background: var(--accent-wash); color: var(--accent); }
+.tmp-tick { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); display: inline-flex;
+  align-items: center; justify-content: center; color: #fff; font-size: 14px; }
+.tmp-row.is-on .tmp-tick { background: var(--accent); border-color: var(--accent); }
+.tmp-empty { color: var(--text3); padding: 16px 8px; text-align: center; }
+.tmp-help { color: var(--text3); font-size: 16px; }
+.tmp-error { color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line); border-radius: 10px; padding: 10px 12px; }
+.tmp-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg2); }
+.tmp-count { flex: 1; color: var(--text3); }
+.tmp-foot .ws-btn { min-height: 44px; padding: 0 18px; font-size: 16px; }
+.tmp-foot .tmp-submit:disabled { opacity: .5; cursor: not-allowed; }
+.tm-mrow-you .tm-mhead-static { cursor: default; }
+.tm-mrow-you .tmp-you { width: 34px; height: 34px; }
+@media (max-width: 640px) {
+  .tmp-layer { padding: 0; align-items: stretch; }
+  .tmp-dialog { width: 100%; max-height: none; height: 100%; height: 100dvh; border-radius: 0; border: none; }
+  .tmp-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .tmp-count { font-size: 16px; }
+  /* Bàn phím ảo đang mở (mobile-chat.js đo visualViewport): hộp chọn co theo phần nhìn thấy để footer và ô đang gõ không
+     bị bàn phím che; vạch Home nằm dưới bàn phím nên bỏ khoảng an toàn đáy. */
+  body.kb-open .tmp-layer { top: var(--vv-top, 0px); bottom: auto; height: var(--vv-h, 100dvh); }
+  body.kb-open .tmp-dialog { height: 100%; }
+  body.kb-open .tmp-foot { padding-bottom: 12px; }
+  /* Nút nhỏ trong chip (bỏ chọn, Điều phối, bỏ gọi): vùng chạm 44px trên điện thoại. */
+  .tmp-sel-x, .tm-call-x { min-width: 44px; min-height: 44px; }
+  .tmp-lead { min-height: 44px; }
+}
+/* Gợi ý @ (0.142.0): ảnh, tên, mã khi trùng tên, vai; mục đang chọn bằng phím có nền riêng. Hàng "Gọi:" là các token. */
+.tm-sug-item.is-active { background: var(--surface-2); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tm-sug-item { min-height: 44px; font-size: 16px; }
+.tm-sug-text { display: flex; flex-direction: column; min-width: 0; }
+.tm-sug-name { font-weight: 600; }
+.tm-sug-role { color: var(--text3); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.tm-calls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 10px 0; font-size: 16px; }
+.tm-calls[hidden] { display: none; }
+.tm-calls-label { color: var(--text3); }
+.tm-call { display: inline-flex; align-items: center; gap: 4px; padding: 2px 2px 2px 4px; border-radius: 16px; background: var(--accent-wash);
+  border: 1px solid var(--accent-line); color: var(--accent); }
+.tm-call-x { min-width: 32px; min-height: 32px; border: none; background: none; color: inherit; cursor: pointer; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 16px; }
+.tm-reply-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.tm-reply-act { min-height: 44px; padding: 0 14px; font-size: 16px; }
+
+/* Agent Work tab (agent-jobs.js). 0.158.0: the owner found 16px too big for the narrow column, so the panel
+   uses 12 to 14px text; touch screens keep 44px targets through the pointer: coarse rule at the end. */
+.aj { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 16px; font-size: 13px; }
+.aj-head { display: flex; flex-direction: column; gap: 8px; }
+.aj-head > .ws-btn, .aj .aj-acts .ws-btn { min-height: 32px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;
+  justify-content: center; }
+.aj-head > .aj-assign-open { align-self: flex-start; padding: 0 12px; }
+.aj-assign { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--accent-line); border-radius: 12px; background: var(--accent-wash); }
+.aj-assign-label { font-weight: 600; }
+.aj-text { font: inherit; font-size: 13px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--field-bg); color: var(--text); resize: vertical; min-height: 88px; width: 100%; box-sizing: border-box; }
+.aj-text:focus { outline: none; border-color: var(--accent); }
+.aj-help, .aj-foot { color: var(--text3); font-size: 12.5px; line-height: 1.45; }
+.aj-err { color: var(--warn-ink); background: var(--warn-wash); border: 1px solid var(--warn-line); border-radius: 10px; padding: 8px 10px; }
+.aj-note { color: var(--text2); background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+/* Two filter selects in one row (0.158.0). The amber dot sits next to the Status label. */
+.aj-toolbar { display: flex; gap: 8px; align-items: flex-end; }
+.aj-tb-field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 0; min-width: 0; }
+.aj-tb-lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text3); }
+.aj-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn-ink); flex: none; }
+.aj-chip { flex: 0 0 auto; min-height: 32px; padding: 4px 12px; border-radius: 16px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.aj-chip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.aj-n { font-size: 12px; opacity: .8; }
+.aj-sec { display: flex; flex-direction: column; gap: 6px; }
+.aj-sec-h { margin: 4px 0 0; font-size: 12px; font-weight: 700; color: var(--text2); }
+.aj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.aj-job { padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-1); display: flex;
+  flex-direction: column; gap: 6px; border-left-width: 4px; }
+.aj-running { border-left-color: var(--accent); }
+.aj-waiting { border-left-color: var(--text3); }
+.aj-needs_you { border-left-color: var(--warn-ink); }
+.aj-done { border-left-color: var(--green); opacity: .92; }
+.aj-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.aj-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--text2); font-size: 12px; }
+.aj-src { display: inline-flex; align-items: center; gap: 4px; }
+.aj-role { font-size: 12px; padding: 1px 7px; border-radius: 10px; background: var(--surface-3); color: var(--text2); }
+.aj-line { color: var(--text3); }
+.aj-reason { color: var(--warn-ink); overflow-wrap: anywhere; }
+.aj-result { color: var(--text2); overflow-wrap: anywhere; }
+/* 0.175.0 (chủ repo 16/10/2026: ngăn Công việc "không gọn"): tiêu đề việc cắt ở hai dòng (đủ câu ở tooltip), nút xếp từ trái,
+   "Mở" đứng đầu, "Huỷ việc" dạt sang phải và nhạt màu để không bấm nhầm, nút nhỏ lại để ba nút vừa một hàng ở cột 320px. */
+.aj-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.aj-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+.aj .aj-acts .ws-btn { padding: 0 10px; font-size: 13px; }
+.aj .aj-acts .aj-cancel { margin-left: auto; color: var(--text3); }
+.aj .aj-acts .aj-cancel:hover { color: var(--danger, #e5484d); }
+.aj-empty { color: var(--text3); padding: 16px 4px; text-align: center; line-height: 1.5; }
+
+/* 0.175.0: thẻ trợ lý GỌN (chủ repo 16/10/2026: "nhiều thông tin, nút Auto quá to che mất hết các thông tin khác").
+   Thẻ còn hai dòng chữ (tên + giờ, vai trò). Dòng thứ ba CHỈ có khi có chuyện (lớp .co-tt): "Cần bạn n", "Đang làm n" bên trái,
+   nhãn Auto nhỏ bên phải khi Auto đang bật. Auto TẮT không vẽ gì trên thẻ (bật ở menu ba chấm hoặc tab Cài đặt): tắt là trạng
+   thái mặc định, vẽ một công tắc xám trên mọi thẻ là nhiễu. Nút ba chấm lên góc trên phải để góc dưới dành cho nhãn Auto. */
+.ws-item-wrap.co-tt > .ws-item-more { top: 6px; transform: none; }
+.ws-item-tt { display: flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 4px; padding-right: 64px; min-width: 0; }
+.ws-item-text:has(> .ws-item-tt) { flex: 1 1 auto; }
+/* 0.190.0 (chủ repo 16/10/2026: "thời gian tự nhiên font chữ bị to đùng... mất nút bật tắt auto... thời gian phải cùng
+   hàng với nút bật tắt auto và nhỏ thôi"): giờ chat gần nhất và công tắc Auto chung một cụm nhỏ ở góc dưới phải của thẻ.
+   Công tắc có trên mọi trợ lý (tắt thì xám). Nút ba chấm luôn ở góc trên phải; dòng chữ cuối chừa chỗ cho cụm. */
+.ws-item-wrap.has-end > .ws-item-more { top: 6px; transform: none; }
+.ws-item-wrap.has-end .ws-item-text > :last-child { padding-right: 104px; }
+.ws-item-wrap.has-end.he .ws-item-text > :last-child { padding-right: 44px; }
+.ws-item-end { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 6px;
+  pointer-events: none; }
+.ws-item-end > .ws-auto, .ws-item-end > .ws-rs-confirm { pointer-events: auto; position: relative; }
+.ws-item-end > .ws-auto { margin: 0; min-height: 20px; padding: 0 4px 0 7px; gap: 4px; font-size: 12px; font-weight: 600;
+  color: var(--text3); background: var(--surface-2, rgba(0, 0, 0, .05)); border-radius: 999px; }
+.ws-item-end > .ws-auto.is-on { color: var(--accent-ink, var(--accent)); background: var(--accent-wash, rgba(255, 122, 60, .12)); }
+.ws-auto .toggle-sm { width: 24px; height: 14px; }
+.ws-auto .toggle-sm span { background: var(--bg3); border-color: var(--border); }
+.ws-auto .toggle-sm span::before { width: 10px; height: 10px; left: 1px; top: 1px; background: var(--text3); }
+.ws-auto .toggle-sm input:checked + span { background: var(--accent); border-color: var(--accent); }
+.ws-auto .toggle-sm input:checked + span::before { transform: translateX(10px); background: #fff; }
+.ws-auto .toggle-sm input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ws-auto.is-saving { opacity: .7; cursor: progress; }
+.ws-item-end > .ws-rs-confirm { margin: 0; min-height: 20px; font-size: 12px; }
+/* Màn cảm ứng: nhãn vẫn nhỏ cho mắt, vùng chạm nới ra 44px bằng một lớp trong suốt (không đẩy chữ khác đi). */
+@media (hover: none), (max-width: 600px) {
+  .ws-item-tt { font-size: 14px; }
+  .ws-item-end > .ws-auto::after, .ws-item-end > .ws-rs-confirm::after { content: ""; position: absolute; inset: -12px -6px; }
+}
+.rsa-desc { color: var(--text2); }
+
+/* Tab Công việc: lọc nguồn, bước kế tiếp, mục được kiểm, form Giao việc hai bước, Xem thêm (0.142.0, bổ sung). */
+.aj-next { font-size: 13px; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.aj-link { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2);
+  padding: 8px 10px; border-radius: 10px; background: var(--surface-2); overflow-wrap: anywhere; }
+.aj-link svg { width: 14px; height: 14px; flex: none; }
+.aj-link > span { flex: 1 1 160px; min-width: 0; }
+.aj .aj-link .aj-link-open { min-height: 30px; font-size: 12.5px; }
+.aj-role-verifier, .aj-role-verifier_legacy { background: var(--accent-wash); color: var(--accent-ink); }
+.aj-kind { display: flex; gap: 8px; flex-wrap: wrap; }
+.aj-kind .aj-chip { min-height: 32px; font-size: 13px; }
+.aj-field-label { font-size: 12.5px; font-weight: 600; color: var(--text2); margin-top: 4px; }
+.aj-sel { font: inherit; font-size: 13px; min-height: 32px; padding: 5px 10px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text); width: 100%; max-width: 100%; }
+.aj-tb-sel { text-overflow: ellipsis; cursor: pointer; }
+.aj-sel:focus { outline: none; border-color: var(--accent); }
+.aj-crit { min-height: 64px; }
+.aj-confirm .aj-sum { margin: 0; padding: 0 0 0 20px; display: grid; gap: 6px; font-size: 13px; line-height: 1.45;
+  overflow-wrap: anywhere; }
+.aj .aj-more { align-self: center; min-height: 32px; font-size: 13px; padding: 0 16px; }
+@media (pointer: coarse) {
+  .aj-sel, .aj-chip, .aj-head > .ws-btn, .aj .aj-acts .ws-btn, .aj .aj-link .aj-link-open, .aj .aj-more { min-height: 44px; }
+}
+
+/* Dòng trạng thái việc trên thẻ trợ lý (0.175.0): chữ trong viên thuốc nhỏ, không biểu tượng. "Cần bạn" màu cảnh báo đứng
+   trước vì đó là việc đang đợi người xem; "Đang làm" xám. */
+.ws-jb { display: inline-flex; align-items: center; gap: 4px; min-width: 0; line-height: 1; }
+.ws-jb-run, .ws-jb-need { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.ws-jb-run { background: var(--surface-3); color: var(--text2); }
+.ws-jb-need { background: var(--warn-wash); color: var(--warn-ink); }
+@media (hover: none), (max-width: 600px) { .ws-jb-run, .ws-jb-need { font-size: 14px; } }
+/* Khối "Đang chờ bạn" ở đầu danh sách trợ lý: cùng nhãn nhóm, thêm màu cảnh báo. */
+.ws-glabel.ws-glabel-need { color: var(--warn-ink); }
+
+/* 0.142.0: trang Cộng sự. Cột danh sách rộng hơn và kéo được ở đường biên, cột phải mặc định ẩn ở màn rộng (chủ repo chốt
+   14/10/2026). Bề rộng kéo được lưu trong biến --ws-left-w / --ws-right-w (workspace.js nhớ qua localStorage). Màn hẹp
+   hai cột là ngăn kéo nên không có tay kéo. */
+@media (min-width: 901px) {
+  .wspage > .ws-left { width: var(--ws-left-w, clamp(240px, 24vw, 320px)); position: relative; }
+}
+@media (min-width: 1061px) {
+  .wspage > .ws-right { width: var(--ws-right-w, 350px); position: relative; }
+}
+/* Laptop hẹp (1061-1240px): giữ bề rộng mặc định cũ của cột phải khi chưa kéo (review 0.142.0). */
+@media (min-width: 1061px) and (max-width: 1240px) {
+  .wspage > .ws-right { width: var(--ws-right-w, 272px); }
+}
+/* 0.181.0 (owner, 16/10/2026: "câu trả lời bên trợ lý quá sát lề phải, xem bên trò chuyện để học theo"): the 120ch widening
+   for a hidden right column is gone; answers keep the main chat's 72ch measure, so they never run up to the outline bar. */
+.ws-resize { display: none; }
+@media (min-width: 901px) {
+  .ws-resize-left { display: block; position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; z-index: 4;
+    cursor: col-resize; touch-action: none; }
+}
+@media (min-width: 1061px) {
+  .ws-resize-right { display: block; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; z-index: 4;
+    cursor: col-resize; touch-action: none; }
+}
+.ws-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent;
+  transition: background .12s; }
+.ws-resize:hover::after, .ws-resize:focus-visible::after, .wspage.ws-resizing .ws-resize::after { background: var(--accent); }
+.ws-resize:focus-visible { outline: none; }
+.wspage.ws-resizing { cursor: col-resize; user-select: none; }
+.wspage.ws-resizing .ws-left, .wspage.ws-resizing .ws-right { transition: none; }
+/* Giờ nhắn gần nhất trên thẻ trợ lý, cùng hàng với tên (như danh sách chat). Nút ba chấm đứng góc trên phải nên giờ chừa
+   chỗ cho nó qua padding-right sẵn có của thẻ. */
+.ws-item-text { flex: 1 1 auto; }
+.ws-item-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ws-item-top > strong { flex: 1 1 auto; min-width: 0; }
+/* 0.185.0: Javis Core, the system assistant. A small System badge on its row and on its card; the row keeps the
+   accent edge like a pinned one. */
+.ws-sys { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 1.5;
+  color: var(--accent); background: var(--accent-wash); border: 1px solid var(--accent); }
+.ws-item-wrap.he > .ws-item { border-left: 3px solid var(--accent); border-radius: 9px; }
+.ws-core-card { padding: 4px 2px 12px; }
+.ws-core-head { display: flex; align-items: center; gap: 10px; }
+.ws-core-head h3 { margin: 0; font-size: 16px; }
+.ws-core-card p { margin: 10px 0 0; font-size: 14.5px; line-height: 1.5; }
+.ws-core-card .ws-core-note { color: var(--text2); font-size: 13.5px; }
+.ws-item-time { flex: none; font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+/* 0.148.0: tay kéo đổi bề rộng cột (col-resize.js) ở trang đồ thị (cột Vault, cột hội thoại) và trang Trò chuyện (cột
+   Hội thoại/Thư mục). Chỉ màn rộng; màn hẹp các cột là ngăn kéo hay xếp dọc nên không có tay kéo. Cột đang thu về dải
+   44-46px cũng không có tay kéo. */
+.col-resize { display: none; }
+@media (min-width: 861px) {
+  .hud-body > .hud-left, .hud-body > .hud-right { position: relative; }
+  .hud-body > .hud-left > .col-resize, .hud-body > .hud-right > .col-resize, .chatpage-side > .col-resize {
+    display: block; position: absolute; top: 0; bottom: 0; width: 8px; z-index: 6; cursor: col-resize; touch-action: none; }
+  /* Nằm TRỌN trong cột: cột trái và phải của trang đồ thị cắt phần tràn (overflow), và canvas đồ thị bên cạnh bắt chuột. */
+  .col-resize-right { right: 0; }
+  .col-resize-left { left: 0; }
+  body.vault-thu .hud-body > .hud-left > .col-resize, body.chatcol-thu .hud-body > .hud-right > .col-resize,
+  .chatpage.side-thu .chatpage-side > .col-resize { display: none; }
+}
+/* Node .hud-left được tab Thư mục của trang Trò chuyện mượn: tay kéo của trang đồ thị không đi theo. */
+.cside-pane .col-resize { display: none !important; }
+.col-resize::after { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: transparent;
+  transition: background .12s; }
+.col-resize:hover::after, .col-resize:focus-visible::after, body.col-resizing .col-resize::after { background: var(--accent); }
+.col-resize:focus-visible { outline: none; }
+body.col-resizing { cursor: col-resize; user-select: none; }
+.col-resize-right::after { right: 0; }
+.col-resize-left::after { left: 0; }
+
+/* ── Nhịp chủ động của trợ lý (T3, agent-pulse.js): một cột, chữ 16px, vùng chạm 44px, màu theo token sáng/tối ── */
+.pulse-panel { font-size: 16px; }
+.pulse-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pulse-title { font-weight: 600; color: var(--text); }
+.pulse-line { font-size: 16px; color: var(--text2); margin-top: 4px; line-height: 1.45; overflow-wrap: anywhere; }
+.pulse-ctx { border: 1px solid var(--border); background: var(--surface-1); border-radius: 10px; padding: 10px;
+  margin-top: 10px; }
+.pulse-ctx-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
+.pulse-badge { font-size: 16px; font-weight: 500; color: var(--warn-ink); background: var(--warn-wash);
+  border: 1px solid var(--warn-line); border-radius: 999px; padding: 0 10px; }
+.pulse-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pulse-acts .ws-btn, .pulse-list .ws-btn { min-height: 44px; font-size: 16px; }
+.pulse-max { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); }
+.pulse-max select { min-height: 44px; font-size: 16px; max-width: 100%; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; }
+.pulse-sub { font-weight: 600; margin-top: 12px; color: var(--text); }
+.pulse-list { margin: 6px 0 0; padding-left: 20px; font-size: 16px; line-height: 1.5; color: var(--text2);
+  overflow-wrap: anywhere; }
+.pulse-err { color: var(--red); }
+.pulse-ok { color: var(--green); }
+.tm-pulse { flex-basis: 100%; margin-top: 8px; min-width: 0; }
+@media (max-width: 480px) {
+  .pulse-acts .ws-btn { flex: 1 1 auto; }
+}
+/* Mục Bài học và hạn mức (T3 phần L): chữ 16px, vùng chạm 44px, không tràn ngang ở 375px. */
+.lessons-part { font-size: 16px; min-width: 0; }
+.lessons-scope { margin-top: 10px; }
+.lessons-scope-name { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.lessons-item { margin-top: 6px; }
+.lessons-text { color: var(--text); overflow-wrap: anywhere; }
+.lessons-meta { font-size: 16px; color: var(--text2); overflow-wrap: anywhere; }
+.lessons-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.lessons-part .ws-btn { min-height: 44px; font-size: 16px; }
+.lessons-budget { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; color: var(--text); }
+.lessons-budget select { min-height: 44px; font-size: 16px; max-width: 100%; background: var(--surface-2);
+  color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+@media (max-width: 480px) {
+  .lessons-acts .ws-btn { flex: 1 1 auto; }
+}
+
+/* Bộ phán xử nói / chờ / im (T3 phần J 0.156.0, agent-judge-ui.js): chữ tối thiểu 16px, vừa màn 375px, vùng chạm 44px. */
+.agj { font-size: 16px; line-height: 1.45; min-width: 0; }
+.agj-head, .agj-ctx-head { font-weight: 600; margin: 10px 0 4px; }
+.agj-sub, .agj-why, .agj-score, .agj-excerpt, .agj-labeled, .agj-note { font-size: 16px; overflow-wrap: anywhere; }
+.agj-sub, .agj-score { color: var(--muted, inherit); }
+.agj-host { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); min-width: 0; }
+.agj-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.agj-dec { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.agj-dhead { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.agj-verdict, .agj-kind { font-size: 16px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--border); }
+.agj-v-speak { font-weight: 600; }
+.agj-when { font-size: 16px; color: var(--muted, inherit); margin-left: auto; }
+.agj-excerpt { font-style: italic; }
+.agj-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.agj-btn { min-height: 44px; font-size: 16px; }
+.agj-btn[aria-pressed="true"] { font-weight: 600; }
+.tm-judge-hint { display: block; min-height: 44px; font-size: 16px; text-align: left; background: none; border: 0;
+  padding: 4px 0; text-decoration: underline; cursor: pointer; color: inherit; }
+
+.tm-proposal-state { font-size: 16px; color: var(--text2); margin-top: 6px; }
+
+/* 0.176.0 (owner, 2026-10-16): the team settings panel read too big. Like the Jobs tab in 0.158.0, the narrow side panel
+   uses 13 to 14px text; touch screens keep their 44px targets. These rules only shrink text INSIDE the panel, the 16px
+   rules above stay for the same parts shown elsewhere (Assistants page). */
+.tm-side { font-size: 14px; }
+.tm-side .tm-react-sub { font-size: 13px; color: var(--text2); }
+.tm-side .tm-adv .tm-field, .tm-side .tm-adv .tm-unl, .tm-side .tm-adv .tm-react-sub, .tm-side .tm-adv .tm-auth-fixed,
+.tm-side .tm-adv .tm-auth-status, .tm-side .tm-adv .tm-auth-pair, .tm-side .tm-adv .tm-sub, .tm-side .tm-adv .tm-note-line,
+.tm-side .tm-limits, .tm-side .tm-limits-head, .tm-side .tm-limits-note, .tm-side .tm-limits-list,
+.tm-side .pulse-panel, .tm-side .pulse-line, .tm-side .pulse-badge, .tm-side .pulse-list, .tm-side .pulse-acts .ws-btn,
+.tm-side .pulse-max select, .tm-side .agj, .tm-side .agj-sub, .tm-side .agj-why, .tm-side .agj-score, .tm-side .agj-excerpt,
+.tm-side .agj-labeled, .tm-side .agj-note, .tm-side .agj-verdict, .tm-side .agj-kind, .tm-side .agj-when, .tm-side .agj-btn,
+.tm-side .lessons-part, .tm-side .lessons-meta, .tm-side .lessons-part .ws-btn, .tm-side .lessons-budget select { font-size: 13.5px; }
+.tm-side .tm-mname { font-size: 14.5px; }
+.tm-side .tm-field, .tm-side .tm-rs, .tm-side .tm-unl { font-size: 13.5px; }
+.tm-side .tmp-badge { font-size: 12.5px; padding: 1px 8px; }
+
+/* 0.181.0 (owner, 16/10/2026: "khung có nhiều thứ thì chữ 16px lại to quá, nhất là cài đặt trợ lý và cài đặt nhóm"): the
+   assistant's Settings column (.ws-right) gets the same 13.5px body / 14.5px heading scale as the team panel above, and both
+   panels now also cover the Auto block, the goal card and the proactive pulse, which still read 16px. 16px stays everywhere
+   else (chat, pages), and selects stay 16px on touch screens so iOS does not zoom in when one is tapped. */
+.ws-right .rsa-panel, .ws-right .rsa-state, .tm-side .rsa-panel, .tm-side .rsa-state,
+.ws-right .pulse-panel, .ws-right .pulse-line, .ws-right .pulse-badge, .ws-right .pulse-list, .ws-right .pulse-acts .ws-btn,
+.ws-right .pulse-max select, .ws-right .agj, .ws-right .agj-sub, .ws-right .agj-why, .ws-right .agj-score,
+.ws-right .agj-excerpt, .ws-right .agj-labeled, .ws-right .agj-note, .ws-right .agj-verdict, .ws-right .agj-kind,
+.ws-right .agj-when, .ws-right .agj-btn, .ws-right .lessons-part, .ws-right .lessons-meta, .ws-right .lessons-part .ws-btn,
+.ws-right .lessons-budget select, .ws-right .tm-judge-hint, .ws-right .tm-proposal-state,
+.ws-right .rs-card, .tm-side .rs-card, .tm-side .tm-judge-hint, .tm-side .tm-proposal-state { font-size: 13.5px; }
+.ws-right .rsa-title, .ws-right .pulse-title, .ws-right .pulse-sub, .ws-right .pulse-ctx-head, .ws-right .lessons-scope-name,
+.tm-side .rsa-title, .tm-side .pulse-title, .tm-side .pulse-sub, .tm-side .pulse-ctx-head, .tm-side .lessons-scope-name,
+.ws-right .rs-title, .tm-side .rs-title { font-size: 14.5px; }
+@media (pointer: coarse) {
+  .ws-right select, .tm-side select { font-size: 16px; }
+}
+
+/* Ảnh và file khách gửi trong Hộp thư bot (0.171.0, ht-media.js). Ảnh hiện thẳng, bấm mở cỡ thật ở thẻ mới;
+   link ảnh của Zalo hết hạn thì thay bằng một dòng nói rõ, vẫn bấm mở link gốc được. */
+.ht-anh { display: block; max-width: min(320px, 100%); text-decoration: none; }
+.ht-anh img { display: block; max-width: 100%; max-height: 360px; border-radius: 10px; object-fit: contain;
+  background: var(--bg2, rgba(0,0,0,.04)); }
+.ht-anh .ht-anh-hong { display: none; color: var(--text3); font-size: 16px; }
+.ht-anh.hong img { display: none; }
+.ht-anh.hong .ht-anh-hong { display: inline-flex; align-items: center; gap: 6px; }
+.ht-file { display: flex; align-items: center; gap: 10px; max-width: min(360px, 100%); padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none; }
+.ht-file:hover { border-color: var(--accent); }
+.ht-file-ico, .ht-file-dl { flex: none; color: var(--accent); display: inline-flex; }
+.ht-file-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ht-file-ten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ht-file-meta { color: var(--text3); font-size: 16px; }
+.ht-chu-thich { margin-top: 8px; white-space: pre-wrap; }
+
+/* 0.190.0: the "Đã nhớ · Hoàn tác" line under an answer (chat-nho.js). Small and quiet: a note, not a message. */
+.msg-nho .bubble { background: transparent; border: 0; box-shadow: none; padding: 2px 0; }
+.nho-line { display: flex; flex-direction: column; gap: 4px; }
+.nho-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13.5px; color: var(--text2); }
+.nho-ic svg { width: 14px; height: 14px; color: var(--accent); vertical-align: -2px; }
+.nho-txt { min-width: 0; overflow-wrap: anywhere; }
+.msg-nho .nho-txt strong { color: var(--text); font-weight: 600; }
+.nho-undo { border: 1px solid var(--border); background: transparent; color: var(--text2); border-radius: 999px;
+  padding: 1px 10px; font-size: 12.5px; cursor: pointer; }
+.nho-undo:hover { color: var(--accent); border-color: var(--accent); }
+@media (hover: none), (pointer: coarse) { .nho-row { font-size: 15px; } .nho-undo { min-height: 32px; font-size: 14px; } }
+
+/* 0.191.0: files, working folder and the info panel of a team (teams.js). */
+.tm-attach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
+.tm-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 10px; border-radius: 999px;
+  background: var(--surface-2, var(--bg2)); border: 1px solid var(--border); font-size: 14px; color: var(--text); }
+.tm-chip svg { width: 15px; height: 15px; flex: none; color: var(--text2); }
+.tm-chip-folder { background: var(--accent-wash, rgba(255, 122, 60, .12)); border-color: transparent; }
+.tm-chip-folder svg { color: var(--accent); }
+.tm-chip-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: none;
+  padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.tm-chip-st { font-size: 12.5px; color: var(--text3); white-space: nowrap; }
+.tm-chip.is-err { border-color: var(--red, #d64545); }
+.tm-chip.is-err .tm-chip-st { color: var(--red, #d64545); }
+.tm-chip-x { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border: 0;
+  border-radius: 50%; background: transparent; color: var(--text3); cursor: pointer; }
+.tm-chip-x:hover { background: var(--bg3); color: var(--text); }
+.tm-chip-x svg { width: 14px; height: 14px; }
+.tm-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tm-file { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 5px 10px; border-radius: 10px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 14px; text-decoration: none; }
+.tm-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-file svg { width: 15px; height: 15px; flex: none; color: var(--accent); }
+.tm-file.is-img { flex-direction: column; align-items: stretch; padding: 4px; }
+.tm-file.is-img img { width: 160px; max-height: 120px; object-fit: cover; border-radius: 8px; }
+.tm-file.is-img span { font-size: 12.5px; color: var(--text2); padding: 2px 4px; }
+.tm-folder-pop { position: fixed; z-index: 80; }
+.tm-ava-btn { border: 0; padding: 0; background: none; border-radius: 50%; cursor: pointer; flex: none; display: inline-flex; }
+.tm-ava-btn:hover, .tm-ava-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tm-info-head { display: flex; align-items: center; gap: 12px; padding: 4px 2px 12px; }
+.tm-info-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tm-info-name strong { font-size: 17px; overflow-wrap: anywhere; }
+.tm-info-sec { border-top: 1px solid var(--border); padding: 12px 2px; }
+.tm-info-sec h4 { margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--text); }
+.tm-info-sechead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.tm-info-sechead h4 { margin: 0; }
+.tm-info-members, .tm-info-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tm-info-members li, .tm-info-list li { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; }
+.tm-info-members li > span:not(.tm-ava):not(.tm-info-badge) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-info-badge { margin-left: auto; font-size: 12.5px; color: var(--accent-ink, var(--accent)); background: var(--accent-wash, rgba(255, 122, 60, .12));
+  border-radius: 999px; padding: 1px 8px; }
+.tm-info-list a { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; color: var(--text); text-decoration: none; }
+.tm-info-list a:hover span { text-decoration: underline; }
+.tm-info-list a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-info-list svg { width: 16px; height: 16px; flex: none; color: var(--text2); }
+.tm-info-row { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.tm-info-row svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.tm-info-grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-info-imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tm-info-imgs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
+.tm-info-addlink { display: flex; gap: 6px; margin-bottom: 8px; }
+.tm-info-addlink input { flex: 1 1 auto; min-width: 0; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 15px; }
+.tm-info-addlink input:focus { outline: none; border-color: var(--accent); }
+@media (pointer: coarse) { .tm-chip-x { width: 36px; height: 36px; } .tm-info-addlink input { font-size: 16px; } }
+
+
+/* 0.191.0 (owner, 16/10/2026): drag the list edge narrow enough and the column becomes a strip of avatars only
+   (workspace.js snaps it to 72px and sets .ws-mini). Words go, pictures stay; hovering an avatar shows its name card.
+   Wide screens only: below 901px the list is a drawer of fixed width. */
+@media (min-width: 901px) {
+  .wspage.ws-mini > .ws-left { padding: 12px 8px; gap: 10px; }
+  .wspage.ws-mini .ws-filters, .wspage.ws-mini .ws-empty, .wspage.ws-mini .ws-item-text,
+  .wspage.ws-mini .ws-item-end, .wspage.ws-mini .ws-item-more, .wspage.ws-mini .ws-grp-more { display: none; }
+  .wspage.ws-mini .ws-seg { flex-direction: column; gap: 4px; }
+  .wspage.ws-mini .ws-seg button, .wspage.ws-mini .ws-left-foot .ws-btn { font-size: 0; gap: 0; padding: 8px 0;
+    justify-content: center; }
+  .wspage.ws-mini .ws-seg button svg, .wspage.ws-mini .ws-left-foot .ws-btn svg { width: 18px; height: 18px; }
+  .wspage.ws-mini .ws-list { gap: 6px; align-items: center; scrollbar-width: none; }
+  .wspage.ws-mini .ws-item-wrap { width: 100%; }
+  .wspage.ws-mini .ws-item-wrap > .ws-item, .wspage.ws-mini .ws-item { justify-content: center; padding: 6px;
+    border-radius: 12px; }
+  .wspage.ws-mini .ws-item-wrap.ghim > .ws-item { border-left-width: 1px; box-shadow: inset 3px 0 0 var(--accent); }
+  /* Group headings shrink to a thin rule: the order of the strip still shows where a block starts. */
+  .wspage.ws-mini .ws-glabel { width: 100%; font-size: 0; padding: 0; margin: 2px 0; height: 1px;
+    background: var(--glass-brd); }
+  .wspage.ws-mini .ws-glabel.ws-grp { height: auto; background: none; border-top: 1px solid var(--glass-brd);
+    padding-top: 4px; }
+  .wspage.ws-mini .ws-grp-tog { justify-content: center; font-size: 0; }
+  .wspage.ws-mini .ws-grp-tog svg { width: 16px; height: 16px; }
+  /* 0.191.1: the job state is one small dot on the avatar, four colours (data-st from JavisAgentJobs.statusOf). */
+  .wspage.ws-mini .ws-item-wrap[data-st]::after { content: ""; position: absolute; top: 6px; right: 10px; width: 8px;
+    height: 8px; border-radius: 50%; background: var(--st-dot); box-shadow: 0 0 0 2px var(--bg2); pointer-events: none; }
+  .wspage.ws-mini .ws-more { font-size: 0; padding: 6px 0; }
+  .wspage.ws-mini .ws-more::before { content: "\2022\2022\2022"; font-size: 14px; letter-spacing: 2px; }
+}
+/* Solid card (owner, 16/10/2026: the see-through one let the chat behind show through the words). */
+.ws-mini-tip { position: fixed; z-index: 60; max-width: 300px; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg2); border: 1px solid var(--border); box-shadow: var(--shadow-2);
+  color: var(--text); pointer-events: none; }
+.ws-mini-tip[hidden] { display: none; }
+.ws-mini-tip-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ws-mini-tip-ava { flex: none; display: inline-flex; width: 22px; height: 22px; }
+.ws-mini-tip-ava > * { width: 22px !important; height: 22px !important; font-size: 11px; }
+.ws-mini-tip-head strong { flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 700; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.ws-mini-tip-time { flex: none; font-size: 12px; color: var(--text3); }
+.ws-mini-tip-sub { margin-top: 4px; font-size: 14px; line-height: 1.4; color: var(--text2, var(--text3));
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* The four job state colours: dot on the avatar strip and the state line of its hover card. */
+[data-st="need"] { --st-dot: var(--red); }
+[data-st="run"] { --st-dot: #3b82f6; }
+[data-st="wait"] { --st-dot: #f59e0b; }
+[data-st="done"] { --st-dot: var(--green); }
+.ws-mini-tip-st { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 14px; font-weight: 600;
+  color: var(--text2); }
+.ws-mini-tip-st::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-dot); }
+
+/* 0.192.0: who in the team is writing right now, one strip above the input (teams.js typingHtml). */
+.tm-typing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 4px 8px; font-size: 14px;
+  color: var(--text2); }
+.tm-typing[hidden] { display: none; }
+.tm-typing-who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.tm-typing-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; font-weight: 600; }
+.tm-typing-more { color: var(--text3); }
+/* 0.192.0: a file dragged over the team chat lands in its composer; the composer says so. */
+.tm-composer.is-drop { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-wash); }
+/* A picture attached in the team composer shows itself on its chip. */
+.tm-chip.has-thumb { padding-left: 4px; }
+.tm-chip-thumb { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex: none; }
+@media (pointer: coarse) { .tm-typing { font-size: 15px; } }
+/* 0.192.0: the @all suggestion and its chip carry a group icon instead of a member picture. */
+.tm-sug-all { width: 28px; height: 28px; border-radius: 50%; flex: none; display: inline-flex; align-items: center;
+  justify-content: center; background: var(--accent-wash-2); color: var(--accent); }
+.tm-call .tm-sug-all { width: 20px; height: 20px; }
+.tm-sug-all svg { width: 16px; height: 16px; }
+.tm-call .tm-sug-all svg { width: 12px; height: 12px; }
+/* 0.192.0 (owner, 16/10/2026: the team quote had no quote mark like the main chat): quotes in team bubbles carry the main
+   chat's quote mark in a small accent box; an assistant's reply quotes the message it answers and is a button to it. */
+.tm-quote { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-left: 0; border-radius: 10px;
+  background: var(--surface-2, var(--bg3)); -webkit-line-clamp: unset; }
+.tm-quote-ico { flex: none; width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center;
+  justify-content: center; background: var(--bg); color: var(--accent); }
+.tm-quote-ico svg { width: 14px; height: 14px; }
+.tm-quote-body { min-width: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere; }
+button.tm-quote-ref { width: 100%; text-align: left; font: inherit; font-size: 14px; color: var(--text2); border: 1px solid transparent;
+  cursor: pointer; margin: 0 0 8px; }
+button.tm-quote-ref:hover, button.tm-quote-ref:focus-visible { border-color: var(--accent-line); outline: none; }
+.tm-replying { border-left: 0; padding: 6px 6px 6px 6px; background: var(--bg3); border: 1px solid var(--border); }
+.tm-replying-ico { flex: none; width: 34px; height: 34px; border-radius: 6px; display: inline-flex; align-items: center;
+  justify-content: center; background: var(--bg); color: var(--accent); }
+.tm-replying-ico svg { width: 16px; height: 16px; }
+/* Mentions written by an assistant; "@Chủ nhóm" flags the message as waiting for the owner. */
+.tm-at { color: var(--accent-ink, var(--accent)); font-weight: 600; }
+.tm-at-me { background: var(--accent-wash-2); border-radius: 6px; padding: 0 4px; }
+.tm-asks { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  font-weight: 700; color: var(--accent-ink, var(--accent)); background: var(--accent-wash-2); }
+.tm-asks svg { width: 12px; height: 12px; }
+.tm-msg-asks .tm-bubble { box-shadow: inset 3px 0 0 var(--accent); }
+.tm-msg-flash .tm-bubble { animation: tm-flash 1.6s ease; }
+@keyframes tm-flash { 0%, 40% { background: var(--accent-wash-2); } 100% { background: inherit; } }
+@media (prefers-reduced-motion: reduce) { .tm-msg-flash .tm-bubble { animation: none; outline: 2px solid var(--accent); } }
+/* 0.192.0: pinned strip on top of the team chat. */
+.tm-pinbar { border-bottom: 1px solid var(--border); padding: 6px 12px; background: var(--bg2); display: flex; flex-direction: column;
+  gap: 4px; max-height: 40vh; overflow: auto; }
+.tm-pinbar[hidden] { display: none; }
+.tm-pin-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tm-pin-ico { flex: none; width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center;
+  justify-content: center; background: var(--accent-wash-2); color: var(--accent); }
+.tm-pin-ico svg { width: 13px; height: 13px; }
+.tm-pin-title { font-size: 14px; font-weight: 700; color: var(--text); flex: none; }
+.tm-pin-note { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.tm-pin-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tm-pin-go { flex: 1 1 auto; min-width: 0; text-align: left; font: inherit; font-size: 14px; color: var(--text2); background: none;
+  border: 0; padding: 4px 0 4px 32px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-pin-go b { color: var(--text); font-weight: 600; margin-right: 6px; }
+.tm-pin-go:hover, .tm-pin-go:focus-visible { color: var(--text); outline: none; text-decoration: underline; }
+@media (pointer: coarse) { .tm-pin-go { font-size: 15px; min-height: 40px; } }
+/* 0.192.0 (owner, 16/10/2026: "phần việc khi giao nó đang bị co chữ và khó nhìn"): in the team side panel a job's title
+   takes the whole line and its buttons go on the line under it, instead of three buttons squeezing the title into a
+   narrow column. */
+.tm-side-body .tm-qrow { align-items: flex-start; gap: 8px; padding: 10px 0; font-size: 15px; }
+.tm-side-body .tm-qrow .tm-qtitle { flex: 1 1 calc(100% - 40px); line-height: 1.45; font-weight: 600; color: var(--text); }
+.tm-side-body .tm-qrow .tm-spin, .tm-side-body .tm-qrow .tm-qpos { margin-top: 2px; }
+.tm-side-body .tm-qrow .tm-actions { flex: 1 1 100%; padding-left: 26px; }
+.tm-side-body .tm-jcard-text .tm-actions { margin-top: 8px; }
+/* 0.192.0 (owner, 16/10/2026: "avatar đang ở dưới cùng hội thoại ko thấy tên người gửi"): an assistant's picture sits at
+   the top of its message, next to its name, so a long answer still says who wrote it at a glance. */
+.tm-msg-agent { align-items: flex-start; }
+.tm-msg-agent > .tm-ava, .tm-msg-agent > .tm-face-btn { margin-top: 2px; }
+.tm-msg-agent .tm-bubble { border-bottom-left-radius: 16px; border-top-left-radius: 6px; }
+.tm-msg-agent .tm-who { font-size: 14px; }
+/* 0.192.0: a new answer appears block by block, one member after another (teams.js applyReveal). */
+.tm-msg.tm-rv-wait { display: none; }
+.tm-rv-hide { display: none !important; }
+.tm-rv-on .tm-text .bubble > *:not(.tm-rv-hide) { animation: tm-rv-in .22s ease both; }
+@keyframes tm-rv-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* 0.193.0: the agent editor head carries "Message privately" when opened from a team. */
+.agent-editor .ag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.agent-editor .ag-head h3 { margin: 0; }
+.agent-editor .ag-chat-btn { display: inline-flex; align-items: center; gap: 6px; }
+.tm-info-members .tm-info-chat { margin-left: auto; }
+/* 0.193.0: finished jobs, their report and the archive in the team Jobs tab. */
+.tm-qn { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--text2);
+  font-size: 12px; text-align: center; }
+.tm-qhead-done { color: var(--green); }
+.tm-qok { flex: none; display: inline-flex; color: var(--green); margin-top: 2px; }
+.tm-jdone.is-cancelled .tm-qok, .tm-jarch .tm-qok { color: var(--text3); }
+.tm-jdone .tm-qtitle { color: var(--text); }
+.tm-jarch .tm-qtitle { color: var(--text2); font-weight: 500 !important; }
+.tm-qhead-arch { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.tm-arch-toggle { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 0; font: inherit;
+  font-weight: 700; color: var(--text2); cursor: pointer; }
+.tm-arch-toggle svg { width: 14px; height: 14px; }
+.tm-arch-clear { color: var(--red); }
+.tm-report { flex: 1 1 100%; margin: 4px 0 0 26px; padding: 10px 12px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.tm-report-meta { font-size: 13px; color: var(--text3); }
+.tm-report-who { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.tm-report-person { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text2); }
+.tm-report-person b { color: var(--text); font-weight: 600; }
+.tm-report-body { max-height: 320px; overflow: auto; }
+/* 0.193.0 (owner, 16/10/2026: "những việc nào làm đến cuối rồi thì sẽ đổi màu"): one colour per job state, the same four as
+   the avatar dot: red needs you, blue working, orange waiting, green finished; a state label on each card. */
+.aj-job.aj-needs_you { border-left-color: var(--red); }
+.aj-job.aj-running { border-left-color: #3b82f6; }
+.aj-job.aj-waiting { border-left-color: #f59e0b; }
+.aj-job.aj-done { border-left-color: var(--green); opacity: 1; background: var(--ok-wash, var(--surface-1)); }
+.aj-job.aj-archived { border-left-color: var(--text3); opacity: .85; }
+.aj-top { display: flex; align-items: flex-start; gap: 8px; }
+.aj-top .aj-title { flex: 1 1 auto; min-width: 0; }
+.aj-state { flex: none; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; color: #fff; }
+.aj-state-needs_you { background: var(--red); }
+.aj-state-running { background: #3b82f6; }
+.aj-state-waiting { background: #f59e0b; color: #1a1400; }
+.aj-state-done { background: var(--green); }
+.aj-done-btn { color: var(--green); border-color: var(--ok-line, var(--border)); }
+.aj-arch-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.aj-arch-toggle { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 0; font: inherit;
+  font-size: 13px; font-weight: 700; color: var(--text2); cursor: pointer; }
+.aj-arch-toggle svg { width: 14px; height: 14px; }
+/* 0.195.0 team tags (owner, 17/10/2026: "làm dropdown giống bên cộng sự ... tái sử dụng"): the filter bar and the row-menu
+   tag picker are the Partners page's own (tag-picker.js, .cs-proj-* and .ws-menu-it / .ws-tag-new). Only placing them
+   here: the bar sits under the list title, the picker inside the team's row menu. */
+.tm-tagbar { padding: 0 12px 8px; }
+.tm-tagbar[hidden] { display: none; }
+.tm-tag-menu { padding: 5px; min-width: 220px; max-height: min(420px, 70vh); overflow-y: auto; }
+.tm-tag-menu { background: var(--bg2); }
+
+/* 0.196.0 (owner, 17/10/2026: "kéo đến 1 cỡ nhất định thì nó ẩn vào thụt luôn vào trong ... riêng phần team ... chỉ hiện
+   logo nhóm giống như bên cộng sự"): every column handle folds its column when let go past the fold point
+   (col-resize.js collapse/snap). While dragged past it, the column dims to say so. */
+.col-resize-folding { opacity: .45; transition: opacity .12s; }
+/* Team page: the list and the side panel get the shared handles on wide screens; the list scrolls inside .tm-teams so
+   the handle stays put. */
+.tm-list { overflow: hidden; }
+.tm-teams { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+@media (min-width: 1061px) {
+  .tm-page, .tm-page[data-side="0"] { grid-template-columns: var(--tm-list-w, 280px) minmax(0, 1fr); }
+  .tm-page[data-side="1"] { grid-template-columns: var(--tm-list-w, 280px) minmax(0, 1fr) var(--tm-side-w, 360px); }
+  .tm-list, .tm-side { position: relative; }
+  .tm-list > .col-resize, .tm-side > .col-resize { display: block; position: absolute; top: 0; bottom: 0; width: 8px; z-index: 6;
+    cursor: col-resize; touch-action: none; }
+  /* The strip of team pictures (like the Partners list .ws-mini): names, previews, tags, the row "..." and paging hide;
+     "New team" keeps only its icon; the hover card (JavisColResize.miniTip) gives the details. */
+  .tm-page.tm-mini .tm-list { padding: 8px 6px; }
+  .tm-page.tm-mini .tm-list-title, .tm-page.tm-mini .tm-tagbar, .tm-page.tm-mini .tm-team-main,
+  .tm-page.tm-mini .tm-row-more, .tm-page.tm-mini .tm-row-menu, .tm-page.tm-mini .tm-more-teams { display: none; }
+  .tm-page.tm-mini .tm-list-bar { justify-content: center; padding: 2px 0 8px; }
+  .tm-page.tm-mini .tm-new { font-size: 0; gap: 0; padding: 8px; }
+  .tm-page.tm-mini .tm-team { justify-content: center; padding: 6px 0; gap: 0; }
+}
+@media (min-width: 1061px) {
+  .tm-page.tm-mini .tm-new svg, .tm-page.tm-mini .tm-new .ic { width: 18px; height: 18px; }
+}
+/* A team picture made of member faces (44px) shrinks to the card's 22px avatar spot. */
+.ws-mini-tip-ava:has(> .tm-gava) { overflow: hidden; }
+.ws-mini-tip-ava > .tm-gava { width: 44px !important; height: 44px !important; flex: none; transform: scale(.5); transform-origin: top left; }
+/* 0.197.0: unread count, the @ mark when a message calls the owner, and the muted bell on a team row (the count pill is
+   the navbar bell's .notification-badge). A muted team keeps its count, in grey. */
+.tm-team { position: relative; }
+.tm-unread { flex: none; height: 20px; min-width: 20px; border-radius: 10px; font-size: 12px; box-shadow: none; }
+.tm-unread.is-muted { background: var(--surface-2); color: var(--text2); }
+/* 0.204.0: was ".tm-at", the same class as the @mentions in messages, which it squeezed into a 20px circle. */
+.tm-at-badge { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; font-size: 13px; font-weight: 700; color: var(--on-accent); background: var(--accent-solid); }
+.tm-muted { display: inline-flex; flex: none; color: var(--text3); }
+.tm-muted .ic, .tm-muted svg { width: 14px; height: 14px; }
+.tm-team.has-unread .tm-team-name { font-weight: 700; }
+.tm-team.has-unread .tm-team-sub { color: var(--text); font-weight: 600; }
+.tm-mini-unread { display: none; }
+/* 0.205.0: a private partner chat shows its unread count and the bell-off mark in the row's corner cluster, like a
+   team row; an unread row reads in full ink. */
+.ws-item-end .tm-unread { margin-left: 2px; }
+.ws-item-wrap.has-unread .ws-item-top strong, .ws-item-wrap.has-unread .ws-item small { color: var(--text); font-weight: 700; }
+@media (min-width: 1061px) {
+  .tm-page.tm-mini .tm-mini-unread { display: flex; gap: 2px; position: absolute; top: 0; right: 2px; pointer-events: none; }
+}
+
+/* 0.207.0: approval request card in the team chat (teams.js approvalCardHtml) */
+.tm-ap { align-self: stretch; max-width: 640px; margin: 6px auto; padding: 12px 14px; border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent, #d97706); border-radius: 10px; background: var(--surface-2); font-size: 16px;
+  line-height: 1.5; display: flex; flex-direction: column; gap: 6px; }
+.tm-ap-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tm-ap-head svg { width: 18px; height: 18px; }
+.tm-ap-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.tm-ap-k { color: var(--text3); min-width: 88px; }
+.tm-ap-calls, .tm-ap-ev { margin: 0; padding-left: 20px; }
+.tm-ap-calls code { font-size: 14px; word-break: break-all; }
+.tm-ap .tm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tm-ap .tm-actions .ws-btn { min-height: 40px; font-size: 16px; }
+.tm-ap-state { color: var(--text2); }
+.tm-ap-approved, .tm-ap-consumed { border-left-color: var(--ok, #16a34a); }
+.tm-ap-rejected, .tm-ap-expired, .tm-ap-revoked { border-left-color: var(--danger, #dc2626); }
+.tm-ap-superseded, .tm-ap-cancelled, .tm-ap-changes_requested { border-left-color: var(--text3); }
+.tm-wm .tm-radio { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; font-size: 16px; }
+
+/* 0.208.0: department mandate section (teams.js mandateHtml) and opportunity card (reuses .tm-ap) */
+.tm-md { font-size: 16px; }
+.tm-md-outcome { font-weight: 600; margin: 4px 0; }
+.tm-md-metrics, .tm-md-srcs { margin: 4px 0; padding-left: 20px; }
+.tm-md-src-missing { color: var(--danger, #dc2626); }
+.tm-md-status { color: var(--text2); }
+.tm-md-active { color: var(--ok, #16a34a); }
+.tm-md-form textarea { width: 100%; font-size: 16px; }
+.tm-opp { border-left-color: var(--accent, #2563eb); }
+
+/* 0.209.0: acceptance editor and card */
+.tm-acc-form textarea { width: 100%; font-size: 16px; }
+.tm-acc { border-left-color: var(--ok, #16a34a); }
+/* 0.210.0 narrow-screen check: buttons in the mandate and acceptance sections are phone-sized like the cards */
+.tm-md .ws-btn, .tm-acc-form .ws-btn, .tm-md-form .ws-btn { font-size: 16px; min-height: 40px; }
+.tm-md-form input, .tm-md-form select, .tm-acc-form input { font-size: 16px; }
+.tm-md .tm-sub, .tm-ap .tm-sub, .tm-acc-form .tm-sub, .tm-md .tm-qhead, .tm-wm .tm-qhead {
+  font-size: 16px; white-space: normal; overflow: visible; text-overflow: clip; }
+.tm-ap code, .tm-md code { font-size: 16px; }

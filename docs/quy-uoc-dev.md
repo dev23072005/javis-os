@@ -63,6 +63,25 @@ không được là tiếng Việt trần:
 - **KHÔNG dịch:** prompt và mô tả tool gửi cho model, regex nhận câu người dùng gõ hay nói, log,
   nội dung ghi vào brain của người dùng. Lý do ở `docs/dev/them-mot-ngon-ngu.md`.
 
+## Chữ giải thích gập vào nút (i) (từ 0.214.0)
+
+Chủ repo chốt 18/10/2026: "có quá nhiều dòng giải thích, anh muốn các dòng giải thích đấy gọn lại trong chữ (i)
+chứ không để xổ hết ra bên ngoài". Luật cứng cho MỌI màn hình của dashboard:
+
+- **Ngoài mặt chỉ để thứ cần nhìn và cần bấm:** tiêu đề, nhãn, trạng thái, số liệu, ô nhập, nút. Một dòng phụ ngắn
+  (tới khoảng 100 ký tự, một câu) được đứng ngoài nếu thiếu nó người ta không biết bấm gì.
+- **Câu giải thích dài hơn thế** (vì sao, lưu ý, cách làm từng bước, rủi ro, khác nhau giữa hai lựa chọn) **nằm trong
+  nút (i)**: `JavisInfo.btn(t("info.more"))` cạnh tiêu đề hoặc nhãn, `JavisInfo.body(...)` ngay sau, hoặc
+  `JavisInfo.pair(html, nhãn)` khi không có tiêu đề để đứng cạnh (`dashboard/info-tip.js`). HTML tĩnh dùng cùng hai lớp
+  `info-i` / `info-body`, mẫu ở đầu file đó. Bấm mới mở, chữ trong khối 16px.
+- **Không gập:** lỗi và câu xác nhận hiện ra sau khi người dùng bấm (họ đang chờ đúng câu đó), placeholder, nội dung
+  người dùng mở ra để đọc (nhật ký cập nhật, nội dung chat, ghi chú). Cảnh báo về tiền hay mất dữ liệu: để ngoài một câu
+  ngắn nói rủi ro, phần giải thích vẫn vào (i).
+- **Mô tả do server gửi** (plugin, kênh): thẻ hiện tối đa hai dòng, đầy đủ trong (i).
+- `tests/python/test_info_tip_rule.py` đỏ khi một chuỗi trên 100 ký tự được vẽ ra mà không nằm trong khối (i). Chuỗi
+  dài hợp lệ (lỗi, xác nhận...) ghi vào `tests/python/info_tip_allow.json` kèm lý do; đừng ghi một lời giải thích
+  vào đó để cho qua test.
+
 ## Viết CHANGELOG.md
 
 Chủ repo đọc nhật ký cập nhật trên màn hình dọc (2026-08-12), nên viết CHO NGƯỜI ĐỌC TRÊN ĐIỆN
@@ -83,9 +102,11 @@ THOẠI, không phải cho lập trình viên đọc diff:
 Repo mở cho người đóng góp quốc tế, nên phần NGƯỜI NGOÀI ĐỌC viết bằng tiếng Anh:
 
 - **Commit message, tiêu đề và mô tả PR:** tiếng Anh.
-- **Module, tên hàm, comment MỚI:** tiếng Anh. Sửa trong một file sẵn có thì theo ngôn ngữ của
-  file đó cho nhất quán; không dịch lại phần code không đụng tới. Bảng từ điển định danh tiếng
-  Việt cho người nước ngoài ở `docs/dev/GLOSSARY.md`, kiến trúc ở `ARCHITECTURE.md`.
+- **Mọi code mới viết tiếng Anh** (chủ repo chốt 15/10/2026): tên module, hàm, biến, trường dữ
+  liệu, comment, docstring, tên test và câu in trong `check(...)`, kể cả khi thêm vào một file cũ
+  đang viết tiếng Việt. Không dịch lại phần code cũ không đụng tới. Chữ hiện cho người dùng đi qua
+  i18n (`vi.json` có dấu, `en.json`). Bảng từ điển định danh tiếng Việt cũ cho người nước ngoài ở
+  `docs/dev/GLOSSARY.md`, kiến trúc ở `ARCHITECTURE.md`.
 - **Giữ tiếng Việt:** `CHANGELOG.md` (bản gốc, chủ repo đọc), file quy ước này, spec trong
   `docs/dev/`, và prompt gửi cho model (lý do ở `docs/dev/them-mot-ngon-ngu.md`).
 - PR từ người ngoài không cần đụng `VERSION`/CHANGELOG: người merge tăng số và viết nhật ký.

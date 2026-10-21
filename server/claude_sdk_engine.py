@@ -19,6 +19,7 @@ quyền enforce PER-CALL bằng callback can_use_tool - tool ngoài whitelist b�
 từng lần gọi (kể cả Bash/Write builtin) + ghi audit, thay vì chỉ dựa --allowedTools tĩnh.
 """
 import asyncio
+import re
 import collections
 import fnmatch
 import json
@@ -297,7 +298,16 @@ def map_message(msg):
                                   TextBlock, ToolUseBlock, ToolResultBlock)
     events = []
     if isinstance(msg, SystemMessage):
-        return events, (msg.data or {}).get("session_id")
+        data = msg.data or {}
+        # Claude Code reports the real Fast mode state (off, cooldown, on): keep it for the bolt tooltip.
+        if data.get("fast_mode_state"):
+            try:
+                import fast_mode
+                fast_mode.remember("anthropic-cli", str(data.get("fast_mode_state")),
+                                   str(data.get("fast_mode_disabled_reason") or ""))
+            except Exception:  # noqa: BLE001
+                pass
+        return events, data.get("session_id")
     if isinstance(msg, AssistantMessage):
         for b in msg.content:
             if isinstance(b, TextBlock):
@@ -517,6 +527,9 @@ class ClaudeSDK:
         self.effort = None
         self.javis_mode = None    # _apply_mcp đặt (suggest|auto|full) - enforce min_mode plugin in-process
         self.javis_vault = None   # _apply_mcp đặt - brain đang làm việc, cho ctx của plugin
+        # 0.207.0: id of the tool gate of a gated Team step (team_gate.py). Set = a PreToolUse hook refuses an outside
+        # action before it runs unless the owner approved that exact call; bypassPermissions does not skip hooks.
+        self.team_gate = None
         # True = gửi system_prompt TRẦN, bỏ preset claude_code. Đường tiết kiệm token dùng cái
         # này: cả giá trị của nó nằm ở chỗ system prompt chỉ còn vài trăm token, mà preset
         # claude_code thì tự nhét lại prompt đầy đủ của Claude Code và ăn sạch phần tiết kiệm.
@@ -584,10 +597,12 @@ class ClaudeSDK:
             message=f"Tool '{tool_name}' bị chặn bởi rào quyền phiên nền an toàn: phiên này chỉ "
                     f"được dùng {', '.join(allowed)}.{extra}")
 
-    def _plugins_server(self):
+    def _plugins_server(self, only=None):
         """Phase 3: dựng MCP server IN-PROCESS từ tool plugin (plugins_host) - engine SDK gọi
         thẳng handler Python, không qua hub HTTP. Trả McpSdkServerConfig hoặc None (không plugin).
-        min_mode enforce sẵn trong route của plugin_tools(mode); hook pre/post bọc như hub."""
+        min_mode enforce sẵn trong route của plugin_tools(mode); hook pre/post bọc như hub.
+        `only`: set of tool names a gated session was granted (plugins_host.grant_patterns);
+        every other plugin tool stays out of the server."""
         import plugins_host
         from claude_agent_sdk import tool as sdk_tool, create_sdk_mcp_server
         mode = (self.javis_mode or "full").strip().lower()
@@ -598,6 +613,8 @@ class ClaudeSDK:
         # đúng ở MỌI chỗ dựng engine, không phụ thuộc ai nhớ đặt cwd.
         # Vẫn KHÔNG nạp plugin riêng-của-vault (giữ nguyên hành vi cũ): scope_vault=False.
         p_tools, p_route = plugins_host.plugin_tools(mode, self.javis_vault, scope_vault=False)
+        if only is not None:
+            p_tools = [t for t in p_tools if t["fn"] in only]
         if not p_tools:
             return None
         # has_tool_hooks/wrap_with_hooks chưa biết scope_vault (ngoài phạm vi task này) - giữ
@@ -653,10 +670,17 @@ class ClaudeSDK:
                 print(f"[sdk engine] đọc mcp_config lỗi ({e}) - truyền path thô", file=sys.stderr)
                 return str(self.mcp_config), self.mcp_strict
             servers = self._gan_khoa_luot(servers)
+        only = None
         if self.allowed_tools:
-            return servers, self.mcp_strict
+            # Gated fork: no plugin server, EXCEPT the tools the allowlist names one by one
+            # (a Kanban "image" job, a workflow step with `tools:`). The allowlist and the
+            # permission gate still stop everything else.
+            import plugins_host
+            only = plugins_host.granted_plugin_tools(self.allowed_tools)
+            if not only:
+                return servers, self.mcp_strict
         try:
-            plug = self._plugins_server()
+            plug = self._plugins_server(only)
         except Exception as e:
             print(f"[sdk engine] plugin in-process lỗi: {type(e).__name__}: {e}", file=sys.stderr)
             plug = None
@@ -803,6 +827,11 @@ class ClaudeSDK:
         # là nó thoát ngay với "unknown option", tức hỏng trọn lượt chat.
         if self.effort and "effort" in fields:
             kw["effort"] = self.effort
+        # Fast mode (0.164.0): main._cli_fast sets this for a chat turn. Every other run (loops,
+        # reminders, bots) says fastMode false explicitly, so a /fast persisted in the user's
+        # ~/.claude/settings.json cannot make background work run (and bill) fast.
+        if "settings" in fields:
+            kw["settings"] = getattr(self, "fast_settings", None) or '{"fastMode": false}'
         if self.session_id:
             kw["resume"] = self.session_id
         servers, strict = self._mcp_servers()
@@ -813,8 +842,33 @@ class ClaudeSDK:
             kw["mcp_servers"] = servers
             if strict:
                 kw["strict_mcp_config"] = True
-        if self.disallowed_tools:
-            kw["disallowed_tools"] = list(self.disallowed_tools)
+        _deny = list(self.disallowed_tools or [])
+        # 0.188.0 (Javis Core spec 13, 14): the learning switch is a hard rule for Claude Code too. It writes files
+        # natively (not through the hub), so the memory guard goes in as deny rules on its own tools.
+        try:
+            import memory_control
+            _deny += [r for r in memory_control.claude_deny_rules(self.javis_vault) if r not in _deny]
+        except Exception:
+            pass
+        if _deny:
+            kw["disallowed_tools"] = _deny
+        # 0.206.0: a chat turn reads what the owner sends while it runs, after each tool call (steer_inbox.py).
+        # 0.213.0: also a chat-channel turn (tag "telegram:<chat>", every channel) whose gateway opened an inbox.
+        if "hooks" in fields and self._steer_on():
+            try:
+                from claude_agent_sdk import HookMatcher
+                kw["hooks"] = {"PostToolUse": [HookMatcher(matcher=None, hooks=[self._steer_hook])],
+                               "PostToolUseFailure": [HookMatcher(matcher=None, hooks=[self._steer_hook])]}
+            except Exception:
+                pass
+        if "hooks" in fields and self.team_gate:
+            try:
+                from claude_agent_sdk import HookMatcher
+                hooks = dict(kw.get("hooks") or {})
+                hooks["PreToolUse"] = [HookMatcher(matcher=None, hooks=[self._team_gate_hook])]
+                kw["hooks"] = hooks
+            except Exception:
+                pass
         if self.allowed_tools:
             # Chế độ nền an toàn: whitelist auto-allow, MỌI tool khác rơi vào _permission_gate → DENY.
             # KHÔNG nạp settings filesystem: allow-rule trong settings user có thể che gate.
@@ -826,6 +880,127 @@ class ClaudeSDK:
             # Parity CLI: nạp settings máy (ambient MCP, CLAUDE.md, config user) như claude -p vẫn làm
             kw["setting_sources"] = ["user", "project", "local"]
         return ClaudeAgentOptions(**kw)
+
+    @staticmethod
+    def pre_tool_hooks_supported() -> bool:
+        """Can this SDK refuse a tool call before it runs (PreToolUse hooks)? A gated Team step needs it (0.207.0)."""
+        if not _SDK_OK:
+            return False
+        try:
+            from claude_agent_sdk import ClaudeAgentOptions, HookMatcher  # noqa: F401
+            return "hooks" in getattr(ClaudeAgentOptions, "__dataclass_fields__", {})
+        except Exception:
+            return False
+
+    async def _team_gate_hook(self, input_data, tool_use_id, context):
+        """PreToolUse of a gated Team step (0.207.0): an outside action is refused before it runs and recorded as the
+        step's approval request. Fails closed: an error here refuses the call."""
+        name = str((input_data or {}).get("tool_name") or "")
+        try:
+            import team_gate
+            ok, msg = await asyncio.to_thread(team_gate.native_check, self.team_gate, name,
+                                              (input_data or {}).get("tool_input") or {})
+        except Exception as e:  # noqa: BLE001
+            ok, msg = False, f"Javis không kiểm được quyền của lời gọi này ({type(e).__name__}), đã chặn."
+        if ok:
+            return {}
+        _audit(self.tag, name, False, "chờ chủ nhóm duyệt")
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": msg}}
+
+    def _steer_on(self) -> bool:
+        """Does this turn read what the owner sends mid-way? Web chat turns always; a chat-channel turn only when its
+        gateway opened an inbox (bot_gateway._turn; customer bots do not). Background forks and loops never."""
+        tag = str(self.tag or "")
+        if tag.startswith("chat:"):
+            return True
+        if not tag.startswith("telegram:"):
+            return False
+        try:
+            import steer_inbox
+            return steer_inbox.INBOX.running(steer_inbox.current_sid())
+        except Exception:
+            return False
+
+    async def _steer_hook(self, input_data, tool_use_id, context):
+        """PostToolUse: hand the turn what the owner sent meanwhile, as extra context the model reads before its next
+        step (0.206.0). Only on the main thread: a tool call inside a sub-agent carries agent_id and is left alone."""
+        try:
+            if (input_data or {}).get("agent_id"):
+                return {}
+            import steer_inbox
+            note = steer_inbox.INBOX.take_note_for_tag(self.tag)
+            if not note and str(self.tag or "").startswith("telegram:"):
+                # A channel turn is keyed by its gateway, not by the engine tag: read the inbox of this context.
+                note = steer_inbox.INBOX.take_note_current()
+        except Exception:
+            return {}
+        if not note:
+            return {}
+        return {"hookSpecificOutput": {"hookEventName": (input_data or {}).get("hook_event_name") or "PostToolUse",
+                                       "additionalContext": note}}
+
+    async def warm_ping(self, timeout_s: float = 120.0) -> dict:
+        """One tool-less request forked from this chat's Claude session, so the provider re-reads the cached prefix and
+        keeps it alive (0.202.0, cache_keepwarm.py; design from Cache Tax via OpenMausBot). Same options as the chat
+        turn, so the prefix is byte-identical; `fork_session` plus `--no-session-persistence` keep the conversation
+        untouched; every tool call is denied and one turn is allowed. Never raises.
+        Returns {ok, cache_read, cache_write, output} or {ok: False, reason, limit?}."""
+        if not self.session_id:
+            return {"ok": False, "reason": "no Claude session yet"}
+        if not self.is_available():
+            return {"ok": False, "reason": "claude-agent-sdk not ready"}
+        try:
+            from claude_cli import co_co
+            if not co_co("--no-session-persistence") or not co_co("--fork-session"):
+                return {"ok": False, "reason": "this claude version cannot fork a session without saving it"}
+            from claude_agent_sdk import ClaudeSDKClient, ResultMessage, PermissionResultDeny
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+
+        async def _deny(tool_name, input_data, context):
+            return PermissionResultDeny(message="Javis keep-warm ping: no tools")
+
+        client = None
+        try:
+            opts = await asyncio.to_thread(self._options)
+            opts.resume = self.session_id
+            opts.fork_session = True
+            extra = dict(getattr(opts, "extra_args", None) or {})
+            extra["no-session-persistence"] = None
+            opts.extra_args = extra
+            opts.can_use_tool = _deny
+            opts.max_turns = 1
+            client = ClaudeSDKClient(options=opts)
+
+            async def _run():
+                await client.connect()
+                await client.query("Reply with the single word: warm")
+                async for msg in client.receive_response():
+                    if isinstance(msg, ResultMessage):
+                        return msg
+                return None
+
+            msg = await asyncio.wait_for(_run(), timeout=timeout_s)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "reason": f"{type(e).__name__}: {str(e)[:200]}"}
+        finally:
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+            self._cleanup_tmp()
+        if msg is None:
+            return {"ok": False, "reason": "no result"}
+        text = str(getattr(msg, "result", "") or "")
+        if getattr(msg, "is_error", False):
+            limited = bool(re.search(r"usage limit|limit reached|hết lượt|rate limit", text, re.I))
+            return {"ok": False, "reason": text[:200] or "API error", "limit": limited}
+        u = getattr(msg, "usage", None) or {}
+        return {"ok": True, "cache_read": int(u.get("cache_read_input_tokens") or 0),
+                "cache_write": int(u.get("cache_creation_input_tokens") or 0),
+                "output": int(u.get("output_tokens") or 0)}
 
     async def query(self, prompt):
         if not self.is_available():
@@ -857,7 +1032,10 @@ class ClaudeSDK:
         tran_init = ap_tran_khoi_dong()
         self._stderr_tail.clear()   # chỉ giữ dòng của lượt này
         loop = asyncio.get_running_loop()
-        options = self._options()
+        # Off the event loop (0.194.0): building options reads the MCP config, loads every plugin (imports their code
+        # the first time) and writes the prompt file. On the loop that froze every open page for as long as it took
+        # (loop_watch caught it). `to_thread` copies the turn's context variables, so the per-turn hub key still lands.
+        options = await asyncio.to_thread(self._options)
         completion = _CompletionWatch(RESULT_IDLE if getattr(options, "include_hook_events", False) else None)
         client = ClaudeSDKClient(options=options)
         started = time.time()

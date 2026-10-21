@@ -70,6 +70,8 @@ BOT_COMMANDS = [
 ]
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+# 0.202.0: audio (voice notes) goes as sendAudio so Telegram shows a player instead of a file.
+AUDIO_EXTS = {".mp3", ".m4a"}
 MAX_DOC_MB = 50     # trần sendDocument của bot API
 MAX_PHOTO_MB = 10   # trần sendPhoto
 MAX_DOWNLOAD_MB = 20  # bot API chỉ cho TẢI VỀ file ≤ 20MB
@@ -89,10 +91,17 @@ TYPING_MOI_GIAY = 4.0   # Telegram tắt chấm "đang nhập" sau ~5 giây, ph�
 # Hàng đợi lượt, luật /stop, cổng precheck và dòng vết công cụ nằm ở `bot_gateway`: chúng là
 # luật hành vi của Javis, không phải chi tiết của Telegram, nên kênh Zalo dùng chung y hệt.
 
-# Câu duy nhất được nói ra khi một lượt gãy ở chế độ người thật. Không mã lỗi, không tên lớp
-# ngoại lệ - người thật không đọc traceback ra miệng. Chi tiết vẫn vào stderr + log bot.
+# Câu xin lỗi CŨ khi một lượt gãy ở chế độ người thật. Từ 15/10/2026 không kênh nào gửi nó nữa:
+# chủ repo chốt trục trặc kỹ thuật là việc của chủ, khách không nhận gì (xem
+# chatbot_runtime.CAU_LUOT_HONG). Giữ tên để mã cũ import không gãy.
 CAU_LOI_NGUOI_THAT = ("Dạ em xin lỗi, chỗ này em đang trục trặc nên chưa trả lời ngay được ạ. "
                       "Anh chị nhắn lại giúp em một chút nữa nhé.")
+
+
+def _im_khi_hong() -> dict:
+    """Kết quả 'im lặng' cho một lượt gãy ở chế độ người thật: kênh thấy im_lang thì không gửi gì."""
+    return {"text": "", "files": [], "im_lang": True}
+
 
 
 # Dòng mở đầu khối tin thoại đã nghe thành chữ. Nằm ở `stt` vì kênh nào cũng dùng, và
@@ -209,7 +218,8 @@ class TelegramBot(HangLuot):
         # cùng 1 tài khoản vẫn tuần tự (1 lượt/lúc). Map chat_id(str) -> asyncio.Task.
         self._current = {}
         # Tin đến trong lúc chat đó đang bận, chờ trả lời xong lượt trước rồi gộp làm một lượt.
-        # Chỉ dùng ở chế độ người thật; chế độ chủ vẫn báo "đang xử lý câu trước" như cũ.
+        # Human mode merges them here. Owner mode (0.213.0) hands them to the running turn first
+        # (bot_gateway._steer); whatever that turn never read lands here too, for the next turn.
         # chat_id(str) -> {"texts": [str], "meta": dict}
         self._cho = {}
         self._stop = False
@@ -380,6 +390,13 @@ class TelegramBot(HangLuot):
                     except Exception:
                         pass
                     # ảnh bị từ chối (kích thước/định dạng lạ) → rơi xuống gửi dạng document
+                elif p.suffix.lower() in AUDIO_EXTS:
+                    r = await client.post(self._url("sendAudio"), data=data, files={"audio": (p.name, content)})
+                    try:
+                        if r.json().get("ok"):
+                            return True, ""
+                    except Exception:
+                        pass
                 r = await client.post(self._url("sendDocument"), data=data,
                                       files={"document": (p.name, content)})
                 d = {}
@@ -772,8 +789,9 @@ class TelegramBot(HangLuot):
                 return   # /stop sẽ tự báo, không gửi trùng
             except Exception as e:
                 print(f"[telegram lượt hỏng] {type(e).__name__}: {e}", file=sys.stderr)
-                # Người thật không đọc tên lớp ngoại lệ ra miệng.
-                reply = (CAU_LOI_NGUOI_THAT if self.giau_trang_thai
+                # Chế độ người thật: trục trặc kỹ thuật không gửi gì cho khách (chủ repo 15/10/2026).
+                # Lỗi đã vào stderr; chủ và người trực được báo ở tầng chatbot_runtime.
+                reply = (_im_khi_hong() if self.giau_trang_thai
                          else f"⚠ Lỗi: {type(e).__name__}: {e}")
             im_lang = False
             if isinstance(reply, dict):

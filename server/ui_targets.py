@@ -18,9 +18,9 @@ import unicodedata
 # Trang hợp lệ = RAIL_ITEMS trong dashboard/console.js và PAGES trong dashboard/ui-actions.js.
 # Thêm trang mới thì thêm ở cả ba chỗ.
 PAGES = (
-    "home", "chat", "settings", "workspace", "skills", "chatbots", "conversations", "files",
-    "terminal", "coding", "selfimprove", "learn", "kanban", "models", "channels", "mcp", "plugins",
-    "packs", "logs", "account", "usage", "pet", "share",
+    "home", "chat", "settings", "workspace", "teams", "skills", "chatbots", "conversations", "files",
+    "terminal", "coding", "selfimprove", "webhooks", "learn", "kanban", "models", "channels", "mcp", "plugins",
+    "packs", "logs", "account", "usage", "logins", "pet", "share",
 )
 
 # Bí danh người dùng hay nói, ánh xạ về id trang. Thường hoá không dấu trước khi tra, nên viết
@@ -41,6 +41,9 @@ ALIASES = {
     "shared links": "share", "quan ly chia se": "share",
     "tu hoc": "selfimprove", "self improve": "selfimprove", "hoc": "learn",
     "viec dinh ky": "selfimprove", "nhac hen": "selfimprove",
+    "webhook": "webhooks", "webhooks": "webhooks", "hook": "webhooks",
+    "kho dang nhap": "logins", "dang nhap": "logins", "cookie": "logins", "cookies": "logins",
+    "logins": "logins", "login vault": "logins", "tai khoan dang nhap": "logins",
     "code": "terminal", "ma": "terminal", "nhat ky": "logs", "log": "logs",
     # "code" trần GIỮ NGUYÊN nghĩa cũ là Terminal: người dùng đã quen từ 0.32, đổi
     # nghĩa một bí danh đang dùng là lấy đi thứ họ gõ hàng ngày để tặng một trang mới.
@@ -69,7 +72,13 @@ ALIASES = {
     # Id trang số nhiều cũ (trước 0.59.0) - prompt/bookmark cũ gọi thẳng "agents"/"workflows"
     # vẫn phải ra đúng trang, không chỉ id chuẩn "workspace".
     "agents": "workspace", "workflows": "workspace",
+    # Trang Nhóm (nhóm chat team, 0.140.0): thanh bên gọi là "Nhóm". "nhom" trơn KHÔNG nằm ở đây (xem _EXACT_PAGE).
+    "nhom chat": "teams", "team": "teams", "teams": "teams",
 }
+
+# Bí danh chỉ khớp khi CẢ CÂU (sau khi bỏ "mở", "trang"...) đúng bằng nó, không khớp cụm con. "nhom" khớp cụm con thì cướp
+# mọi câu nói về nhóm thanh bên ("nhóm việc" -> Việc, "nhóm code" -> Code), làm hỏng lệnh nói quen tay (review 0.140.0).
+_EXACT_PAGE = {"nhom": "teams"}
 
 # Nhóm trên thanh bên = RAIL_GROUPS trong dashboard/console.js (khoá `id`) và GROUPS trong
 # dashboard/ui-actions.js. Mở NHÓM khác mở TRANG: người dùng hay muốn bung phần đang gập để
@@ -132,7 +141,10 @@ def _tra(t: str, bang: dict, hop_le) -> str:
 
 def resolve_page(target: str) -> str:
     """Trả id trang hợp lệ hoặc chuỗi rỗng."""
-    return _tra(_lot_tien_to(khong_dau(target), _TIEN_TO_TRANG), ALIASES, PAGES)
+    t = _lot_tien_to(khong_dau(target), _TIEN_TO_TRANG)
+    if t in _EXACT_PAGE:
+        return _EXACT_PAGE[t]
+    return _tra(t, ALIASES, PAGES)
 
 
 def resolve_group(target: str) -> str:

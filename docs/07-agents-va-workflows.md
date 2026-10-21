@@ -32,6 +32,14 @@ Trên màn hình hẹp, dùng nút mở danh sách hoặc cột chi tiết để
 
 Hội thoại cộng sự tách khỏi lịch sử chat chính của Javis. Quay lại một cộng sự sẽ mở tiếp phiên gần nhất của cộng sự đó.
 
+### Tin chưa đọc và tắt thông báo
+
+Từ 0.205.0 danh sách cộng sự chạy như danh sách tin nhắn:
+
+- Cộng sự vừa có tin mới (bạn nhắn, cộng sự trả lời, hay một việc nền báo kết quả vào hội thoại của cộng sự) **tự lên đầu** danh sách. Javis Core và các mục **Đã ghim** vẫn đứng trước.
+- Thẻ cộng sự hiện **số tin chưa đọc** ở góc dưới, cạnh giờ nhắn. Mở hội thoại của cộng sự đó là số này tự xoá, ở mọi tab đang mở.
+- Nút **⋮** của mỗi thẻ có **Tắt thông báo**, chọn **Trong 1 giờ**, **Trong 4 giờ**, **Cho đến 8:00 sáng** hoặc **Cho đến khi được mở lại**. Thẻ đang tắt có biểu tượng chuông gạch và số chưa đọc màu xám. Tin vẫn vào hội thoại và chuông thông báo, chỉ là không kêu và không gửi thông báo đẩy. Bấm **Bật thông báo** để mở lại.
+
 ## Tạo mới, tìm kiếm và Javis Store
 
 Chọn tab cần dùng rồi bấm nút tạo trợ lý hoặc quy trình ở cuối cột trái. **Javis Store** mở kho gói tương ứng để thêm cộng sự có sẵn. Trợ lý được phân loại bằng **tag**, quy trình bằng **nhóm** (xem dưới).
@@ -103,7 +111,7 @@ Tag **khác** nhóm chat: gắn tag không thêm trợ lý vào cuộc trò chuy
 
 Ngoài file `.md`, mỗi agent còn có hai thứ nằm trong thư mục `memory/agents/<slug>/` của brain:
 
-- **`MEMORY.md` - bộ nhớ riêng.** Mỗi lần agent chạy, Javis đọc file này và chèn thẳng vào system prompt của agent dưới tiêu đề `# Bộ nhớ của bạn:`. Đây là chỗ để tích luỹ những gì agent cần nhớ lâu dài: quy ước riêng, danh sách khách, những lỗi đã bị nhắc. File này có **hai nguồn ghi**: bạn viết tay, và chính agent **tự bồi đắp lúc chạy** - cuối một nhiệm vụ, nếu rút ra được bài học tái dùng, agent đề xuất và Javis ghi hộ vào mục `## Bài học (tự học)` của file. Javis (chứ không phải model) cầm bút nên có rào cứng: tự loại bài học trùng, chỉ giữ 15 dòng mới nhất để bộ nhớ đặc dần thay vì dài dần, và phần bạn viết tay ngoài mục đó không bao giờ bị chạm. Nghĩa là agent thông minh dần lên theo mỗi lần dùng, không có job nền nào quét hàng loạt.
+- **`MEMORY.md` - bộ nhớ riêng.** Mỗi lần agent chạy, Javis đọc file này và chèn thẳng vào system prompt của agent dưới tiêu đề `# Bộ nhớ của bạn:`. Đây là chỗ để tích luỹ những gì agent cần nhớ lâu dài: quy ước riêng, danh sách khách, những lỗi đã bị nhắc. File này có **hai nguồn ghi**: bạn viết tay, và chính agent **tự bồi đắp lúc chạy** - cuối một nhiệm vụ, nếu rút ra được bài học tái dùng, agent đề xuất và Javis ghi hộ vào mục `## Bài học (tự học)` của file. Javis (chứ không phải model) cầm bút nên có rào cứng: tự loại bài học trùng, chỉ giữ 15 dòng mới nhất để bộ nhớ đặc dần thay vì dài dần, và phần bạn viết tay ngoài mục đó không bao giờ bị chạm. Nghĩa là agent thông minh dần lên theo mỗi lần dùng, không có job nền nào quét hàng loạt. Từ 0.105.0, luật bạn **dặn thẳng** agent trong chat (ví dụ "nhắn Zalo thì không dùng markdown") vào một mục riêng `## Luật chủ dặn`: không có trần, không bao giờ bị đẩy ra như bài học. Tự học cũng không còn viết lại cả thân agent, chỉ được thêm luật vào mục `## Bổ sung (tự học)` cuối thân, và mọi lần ghi phải giữ nguyên từng dòng bạn đã viết, thiếu một dòng là Javis không ghi.
 - **`runs/` - nhật ký chạy.** Mỗi bước workflow chạy xong (kể cả bước kiểm chứng), Javis ghi thêm một mục vào `runs/<YYYY-MM-DD>.md` gồm giờ chạy, nhiệm vụ đã giao, và kết quả (cắt gọn). Đây là chỗ để soi lại "hôm qua agent này đã làm gì" mà không cần mở lại bảng theo dõi. Nhật ký thô này không đi vào git của brain.
 
 Cả hai đều là file văn bản thường: mở, đọc và sửa tay được qua [Quản lý tệp tin](05-quan-ly-tep-tin.md). Muốn dạy một agent nhớ điều gì, cứ viết thẳng vào `memory/agents/<slug>/MEMORY.md` là lần chạy sau nó đã biết.
@@ -195,6 +203,8 @@ Vì là file văn bản, bạn có thể mở qua [Quản lý tệp tin](05-quan
 
 - Agent: phần đầu (frontmatter) chứa tên, vai trò, tag (`tags`, một danh sách), danh sách skill, model, và tài liệu đã gắn (`assets` gồm `files` và `links`); phần thân là system prompt chi tiết. Bộ nhớ riêng và nhật ký chạy nằm ngoài file này, ở `memory/agents/<slug>/`.
 - Workflow: phần đầu chứa tên, trạng thái (active hoặc off), nhóm (`group`), mô tả và danh sách các bước (mỗi bước có agent, task, và tuỳ chọn agent kiểm chứng cùng số lần sửa).
+  - Viết tay thì để `status: 'off'` CÓ dấu nháy: `off` trần bị YAML đọc thành giá trị đúng/sai. Từ 0.107.0 Javis hiểu được cả hai cách viết, nhưng giữ nháy cho chắc. Quy trình tắt không chạy nền từ Kanban hay nhắc hẹn; bấm Chạy ở Cộng sự thì vẫn chạy để bạn thử trước khi bật.
+  - Một bước có thể khai `tools: [javis_generate_image, javis_describe_image]` để lấy đúng tool đó khi quy trình chạy nền dưới Toàn quyền (bình thường lúc đó agent chỉ có công cụ file). Nhận tên tool plugin và `WebFetch`, `WebSearch`; Bash không bao giờ được cấp theo cách này. Mức quyền riêng của tool vẫn được kiểm khi gọi, nên một bước không tự nâng mức được.
 
 Sửa tay trong file cũng được. Agent: ghi `tags: [Marketing, Viết nội dung]`; có trường `tags` (kể cả `tags: []`) thì Javis chỉ đọc nó. File agent cũ chỉ có `group: Marketing` vẫn đọc thành một tag Marketing; lần lưu đầu Javis ghi thêm `tags` và giữ `group` bằng tag đầu tiên để bản cũ hơn vẫn đọc được. Workflow và skill dùng `group`; thiếu trường này thì vào nhóm "Chung".
 
@@ -203,6 +213,7 @@ Sửa file rồi lưu thì trang Cộng sự tự nhận nội dung mới ở l�
 ## Mẹo
 
 - **Luôn tách một bước kiểm chứng cho khâu quan trọng.** Đặt agent kiểm chứng là một agent khác với agent làm, vì nó được ép đóng vai "giả định kết quả đang sai". Đây là cách giảm chuyện AI viết ẩu hoặc bịa.
+- **Agent kiểm chứng phải trả JSON** `{"pass": true|false, "reason": "...", "fixes": "..."}`. Từ 0.107.0 kiểm chứng là đóng-khi-lỗi: agent kiểm chứng lỗi, trả lời không đọc được, hay hết số lần sửa mà vẫn trượt đều tính là CHƯA ĐẠT, và quy trình dừng ở bước đó thay vì chạy tiếp như trước.
 - **Mỗi bước làm đúng một việc.** Đừng nhồi "nghiên cứu và viết và đăng" vào một bước. Chia nhỏ để dễ kiểm soát và dễ sửa từng khâu.
 - **Dùng `{{prev}}` để nối mạch.** Bước sau muốn dùng kết quả bước trước thì phải nhắc `{{prev}}` trong nhiệm vụ, nếu không agent sẽ không thấy đầu ra bước trước.
 - **Dựng thứ tự bằng ↑/↓ thay vì xoá đi làm lại.** Sắp nhầm thứ tự thì chỉ cần đẩy bước lên xuống, nội dung đi theo nguyên vẹn.
@@ -219,6 +230,62 @@ Bạn có thể đóng gói một agent, skill hoặc workflow thành **một fi
 - **An toàn:** khi nhập, Javis chặn các đường dẫn bất thường trong gói (không cho ghi ra ngoài các thư mục agent/skill/workflow) và giới hạn dung lượng để tránh file độc. Dù vậy, chỉ nên nhập gói từ nguồn bạn tin tưởng, vì nội dung skill là hướng dẫn cho AI làm theo.
 
 Lưu ý: gói xuất chỉ chứa file định nghĩa. **Bộ nhớ riêng và nhật ký chạy của agent không đi theo gói** - bên nhận có được vai trò và kỹ năng, không có ký ức.
+
+## Chia sẻ cả một Team
+
+Ở trang Team, menu **⋯** của một team có **Chia sẻ team**: tải về một file `.team.javis.zip` gồm các cộng sự của team, kỹ năng của họ, trưởng nhóm và các tin đã ghim (thành hướng dẫn chung). File **không** có lịch sử chat, khoá, mật khẩu, model hay công tắc Auto; chữ trông giống khoá API, mã bot hay dòng `password: ...` bị thay bằng `[REDACTED]` trước khi ghi.
+
+Người nhận bấm **Nhập team** ở đầu danh sách team, chọn file, xem trước có những cộng sự nào và bao nhiêu kỹ năng rồi xác nhận. Cộng sự trùng tên đã có trong brain thì giữ nguyên bản của người nhận; model và Auto người nhận tự chọn sau. File này vẫn mở được bằng nút Nhập ở trang Cộng sự của bản Javis cũ (khi đó chỉ nhập cộng sự, không dựng team).
+
+Mỗi lượt chat tạo, sửa hay gỡ lịch, việc lặp, cộng sự, quy trình hay kỹ năng còn để lại một dòng nhỏ dưới câu trả lời ("Đã tạo lịch: ..."). Cái mới tạo có nút **Hoàn tác**: huỷ lịch, xoá việc lặp, cộng sự, quy trình hay kỹ năng vừa tạo.
+
+## Team chờ bạn duyệt (từ 0.207.0)
+
+Trong việc giao cho Team, một cộng sự cần bạn quyết (chọn phương án, chi tiền, gửi tin hay đăng bài ra ngoài) thì bước đó **dừng thật**: việc chuyển sang **Chờ bạn duyệt**, nhả chỗ cho việc khác của nhóm, và trong khung chat hiện một **thẻ Xin duyệt** ghi rõ sẽ làm gì, phạm vi, ảnh hưởng, bằng chứng và đúng các lời gọi sẽ chạy. Trước đây câu "@Chủ nhóm anh duyệt nhé?" vẫn bị coi là kết quả và việc tự chốt xong.
+
+- **Duyệt**: cộng sự làm tiếp ở một bước mới, và chỉ đúng lời gọi đã duyệt được chạy, mỗi lời gọi một lần. Máy khởi động lại hay chạy lại bước cũng không làm lại hành động đã chạy.
+- **Yêu cầu sửa**: ghi điều muốn đổi, cộng sự đưa phương án mới (thành một thẻ mới).
+- **Từ chối**: ghi lý do, việc dừng ở đó; bạn sửa yêu cầu để giao hướng khác hoặc huỷ việc.
+- **Thu hồi duyệt**: rút lại một duyệt chưa dùng tới.
+
+Sửa yêu cầu của việc hay huỷ việc làm thẻ cũ hết hiệu lực. Chữ trong chat (của bạn hay của cộng sự) không bao giờ thay cho nút Duyệt. Mỗi lần bấm có mã riêng, nên mạng chập chờn bấm lại không làm hai lần, và mở hai tab thì tab sau được báo là đã quyết.
+
+**Quyền của nhóm** (tab Nhóm, mục **Hành động ra ngoài của nhóm**):
+- **Cần chủ duyệt** (mặc định, cả nhóm cũ): cộng sự tự đọc, tìm, ghi file trong bộ não và thư mục của nhóm, chạy lệnh chỉ đọc. Gửi, đăng, thanh toán, đặt hàng, xoá dữ liệu hay lệnh máy khác bị chặn TRƯỚC khi chạy và thành thẻ xin duyệt.
+- **Nhóm tự làm, không hỏi**: quyền như khi bạn chat riêng với từng cộng sự (cách Team chạy ở 0.194.0 tới 0.206.0).
+
+Ở chế độ Cần chủ duyệt, Claude Code, Codex (có sandbox riêng) và các bộ não dùng API key chặn được hành động trước khi chạy. Grok Build chỉ làm phần trong phạm vi (hành động đã duyệt không chạy được trên Grok). Antigravity không chặn được công cụ của chính nó nên bước đó bị từ chối kèm lời giải thích: đổi trợ lý sang bộ não khác hoặc bật "Nhóm tự làm".
+
+## Mục tiêu phòng ban của Team (từ 0.208.0)
+
+Ở tab Nhóm có mục **Mục tiêu phòng ban**. Nhóm cũ không có mục tiêu nên không có gì tự chạy cho tới khi bạn đặt và bấm **Bật**.
+
+- **Mục tiêu**: nhóm này để làm gì. **Cách đo**: mỗi dòng một tiêu chí.
+- **Nguồn được giao**, mỗi dòng một nguồn: `folder:bao-cao` (thư mục trong bộ não), `kanban` (việc Kanban lỗi của bộ não), `mcp:<mã kết nối>` (kết nối có đang lỗi không), `test:<lệnh kiểm tra>` (lệnh chạy ở mức Ghi nháp của trang Coding nên chạy được mã như `pytest` hay `npm test`, chỉ bạn đặt được; mã thoát khác 0 hay chạy quá 2 phút là lỗi).
+- **Phạm vi**, **chu kỳ quan sát**, **số lần quan sát mỗi ngày**, **số việc tự mở mỗi ngày**, và **dừng mở việc khi đang có N việc**.
+- Với mỗi loại cơ hội (tài liệu thay đổi, việc Kanban lỗi, lệnh kiểm tra báo lỗi, kết nối lỗi) chọn: **Chỉ ghi nhận**, **Đề xuất cho tôi**, **Mở việc, chờ tôi duyệt** hay **Tự mở việc**.
+
+Javis đọc các nguồn bằng mã, không gọi model. Nguồn đọc không được thì hiện **thiếu nguồn** kèm lý do, không bịa ra vấn đề. Một thay đổi thành **cơ hội** có nguồn, phiên bản dữ liệu, lý do gắn mục tiêu và lợi ích. Cùng dữ liệu không mở lại lần hai, cơ hội bạn **Bỏ qua** chỉ quay lại khi dữ liệu đổi, mỗi nguồn có thời gian nghỉ, đề xuất để quá 48 giờ thì hết hạn. Hết số việc trong ngày hay chạm giới hạn việc đang mở thì chỉ đề xuất.
+
+Việc do mục tiêu mở ghi dấu vết mục tiêu, bản, quan sát, cơ hội ngay trong yêu cầu, và mọi hành động ra ngoài của nó vẫn qua cổng duyệt. **Tạm dừng** ngừng quan sát; **Thu hồi** huỷ việc mục tiêu đã mở mà chưa chạy và đóng đề xuất đang mở. Mỗi lần sửa là một bản mới, có lịch sử.
+
+## Nghiệm thu sản phẩm của Team (từ 0.209.0)
+
+Ở tab Việc, việc đang chờ hay đang làm có nút **Nghiệm thu** để đặt tiêu chí, mỗi dòng một tiêu chí:
+
+- `file: bao-cao/tuan.md`: file phải có.
+- `contains: bai-viet/a.md | 300 | giá, liên hệ`: ít nhất 300 ký tự và có đủ các cụm chữ.
+- `json: data.json | doanh_thu, don`: JSON hợp lệ, có đủ các khoá.
+- `cmd: pytest -q`: lệnh kiểm tra phải trả mã 0 (chạy ở mức Ghi nháp của trang Coding).
+- `confirm: bao-cao/tuan.md`: bạn tự xác nhận.
+
+Khi cộng sự nộp kết quả, Javis kiểm chính sản phẩm (file) theo từng tiêu chí: **đạt**, **chưa đạt** hay **chưa rõ**, kèm bằng chứng (đường dẫn, mã băm sha256, kích thước, giờ sửa). Ý kiến của model không bao giờ là kết luận.
+
+- Đạt hết: việc mới chốt **xong**.
+- Có tiêu chí chưa đạt: cộng sự đó nhận một bước sửa ghi rõ chỗ chưa đạt. Quá số vòng sửa (mặc định 2) thì việc dừng ở **Chưa đạt tiêu chí**; bạn sửa yêu cầu để thử lại.
+- Có tiêu chí chưa rõ hay cần bạn xác nhận: chat hiện thẻ **Nghiệm thu sản phẩm** với **Đạt, chốt việc** hoặc **Chưa đạt, trả lại** (kèm ghi chú). File đã đổi sau lần kiểm thì không chốt được, phải kiểm lại.
+
+Sửa yêu cầu của việc làm bằng chứng cũ hết hiệu lực. Sau khi đã nghiệm thu, sửa file sản phẩm thì thẻ ghi "Sản phẩm đã đổi sau lần kiểm". Điểm học của cộng sự chỉ được cộng khi nghiệm thu đạt hay bạn xác nhận, mỗi việc một lần.
 
 ## Thao tác nhanh và khắc phục sự cố
 

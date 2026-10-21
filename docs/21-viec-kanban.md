@@ -11,11 +11,12 @@ Trang **Việc** là chỗ bạn giao một mục tiêu ("goal") rồi để Jav
 Javis coi hàng đợi việc như một runtime cho AI. Một việc đi qua vòng đời sau:
 
 1. **Bạn giao goal** (từ trang Việc, hoặc nói trong chat, hoặc do trang Tự học đề xuất).
-2. **AI đặc tả (triage)**: một lượt chạy ngắn của model nền đọc goal thô rồi trả về JSON gồm intent rõ ràng, một **capability** (`files`, `research`, `mcp-read`, `code`, `external-write`), một **execution_mode** (`suggest`, `auto`, `full`) và danh sách **điều kiện hoàn thành**. Bước này không thực thi gì cả.
+2. **AI đặc tả (triage)**: một lượt chạy ngắn của model nền đọc goal thô rồi trả về JSON gồm intent rõ ràng, một **capability** (`files`, `research`, `mcp-read`, `code`, `external-write`, `image`), một **execution_mode** (`suggest`, `auto`, `full`) và danh sách **điều kiện hoàn thành**. Bước này không thực thi gì cả.
 3. **Vào hàng đợi**: task chuyển sang trạng thái sẵn sàng, chờ tới lượt.
 4. **Dispatcher claim task**: mỗi task được đúng một worker giữ (khoá bằng transaction trong SQLite), có thời hạn giữ 90 giây và nhịp báo sống 20 giây một lần.
 5. **Worker chạy**: một tiến trình AI headless làm việc trong brain, tự kiểm tra kết quả rồi báo cáo ngắn.
-6. **Kết thúc**: hoàn thành, hoặc dừng lại chờ bạn (thiếu thông tin, thiếu quyền, hoặc bạn đã tick "Yêu cầu duyệt kết quả").
+6. **Nghiệm thu** (từ 0.107.0): một lượt AI riêng, chỉ được đọc, đối chiếu báo cáo của worker với từng điều kiện hoàn thành và mở đúng file, ảnh mà điều kiện nhắc tới. Chưa đạt thì việc dừng chờ bạn với lý do "Chưa đạt điều kiện hoàn thành: ...", không sang Hoàn thành. Việc không có điều kiện nào thì chỉ bị chặn khi chính worker mở đầu báo cáo bằng câu kiểu "chưa xong", "không chạy được". Lượt nghiệm thu không chạy được (engine lỗi) thì việc vẫn hoàn thành, nhưng ghi rõ là chưa được nghiệm thu, vì chạy lại cả việc (có khi đã gửi, đã đăng) chỉ vì bước kiểm rẻ hỏng còn tệ hơn.
+7. **Kết thúc**: hoàn thành, hoặc dừng lại chờ bạn (thiếu thông tin, thiếu quyền, chưa đạt nghiệm thu, hoặc bạn đã tick "Yêu cầu duyệt kết quả").
 
 Worker dùng chung **engine nền** với các tính năng chạy ngầm khác, nên Claude Code, ChatGPT/Codex và các provider API (OpenRouter, OpenAI, Anthropic, Google Gemini) đều chạy được hàng đợi này. Xem [Models & engine](10-models-va-engine.md).
 
@@ -115,11 +116,38 @@ Tuỳ trạng thái, thẻ (và ngăn chi tiết) hiện các nút:
 | Nút | Hiện khi | Làm gì |
 | --- | --- | --- |
 | **✓ Duyệt ngoại lệ** | việc đang chờ duyệt | Chốt việc là hoàn thành |
-| **↻ Thử lại** | việc bị chặn hoặc chờ duyệt | Đẩy việc về hàng đợi để chạy lại |
+| **Gửi trả lời** | việc đang dừng hỏi bạn (có ô trả lời) | Việc quay lại hàng đợi và chạy tiếp với câu trả lời của bạn |
+| **↻ Thử lại** | việc bị chặn hoặc chờ duyệt (trừ việc đang hỏi) | Đẩy việc về hàng đợi để chạy lại |
 | **Dừng task** | việc đang chạy | Huỷ worker đang chạy |
 | **Xóa khỏi bảng** | mọi việc không đang chạy | Đưa việc vào lưu trữ, rời khỏi bảng nhưng không mất lịch sử |
 
+### Việc dừng lại hỏi bạn (từ 0.235.0)
+
+Gặp một chỗ chỉ bạn mới biết (gửi cho khách nào, giá đã gồm VAT chưa, đăng lúc mấy giờ), worker không đoán bừa mà dừng lại hỏi đúng một câu. Câu hỏi về ngay khung chat bạn đã giao việc (kể cả Telegram, Zalo), và nằm trên thẻ việc ở khu **Cần bạn xử lý**.
+
+Có ba chỗ để trả lời, chỗ nào cũng như nhau:
+
+- Gõ vào ô ngay dưới câu hỏi trong khung chat web rồi bấm **Gửi**.
+- Gõ vào ô trả lời trên thẻ việc ở trang Việc rồi bấm **Gửi trả lời**.
+- Nhắn bình thường trong chat (Telegram, Zalo cũng được), nói rõ là trả lời việc nào. Javis tự chuyển câu trả lời vào đúng việc.
+
+Trả lời xong, việc tự quay lại hàng đợi và chạy tiếp. Lần chạy sau đọc được câu hỏi, câu trả lời của bạn và phần lần trước đã làm xong, nên không làm lại từ đầu và không hỏi lại điều đã hỏi. Hỏi rồi trả lời **không** tính thêm lượt thử. Một việc hỏi nhiều lần thì ngăn chi tiết có mục **Hỏi đáp với bạn** ghi lại đủ từng lượt.
+
 **Xóa khỏi bảng** hỏi xác nhận trước: "Xóa task này khỏi bảng? Task sẽ được lưu trữ để không mất lịch sử." Việc đang chạy phải **Dừng task** trước rồi mới xoá được. Nếu thao tác không thành, Javis hiện hộp báo lỗi nguyên văn từ server, hoặc "Không thể cập nhật task".
+
+### Chạy lại không gửi trùng (từ 0.238.0)
+
+Việc nền có thể chạy lại: lỗi tạm thời thì tự thử lại, máy chủ khởi động lại giữa chừng thì việc về hàng đợi, hoặc bạn bấm Thử lại. Trước đây mỗi lần chạy lại là làm lại từ đầu, nên một tin Zalo, một bài đăng hay một đơn hàng có thể ra ngoài hai lần.
+
+Giờ Javis ghi sổ từng thao tác ra ngoài của một việc (gửi tin, đăng bài, tạo đơn qua kết nối hoặc plugin), theo đúng việc, đúng tool và đúng nội dung:
+
+- **Đã làm xong ở lần trước:** lần chạy lại không làm nữa, worker nhận lại kết quả cũ và đi tiếp phần còn lại.
+- **Không chắc đã tới nơi chưa** (máy chủ dừng hoặc mất kết nối đúng lúc đang gửi): Javis không tự gửi lại. Việc dừng lại hỏi bạn, kể rõ thao tác nào. Trả lời **"đã gửi"** thì Javis bỏ qua, trả lời **"chưa gửi"** thì Javis làm lại đúng một lần. Câu trả lời nào không mở đầu bằng "chưa" hay "gửi lại" đều được hiểu là đã gửi, để không bao giờ gửi trùng cho khách.
+- **Dịch vụ báo lỗi rõ ràng** (sai mã người nhận, hết quyền): coi như chưa gửi, lần sau được thử lại.
+
+Chat thường không đổi gì: sổ này chỉ áp cho việc nền trên bảng Việc.
+
+Giới hạn: sổ nằm ở hub của Javis, nên chỉ thấy thao tác đi qua hub. Kết nối gắn với tài khoản Claude (Gmail, Drive trên claude.ai) và lệnh shell của engine không đi qua hub nên không được ghi sổ. Grok Build và Antigravity CLI chưa mang được mã việc tới hub, nên việc chạy trên hai engine này chưa có lớp bảo vệ này.
 
 ## Các trạng thái của một việc
 
@@ -142,7 +170,7 @@ Vài đường đi đáng biết:
 - Sau bước đặc tả, việc **không** bị tính là đã dùng một lượt thử; số lượt được trả lại để bước thực thi có đủ 3 lần.
 - Lỗi tạm thời (timeout, rate limit, 429, mất mạng, engine bận) thì việc **tự** quay lại hàng đợi, tối đa 3 lượt, ghi sự kiện `retry_scheduled`. Hết lượt mới chuyển sang "Cần xử lý".
 - Worker chết giữa chừng mà không kịp báo sống thì việc được thu hồi về hàng đợi với sự kiện `reclaimed`, không nằm treo mãi ở "Đang chạy".
-- Worker tự thấy thiếu một quyết định hoặc dữ liệu thì trả kết quả bắt đầu bằng `[[NEEDS_INPUT]]`, việc chuyển sang "Cần xử lý" kèm đúng một dòng lý do.
+- Worker tự thấy thiếu một quyết định hoặc dữ liệu thì trả kết quả bắt đầu bằng `[[NEEDS_INPUT]]` kèm đúng một câu hỏi. Việc chuyển sang "Cần xử lý" và chờ bạn trả lời (xem "Việc dừng lại hỏi bạn" ở trên).
 
 ## Bảng tra nhanh nút và trạng thái
 
@@ -164,12 +192,23 @@ Worker là một phiên AI **headless**: không có màn hình, không hỏi l�
 | `mcp-read` | Công cụ file cộng đọc dữ liệu thật qua các kết nối MCP | Bash, tìm kiếm web |
 | `code` | Công cụ file cộng Bash (sửa và kiểm thử code) | Đọc web, tìm kiếm web |
 | `external-write` | Công cụ file cộng MCP, nhưng xem luật ngay bên dưới | Bash, tìm kiếm web |
+| `image` (0.107.0) | Công cụ file cộng ĐÚNG hai tool ảnh: tạo ảnh (`javis_generate_image`) và xem ảnh (`javis_describe_image`) | Bash, web, mọi kết nối khác |
+
+`image` có để việc cần làm ảnh chạy được mà không phải mở Toàn quyền (Toàn quyền mở luôn cả đăng bài, gửi tin). Hai tool ảnh ở mức ghi nháp, nên việc mức `suggest` vẫn không tạo được ảnh.
 
 Luật quan trọng nhất: việc thuộc `external-write` (gửi tin, đăng bài, tạo đơn, tạo lịch, đổi thứ gì đó bên ngoài) **chỉ chạy khi execution_mode là `full`**. Không đủ quyền thì việc bị chặn ngay với lý do "Task cần hành động ra ngoài. Chỉ worker mode=full mới được thực thi." Bước đặc tả cũng không tự cho quyền `full`: nó chỉ giữ `full` khi chính lời bạn viết trong goal nói rõ đã cho phép tự hành động (những cụm như "toàn quyền", "tự gửi", "tự đăng", "không cần hỏi"). Không thấy câu cho phép thì nó hạ xuống `auto` để kernel chặn lại.
 
 Nói cách khác: mặc định Javis **không** tự tiêu tiền, không tự gửi tin, không tự đăng bài từ hàng đợi việc. Muốn thế thì phải nói thẳng trong goal.
 
 Ngoài ra worker cũng không thấy repo mã nguồn nằm ngoài brain, và không làm được những việc cần chính chủ đăng nhập (cookie, OTP, quét mã QR, đổi mật khẩu).
+
+## Chạy một quy trình qua hàng đợi
+
+Giao việc với `route` là `wf:<slug>` thì việc chạy ĐÚNG quy trình đó, từng bước do agent của quy trình làm. Từ khung chat, Javis đặt route này bằng tool `javis_task` (có từ 0.107.0); slug không có thật thì tool từ chối và liệt kê các quy trình đang có. Chỉ chép tên quy trình vào mô tả việc thì KHÔNG chạy quy trình: một worker chung sẽ làm hết, và tool cảnh báo ngay khi thấy chuyện đó.
+
+Quy trình đang tắt (`status: off`) không chạy nền: việc dừng chờ bạn với lý do quy trình đang tắt. Bước nào vẫn trượt kiểm chứng sau số lần sửa cho phép thì quy trình dừng ở bước đó và việc chờ bạn, không chạy tiếp các bước sau.
+
+Việc bị chặn mà có việc khác đang chờ nó (giao kèm `deps`) thì tin báo kể tên các việc đang chờ, vì chúng nằm ở cột chờ cho tới khi việc này xong.
 
 ## Nhận kết quả: về đúng nơi bạn đã giao việc
 
@@ -258,6 +297,7 @@ Chi tiết ở [Tự học](22-tu-hoc.md).
 ## Dữ liệu của bảng nằm ở đâu
 
 - **Nguồn chính**: file `kanban.sqlite3` trong thư mục state của Javis (biến `JAVIS_STATE_DIR`, mặc định là thư mục `server/`). Đây là nơi giữ vòng đời, lần chạy và nhật ký sự kiện. Nó cố tình nằm ngoài brain để việc đang chạy không bị đồng bộ git ghi đè.
+- **Sổ thao tác ra ngoài** (từ 0.238.0): file `once_ledger.sqlite3` cạnh `kanban.sqlite3`, ghi thao tác nào của việc nào đã làm xong. Dòng đã xong quá 30 ngày tự xoá.
 - **Bản sao đọc được**: `Javis/kanban.json` trong brain, được ghi lại mỗi lần bảng đổi. File này để sao lưu và để bản Javis cũ đọc được; sửa tay vào đó không đổi được gì trong hàng đợi thật.
 - Bảng cũ từ những bản Javis trước được nhập vào đúng một lần, và việc còn kẹt ở trạng thái "đang chạy" của tiến trình cũ được đưa về hàng đợi.
 - Việc hoàn thành hoặc đã huỷ quá **3 ngày** tự chuyển sang lưu trữ để bảng không phình ra.
@@ -284,9 +324,10 @@ Trang web không phủ hết những gì server làm được. Các endpoint dư
 | `GET /kanban` | Toàn bộ dữ liệu bảng |
 | `GET /kanban/health` | Chế độ, tình trạng dispatcher, số đếm theo trạng thái |
 | `GET /kanban/task/show?id=...` | Một việc kèm lần chạy và nhật ký sự kiện |
-| `POST /kanban/task` | Tạo việc. Ngoài các trường có trên form còn nhận `chat_id`, `capability`, `execution_mode`, `deps` (danh sách id cách nhau bằng dấu phẩy) và `idempotency_key` |
+| `POST /kanban/task` | Tạo việc. Ngoài các trường có trên form còn nhận `chat_id`, `capability`, `execution_mode`, `deps` (danh sách id cách nhau bằng dấu phẩy) và `idempotency_key`. Cần đăng nhập; từ trong khung chat thì dùng tool `javis_task` |
 | `POST /kanban/run` | Chạy đúng một việc theo id |
 | `POST /kanban/task/move` | Chuyển việc sang một trạng thái khác |
+| `POST /kanban/task/answer` | Trả lời việc đang dừng hỏi: `id` và `answer`. Việc về hàng đợi, chạy tiếp với câu trả lời |
 | `POST /kanban/purge` | Xoá hẳn việc đã kết thúc. Mặc định chỉ đụng việc đã lưu trữ và đã huỷ; thêm `include_done=1` mới đụng việc hoàn thành |
 | `POST /kanban/clear` | Xoá trắng bảng, trừ việc đang chạy. Không hoàn tác được |
 
@@ -316,7 +357,7 @@ Bước đặc tả cần một lượt chạy model nền. Engine nền chưa s
 Đây là rào an toàn, không phải lỗi. Việc của bạn thuộc nhóm gửi tin, đăng bài, tạo đơn hoặc đổi thứ gì bên ngoài. Nếu bạn thật sự muốn nó tự làm, giao lại việc và viết rõ trong goal rằng bạn cho phép tự hành động; nếu không, hãy để Javis soạn nháp còn bạn tự bấm gửi.
 
 **Việc bị chặn với lý do bắt đầu bằng "Worker cần thêm thông tin".**
-Worker thấy thiếu một quyết định mà đoán bừa sẽ hại. Mở ngăn chi tiết đọc dòng lý do, bổ sung điều còn thiếu bằng cách giao lại một goal rõ hơn, rồi bấm **↻ Thử lại** hoặc xoá việc cũ đi.
+Worker thấy thiếu một quyết định mà đoán bừa sẽ hại. Từ 0.235.0 chỉ cần trả lời câu hỏi trên thẻ (hoặc trong chat), việc tự chạy tiếp với câu trả lời đó.
 
 **Không bấm được "Xóa khỏi bảng" hay "↻ Thử lại".**
 Việc đang chạy không cho đổi trạng thái. Bấm **Dừng task** trước, đợi thẻ rời khỏi khung **Đang hoạt động**, rồi thao tác lại.

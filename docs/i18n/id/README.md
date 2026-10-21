@@ -117,7 +117,7 @@ Apa yang Anda dapatkan dari situ:
 | **Pekerjaan** | Menjawab, lalu menunggu | **Loop background, pengingat, dan antrean tugas yang dijalankan AI** yang melapor kembali ke Anda |
 | **Antarmuka** | Kotak chat | Dashboard + knowledge graph + **suara hands-free** + Telegram, Slack, WhatsApp, Zalo + CLI |
 | **Hasil kerja Anda** | Tertinggal di server vendor, dalam format vendor | **File biasa di mesin Anda**: riwayat, memori, skill, agent, dan workflow ikut pindah ke model baru mana pun |
-| **Deployment** | Cloud milik orang lain | **Self-hosted**: Hostinger sekali klik, Docker, atau VPS apa pun |
+| **Deployment** | Cloud milik orang lain | **Self-hosted**: [Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) sekali klik, Docker, atau VPS apa pun |
 
 > 💡 **Filosofinya: kemampuan ada di Javis, bukan di model.** Setiap otak mendapat kotak peralatan yang sama lewat satu hub koneksi bersama (MCP Hub). Beralih dari Claude ke Gemini tidak membuat Anda kehilangan apa pun kecuali akses shell, yang hanya dimiliki engine CLI.
 
@@ -247,6 +247,8 @@ flowchart LR
 <details open>
 <summary><b>Opsi 1: Hostinger Docker Manager (domain + HTTPS, sekali klik)</b></summary>
 
+> 🛒 **Belum punya VPS?** [Sewa VPS Hostinger di sini](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN). Docker Manager sudah tersedia, jadi Javis terpasang sekali klik. Setelah siap, kembali ke langkah di bawah.
+
 VPS Hostinger → **Docker Manager → Compose → URL** → tempel file Hostinger lalu tekan **Deploy**:
 
 ```
@@ -272,6 +274,8 @@ Detail dan pemecahan masalah: [DEPLOY.en.md](../../../DEPLOY.en.md).
 
 <details>
 <summary><b>Opsi 2: Docker di VPS apa pun (tanpa clone)</b></summary>
+
+> 🛒 **Butuh VPS?** [VPS Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) juga bisa menjalankan opsi ini.
 
 ```bash
 # Docker required (don't have it?  curl -fsSL https://get.docker.com | sh)
@@ -390,7 +394,7 @@ Setiap baris boleh dibiarkan kosong dan Javis tetap berjalan. Salin `env.example
 | `JAVIS_ALLOWED_HOSTS` | Hostname tambahan di allow-list (perlindungan CSRF dan DNS rebinding) | localhost + domain Anda |
 | `JAVIS_STATE_DIR` | Tempat pengaturan, sesi, dan kunci enkripsi disimpan | `server/` (Docker: `/data/state`) |
 | `BRAINS_DIR` | Folder induk yang menampung setiap Brain | `brains/` (Docker: `/brains`) |
-| `JAVIS_ENABLE_USER_PLUGINS` | `true` mengizinkan plugin buatan Anda sendiri berjalan (Python sungguhan di dalam server) | *(nonaktif)* |
+| `JAVIS_ENABLE_USER_PLUGINS` | `false` mematikan plugin buatan Anda sendiri (menjalankan Python sungguhan di dalam server) | *(aktif)* |
 | `TTS_VOICE` / `TTS_RATE` | Suara dan kecepatan untuk Edge TTS | `en-US-EmmaMultilingualNeural` / `+5%` |
 
 ---
@@ -401,7 +405,7 @@ Setiap baris boleh dibiarkan kosong dan Javis tetap berjalan. Salin `env.example
 - **2FA (TOTP)**, pembatasan percobaan login, password minimal 8 karakter, cookie `Secure` di bawah HTTPS, sesi yang kedaluwarsa setelah 30 hari.
 - **Perlindungan CSRF dan DNS rebinding**: setiap request tulis dari origin yang tidak dikenal akan ditolak.
 - **Secret dienkripsi** di `settings.json` (API key, token OAuth, token bot) dengan kunci per mesin.
-- **Plugin buatan Anda sendiri diblokir secara default** sampai Anda mengatur `JAVIS_ENABLE_USER_PLUGINS=true`.
+- **Plugin buatan Anda dimuat secara default, tetapi tiap plugin tetap mati sampai Anda menyalakannya** di aplikasi; atur `JAVIS_ENABLE_USER_PLUGINS=false` untuk mematikan semuanya.
 - **Izin koneksi ditegakkan** oleh hub, bukan oleh model: akun read-only tidak bisa dipakai untuk mengirim, membayar, atau memublikasikan.
 
 Menemukan celah keamanan? Silakan ikuti [SECURITY.md](../../../SECURITY.md), jangan membuka issue publik.

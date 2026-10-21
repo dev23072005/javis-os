@@ -117,7 +117,7 @@ Ce que cela vous apporte :
 | **Travail** | Répond, puis attend | **Loops en arrière-plan, rappels et une file de tâches pilotée par l'IA** qui vous rendent compte |
 | **Interface** | Une zone de chat | Tableau de bord + graphe de connaissances + **voix mains libres** + Telegram, Slack, WhatsApp, Zalo + une CLI |
 | **Votre travail** | Reste sur les serveurs du fournisseur, dans le format du fournisseur | **De simples fichiers sur votre machine** : historique, mémoire, skills, agents et workflows vous suivent vers n'importe quel nouveau modèle |
-| **Déploiement** | Le cloud de quelqu'un d'autre | **Auto-hébergé** : Hostinger en un clic, Docker, ou n'importe quel VPS |
+| **Déploiement** | Le cloud de quelqu'un d'autre | **Auto-hébergé** : [Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) en un clic, Docker, ou n'importe quel VPS |
 
 > 💡 **La philosophie : les capacités vivent dans Javis, pas dans le modèle.** Chaque cerveau reçoit la même boîte à outils via un hub de connexions partagé unique (le MCP Hub). Passer de Claude à Gemini ne vous coûte rien, sauf l'accès au shell, que seuls les moteurs CLI possèdent.
 
@@ -247,6 +247,8 @@ flowchart LR
 <details open>
 <summary><b>Option 1 : Hostinger Docker Manager (domaine + HTTPS, en un clic)</b></summary>
 
+> 🛒 **Pas encore de VPS ?** [Prenez un VPS Hostinger ici](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN). Docker Manager est intégré, donc Javis s'installe en un clic. Une fois prêt, revenez aux étapes ci-dessous.
+
 VPS Hostinger → **Docker Manager → Compose → URL** → collez le fichier Hostinger et cliquez sur **Deploy** :
 
 ```
@@ -272,6 +274,8 @@ Détails et dépannage : [DEPLOY.en.md](../../../DEPLOY.en.md).
 
 <details>
 <summary><b>Option 2 : Docker sur n'importe quel VPS (sans cloner)</b></summary>
+
+> 🛒 **Besoin d'un VPS ?** Un [VPS Hostinger](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN) convient aussi à cette option.
 
 ```bash
 # Docker required (don't have it?  curl -fsSL https://get.docker.com | sh)
@@ -390,7 +394,7 @@ Chaque ligne peut rester vide, Javis fonctionne quand même. Copiez `env.example
 | `JAVIS_ALLOWED_HOSTS` | Noms d'hôte supplémentaires dans la liste autorisée (protection CSRF et contre le DNS rebinding) | localhost + votre domaine |
 | `JAVIS_STATE_DIR` | Emplacement des réglages, des sessions et de la clé de chiffrement | `server/` (Docker : `/data/state`) |
 | `BRAINS_DIR` | Dossier parent contenant tous les Brains | `brains/` (Docker : `/brains`) |
-| `JAVIS_ENABLE_USER_PLUGINS` | `true` autorise l'exécution de vos propres plugins (du vrai Python dans le serveur) | *(désactivé)* |
+| `JAVIS_ENABLE_USER_PLUGINS` | `false` désactive vos propres plugins (ils exécutent du vrai Python dans le serveur) | *(activé)* |
 | `TTS_VOICE` / `TTS_RATE` | Voix et vitesse pour Edge TTS | `en-US-EmmaMultilingualNeural` / `+5%` |
 
 ---
@@ -401,7 +405,7 @@ Chaque ligne peut rester vide, Javis fonctionne quand même. Copiez `env.example
 - **2FA (TOTP)**, limitation du nombre de tentatives de connexion, mots de passe d'au moins 8 caractères, cookies `Secure` sous HTTPS, sessions qui expirent au bout de 30 jours.
 - **Protection CSRF et contre le DNS rebinding** : toute requête d'écriture provenant d'une origine inconnue est rejetée.
 - **Les secrets sont chiffrés** dans `settings.json` (clés d'API, jetons OAuth, jetons de bot) avec une clé propre à chaque machine.
-- **Vos propres plugins sont bloqués par défaut** tant que vous n'avez pas défini `JAVIS_ENABLE_USER_PLUGINS=true`.
+- **Vos propres plugins sont chargés par défaut, mais chacun reste éteint tant que vous ne l'activez pas** dans l'app ; définissez `JAVIS_ENABLE_USER_PLUGINS=false` pour tous les désactiver.
 - **Les permissions des connexions sont appliquées** par le hub, pas par le modèle : un compte en lecture seule ne peut pas servir à envoyer, payer ou publier.
 
 Vous avez trouvé une vulnérabilité ? Merci de suivre [SECURITY.md](../../../SECURITY.md) plutôt que d'ouvrir une issue publique.

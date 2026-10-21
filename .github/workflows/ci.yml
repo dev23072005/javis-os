@@ -41,6 +41,21 @@ jobs:
       - name: Lấy commit 0.95.1 cho test quay về A4
         run: git fetch --no-tags --depth=1 origin adb103ed7f1c61eb21127afd1ba746ee130c6439
 
+      # test_resonance_a5_rollback chạy MÃ 0.108.0 THẬT (bản cuối trước A5, `c4fb614d`, PR #625 trên main): lập kho cũ,
+      # nâng lên A5, rồi khôi phục snapshot.
+      - name: Lấy commit 0.108.0 cho test quay về A5
+        run: git fetch --no-tags --depth=1 origin c4fb614d30b63e592e66a8f943cf2749bb33a412
+
+      # test_team_rollback chạy MÃ 0.139.0 THẬT (bản phát hành cuối trước nhóm chat team, `be1f8aa2` trên main): lập kho
+      # Kanban và kho phiên cũ, nâng lên 0.140.0, rồi khôi phục snapshot.
+      - name: Lấy commit 0.139.0 cho test quay về nhóm chat team
+        run: git fetch --no-tags --depth=1 origin be1f8aa215395471c4640e5e8e109d44e02dc190
+
+      # test_team_adaptive_restore chạy MÃ 0.151.0 THẬT (bản cuối trước chuỗi team-adaptive, `1d1b52fa` trên main): lập ba
+      # kho cũ, nâng lên T2, rồi khôi phục snapshot `.pre-0.154.0`.
+      - name: Lấy commit 0.151.0 cho test khôi phục team-adaptive
+        run: git fetch --no-tags --depth=1 origin 1d1b52faed35a79aa5597f1fbde85b63da2bc3ea
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
