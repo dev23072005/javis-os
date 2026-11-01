@@ -8,6 +8,12 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.431.0] - 2026-11-01
+### Improved
+- **A new brain picker that looks the same on every device.** It used to be the browser's own menu, so each phone and computer drew it differently. Javis now draws it: a dropdown under the button on a computer, a sheet from the bottom on a phone with large text, the note count and a tick on the brain in use. A long list gets a search box.
+- **Put your brains in your own order.** Open the picker, press **Reorder**, drag the handle or use the up and down arrows, then **Done**. The order is saved on the server, so every device shows the same list.
+- Until you set an order, brains sort by their shown name the way a person reads it: "2-..." comes before "10-...". Before, they sorted by folder name, so a renamed brain often sat in the wrong place.
+
 ## [0.430.2] - 2026-11-01
 ### Improved
 - **An .html file opens as the live page.** Open an .html link in the chat or a file in the brain and Javis shows it in **Preview**, like a Claude artifact, with its pictures, colours and buttons as a browser would show them. Press **Source** to read and edit the code, then Save as before.
