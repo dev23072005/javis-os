@@ -6,6 +6,12 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.437.0] - 2026-11-01
+### Cải thiện
+- **Bước của nhóm chờ đúng bước nó cần.** Trưởng nhóm giờ ghi được phần nào cần kết quả của phần nào. Các phần không liên quan nhau chạy cùng lúc, phần cần kết quả thì bắt đầu ngay khi đúng các phần nó cần đã xong, không phải chờ cả việc.
+- Ví dụ "A nghiên cứu đối thủ, B lấy số liệu, C viết kế hoạch từ cả hai": A và B làm cùng lúc, C làm sau. Còn "B viết bài, C làm ảnh, cả hai dựa trên số liệu của A" thì B và C làm cùng lúc ngay sau A, thay vì lần lượt như trước.
+- **Không tốn thêm lượt nào:** mỗi phần chỉ đọc kết quả của đúng các phần nó chờ. Việc yêu cầu "làm lần lượt" vẫn chạy như cũ.
+
 ## [0.436.1] - 2026-11-01
 ### Cải thiện
 - **Hướng dẫn nối Messenger từng bước, có link ngay trong form.** Chọn Messenger ở Chatbot, Kênh, Thêm kênh là thấy link "Hướng dẫn từng bước" mở trang hướng dẫn trên GitHub, đi từng cú bấm trên trang Meta cho người mới. Thẻ Messenger ở trang Kết nối cũng có link.
