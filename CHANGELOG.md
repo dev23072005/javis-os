@@ -6,6 +6,13 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.436.1] - 2026-11-01
+### Cải thiện
+- **Hướng dẫn nối Messenger từng bước, có link ngay trong form.** Chọn Messenger ở Chatbot, Kênh, Thêm kênh là thấy link "Hướng dẫn từng bước" mở trang hướng dẫn trên GitHub, đi từng cú bấm trên trang Meta cho người mới. Thẻ Messenger ở trang Kết nối cũng có link.
+- **Kho cài đặt gọn lại còn hai thẻ Meta:** "Meta Ads (Facebook & Instagram)" xem số liệu quảng cáo và "Facebook Trang (đăng bài, bình luận)". Thẻ Meta Ads bản beta của Meta bị bỏ vì Meta chưa cho tự kết nối; máy đã cài vẫn dùng như cũ. Mô tả ghi rõ một app Meta dùng chung được cho mọi thẻ.
+### Sửa lỗi
+- Nối Messenger (cũng như WhatsApp, Zalo OA) không còn hiện dòng "Bot này không vào được nhóm Zalo". Dòng đó chỉ dành cho Zalo Bot.
+
 ## [0.436.0] - 2026-11-01
 ### Cải thiện
 - **Nhóm tự chạy lại khi gặp lỗi tạm thời.** Model quá tải, mạng chập hay gói hết lượt không còn làm việc của nhóm đứng tới sáng chờ bạn bấm Chạy lại. Nhóm tự thử lại sau 1, 5 rồi 15 phút (hết lượt gói thì chờ đúng giờ gói mở lại), tối đa 3 lần, rồi mới dừng hỏi bạn.
