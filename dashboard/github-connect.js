@@ -90,8 +90,8 @@
   // ============================================================
   var cardHost = null;
   function cardHtml(st, local) {
-    var head = '<div class="prov-head"><span class="conn-ico">' + LOGO + '</span><div class="prov-info"><div class="prov-name">GitHub' +
-      infoBtn() + '</div><div class="prov-status j-clamp2">' + esc(st.connected ? tw("gh.connected_as", { login: st.login || "?" }) : tw("gh.not_connected")) +
+    var head = '<div class="prov-head"><span class="conn-ico gh-logo">' + LOGO + '</span><div class="prov-info"><div class="prov-name">GitHub' +
+      infoBtn() + '</div><div class="prov-status j-clamp2">' + esc(st.connected ? tw("gh.card_desc") : tw("gh.not_connected")) +
       (st.connected && st.source === "backup" ? " · " + esc(tw("gh.uses_backup")) : "") +
       (st.connected && st.source === "app" ? " · " + esc(tw("gh.uses_app")) : "") + "</div>" + infoBody(esc(tw("gh.intro"))) + "</div></div>";
     var warn = st.connected && st.missing && st.missing.length
@@ -108,10 +108,14 @@
           '<span class="cb-st-chip">' + esc(tw("gh.repos_n", { n: local.length })) + "</span>" +
           (chats ? '<span class="cb-st-chip">' + esc(tw("gh.local_chats", { n: chats })) + "</span>" : "") + "</span>" +
           '<span class="cb-st-more">' + esc(tw("gh.view")) + " " + ic("chevron-right") + "</span></button>"
-        : '<div class="lv-meta">' + esc(tw("gh.local_none")) + "</div>";
+        : "";
     }
+    // Like every other connection card: the account as a chip with a green dot (owner, 01/11/2026). Repos are picked
+    // in the chat box, so "Pick repos for Javis" only shows while the app is on no account at all, when the chat list
+    // would be empty.
     var acts = '<div class="conn-accounts">' + (st.connected
-      ? (st.source === "app" && st.install_url ? '<a class="conn-chip' + (st.installs === 0 ? " add" : "") + '" target="_blank" rel="noopener" href="' +
+      ? '<span class="conn-chip gh-acc"><span class="cdot hok">●</span> ' + esc(st.login ? "@" + st.login : "GitHub") + "</span>" +
+        (st.source === "app" && st.install_url && st.installs === 0 ? '<a class="conn-chip add" target="_blank" rel="noopener" href="' +
           esc(st.install_url) + '">' + esc(tw("gh.pick_repos")) + "</a>" : "") +
         '<button class="conn-chip" type="button" data-gh-open>' + esc(tw(st.source === "app" ? "gh.change_account" : "gh.change_token")) + "</button>" +
         '<button class="conn-chip" type="button" data-gh-off>' + esc(tw("gh.disconnect")) + "</button>"
@@ -445,6 +449,7 @@
       b.classList.toggle("on", !k.hidden);
     });
     api("/github/status").then(function (st) {
+      ghStatus = st || null;
       if (!st || !st.connected) {
         box.innerHTML = '<div class="cp-empty">' + esc(tw("gh.panel_not_connected")) + "</div>" +
           '<button type="button" class="cp-mi" data-go-connect="1">' + LOGO + '<span class="cp-mi-lbl">' + esc(tw("gh.open_connections")) + "</span></button>";
@@ -453,6 +458,14 @@
       }
       (held || names().length) ? homeView(box, menuApi) : reposView(box, menuApi, false);
     });
+  }
+  // Status read when the panel opened: tells the repo list whether "add repos on GitHub" applies.
+  var ghStatus = null;
+  // Signed in with the Javis OS app, a repo shows in the chat list only once the app may see it. The shortcut opens the
+  // app's page on GitHub to tick more repos (owner, 01/11/2026); a pasted token already sees every repo, so it does not
+  // get one.
+  function addReposUrl() {
+    return ghStatus && ghStatus.source === "app" && ghStatus.install_url ? String(ghStatus.install_url) : "";
   }
   function goConnections() { try { window.Alpine.store("nav").go("mcp"); } catch (e) { location.hash = "#mcp"; } }
   // Inside a sub view our own back row leads back to the GitHub menu; the + menu's back row above it would only
@@ -507,22 +520,40 @@
   // ride on the next request, so the server always ends on the last state the person sees.
   function reposView(box, menuApi, canBack) {
     outerBack(box, !canBack);
-    var chosen = held ? held.slice() : names(), sent = chosen.slice(), busy = false, items = [], timer = 0, n = 0;
+    var chosen = held ? held.slice() : names(), sent = chosen.slice(), busy = false, items = [], timer = 0, n = 0, addUrl = addReposUrl();
     box.innerHTML = (canBack ? backRow(tw("gh.menu")) + '<div class="cp-sep"></div>' : "") +
       '<input type="search" class="cp-search" placeholder="' + esc(tw("gh.search_ph")) + '" aria-label="' + esc(tw("gh.search_ph")) + '">' +
       '<div class="cp-results gh-results" role="listbox" aria-multiselectable="true"></div>' +
       '<div class="gh-foot"><div class="cp-pin-err" role="status"></div>' +
-      '<button type="button" class="cp-mi gh-more-conn" data-gh-conn="1">' + PLUS + '<span class="cp-mi-lbl">' + esc(tw("gh.connect_more")) + "</span></button></div>";
+      (addUrl ? '<a class="cp-mi gh-more-conn" data-gh-add="1" target="_blank" rel="noopener" href="' + esc(addUrl) + '">' + PLUS +
+        '<span class="cp-mi-lbl">' + esc(tw("gh.add_on_github")) + "</span></a>"
+        : '<button type="button" class="cp-mi gh-more-conn" data-gh-conn="1">' + PLUS + '<span class="cp-mi-lbl">' + esc(tw("gh.connect_more")) + "</span></button>") +
+      "</div>";
     var input = box.querySelector(".cp-search"), out = box.querySelector(".cp-results"), err = box.querySelector(".cp-pin-err");
     var back = box.querySelector("[data-gh-back]");
     if (back) back.onclick = function () { homeView(box, menuApi); };
-    box.querySelector("[data-gh-conn]").onclick = function () { menuApi.close(); goConnections(); };
+    var conn = box.querySelector("[data-gh-conn]");
+    if (conn) conn.onclick = function () { menuApi.close(); goConnections(); };
+    // Back from GitHub with more repos ticked: list them again without a reload, once per return to the tab.
+    var away = false;
+    function onBack() {
+      if (!box.isConnected) { document.removeEventListener("visibilitychange", onBack); window.removeEventListener("focus", onBack); return; }
+      if (document.visibilityState === "hidden") { away = true; return; }
+      if (away) { away = false; load(); }
+    }
+    if (addUrl) {
+      box.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("[data-gh-add]")) away = true; });
+      document.addEventListener("visibilitychange", onBack);
+      window.addEventListener("focus", onBack);
+    }
     function draw() {
       var sel = [], rest = [];
       items.forEach(function (r, i) { (chosen.indexOf(r.full_name) >= 0 ? sel : rest).push(repoRow(r, i, chosen.indexOf(r.full_name) >= 0)); });
       out.innerHTML = (sel.length ? '<div class="gh-sec">' + esc(tw("gh.sec_selected")) + '</div><div class="gh-group">' + sel.join("") + "</div>" : "") +
         (rest.length ? '<div class="gh-sec">' + esc(tw("gh.sec_repos")) + '</div><div class="gh-group">' + rest.join("") + "</div>" : "") +
-        (!items.length ? '<div class="cp-empty">' + esc(tw("gh.none_found")) + "</div>" : "");
+        (!items.length ? '<div class="cp-empty">' + esc(tw("gh.none_found")) +
+          (addUrl ? ' <a data-gh-add="1" target="_blank" rel="noopener" href="' + esc(addUrl) + '">' + esc(tw("gh.add_on_github")) + "</a>" : "") +
+          "</div>" : "");
     }
     function sync() {
       if (busy) return;
