@@ -6,6 +6,13 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.432.0] - 2026-11-01
+### Cải thiện
+- **Trang Webhook làm lại cho dễ theo dõi.** Đầu trang là một hàng số gọn: bao nhiêu webhook đang chạy, sự kiện và lỗi trong 24 giờ, việc cần bạn xem. Có sự kiện chưa rõ đã xong chưa thì một dải màu cam hiện lên, bấm **Xem ngay** là tới đúng chỗ.
+- **Mỗi webhook gọn thành một dòng** có chấm trạng thái và thanh 20 lần chạy gần nhất: xanh là ổn, cam là cần xem, đỏ là lỗi. Nhìn một cái là biết webhook nào có vấn đề.
+- **Bấm vào webhook là mở cửa sổ riêng, không xổ xuống nữa.** Đổi tab Sự kiện, Cấu hình, Tình trạng, lọc hay mở một lần chạy đều đổi ngay trong cửa sổ đó, chỉ đóng khi bạn bấm X. Lần chạy chia theo ngày, bỏ chữ `[SILENT]` khó hiểu, bật tắt nhận và xử lý bằng công tắc gạt.
+- **Bỏ tiêu đề lặp lại** ở trang Webhook, Cookies, Link đang chia sẻ và Linh vật cho đỡ tốn chỗ. Lời giải thích vẫn nằm trong nút (i).
+
 ## [0.431.0] - 2026-11-01
 ### Cải thiện
 - **Ô chọn bộ não mới, giống nhau trên mọi máy.** Trước đây mỗi điện thoại, máy tính hiện danh sách một kiểu vì đó là ô chọn của trình duyệt. Giờ Javis tự vẽ: máy tính thả xuống ngay dưới nút, điện thoại trượt lên từ đáy màn hình với chữ to, có số ghi chú và dấu tích ở bộ não đang dùng. Nhiều bộ não thì có ô tìm.
