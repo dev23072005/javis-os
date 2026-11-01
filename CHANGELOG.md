@@ -6,6 +6,12 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.430.0] - 2026-11-01
+### Thêm mới
+- **Kết nối GitHub bằng nút Đăng nhập, không phải tạo token.** Trên trang Kết nối, bấm **Đăng nhập bằng GitHub**: Javis hiện một mã ngắn, bạn bấm Mở GitHub, dán mã, bấm Authorize là xong. Chạy được cả trên VPS không có trình duyệt.
+- **Bạn tự chọn repo cho Javis.** Đăng nhập xong, bấm **Chọn repo cho Javis** để cài app Javis OS vào đúng những repo muốn cho Javis làm việc. Repo nào không chọn thì Javis không thấy.
+- Ô dán token vẫn còn ngay bên dưới cho ai quen cách cũ.
+
 ## [0.429.1] - 2026-10-31
 ### Sửa lỗi
 - **Bot chạy ChatGPT (Codex) không còn gửi lời dẫn cho khách.** Câu kiểu "Em tra danh sách lớp hiện có để xác nhận ạ" trước khi bot tra cứu không còn lọt vào tin gửi khách, chỉ câu trả lời cuối được gửi.

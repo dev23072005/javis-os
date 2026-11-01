@@ -8,6 +8,12 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.430.0] - 2026-11-01
+### Added
+- **Connect GitHub with a Sign in button, no token to make.** On the Connections page, press **Sign in with GitHub**: Javis shows a short code, you press Open GitHub, paste the code and press Authorize. It works on a VPS with no browser too.
+- **You choose the repos Javis sees.** Once signed in, press **Pick repos for Javis** to install the Javis OS app on just the repos you want Javis to work on. Repos you leave out stay invisible to Javis.
+- The token box is still right below for anyone used to the old way.
+
 ## [0.429.1] - 2026-10-31
 ### Fixed
 - **Bots on ChatGPT (Codex) no longer send their lead-in to customers.** A line like "Let me check the class list" before the bot looks something up no longer reaches the customer; only the final answer is sent.
