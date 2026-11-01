@@ -8,6 +8,12 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.433.0] - 2026-11-01
+### Added
+- **The personal Zalo chatbot can look at videos customers send.** A video used to be skipped, so the bot could only say it could not watch it. Javis now cuts 4 frames spread over the clip and shows them to the bot, the same way as a photo.
+- **The bot also hears what is said in the video** when a Groq key is set on the Models page (the same key as voice messages). Without one the bot still sees the frames and knows it did not hear the sound.
+- A message right after a video ("can you take a look?") still shows the bot that video for 10 minutes. A video that cannot be fetched (expired link, over 60MB) makes the bot say so honestly and ask the customer to describe it.
+
 ## [0.432.4] - 2026-11-01
 ### Improved
 - **Picking repos in the chat box: tick to attach.** The "Attach repo to this conversation" button at the bottom of the list is gone, so no more scrolling to find it. Untick to remove a repo from the conversation.
