@@ -8,6 +8,15 @@ English entries start at 0.66.0. Every earlier release is described in the Vietn
 
 Format: each release is a `## [x.y.z] - date` block, with changes grouped under `### Added / Fixed / Improved / Security`.
 
+## [0.438.0] - 2026-11-01
+### Added
+- **One Page connection now posts too.** A Page connected on the Facebook Messenger card can be used for Javis's posting (when asked or on a schedule), so the store drops its Facebook Pages card (machines that installed it keep it). Pages connected earlier need one more Log in with Facebook to grant the posting permission.
+### Improved
+- The Facebook Messenger card on the Connections page now shows the Meta logo, since it covers messages, comments and posting.
+- **Messenger connects in one place.** The Facebook Messenger card on the Connections page now shows the webhook address and verify token with Copy buttons, to paste into the Meta app by hand when needed without leaving the page.
+- A Page connected on the Connections page is already a channel on the Chatbot page. Picking Messenger under Add channel shows a note with a button straight to the Messenger card, so nobody connects it twice.
+- **The Messenger guide is rewritten:** it follows the Log in with Facebook path (permissions, Facebook Login with Javis's two addresses, pick Pages, attach a bot, go Live), and pasting a token is only the fallback. The error table adds "URL blocked" and "Invalid Scopes".
+
 ## [0.437.0] - 2026-11-01
 ### Improved
 - **Team steps wait only for the steps they need.** The team leader can now say which part needs the result of which. Unrelated parts run at the same time, and a part that needs results starts as soon as exactly those parts are done, not when the whole job is.
