@@ -405,6 +405,12 @@ DASHBOARD_PATH = Path(__file__).parent.parent / "dashboard"
 # Windows/mimetypes không biết .webp -> StaticFiles trả text/plain; khai rõ để logo webp đúng kiểu ảnh.
 import mimetypes
 mimetypes.add_type("image/webp", ".webp")
+# Office files (#898): a slim image without /etc/mime.types does not know .xlsx/.docx/.pptx, so /files/raw sent them as
+# application/octet-stream and the browser could not tell what it was saving.
+for _mt, _ext in (("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"),
+                  ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"),
+                  ("application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx")):
+    mimetypes.add_type(_mt, _ext)
 import tinh_gon  # noqa: E402
 
 
@@ -7842,7 +7848,27 @@ def _ghi_luat_chu(brain, slug, rules):
     dòng sau 15 bài học khác."""
     _ghi_muc_bo_nho_agent(brain, slug, agent_rules.OWNER_RULES_HEADER, rules, None)
 
+def _agent_run_task_text(task) -> str:
+    """The owner's own request, without the blocks Javis put in front of it (#934).
+
+    A chat turn reaches the agent with a recall block ([NHỚ LẠI TỪ CÁC CUỘC TRÒ CHUYỆN TRƯỚC: ...]) and the dashboard's
+    context blocks ([NGỮ CẢNH GIAO DIỆN: ...], open file, attachments) in front. Logged as they were, old chat excerpts
+    landed in agents/<slug>/runs/ and came back as fresh memories. Nothing left after stripping keeps the original."""
+    raw = str(task or "")
+    try:
+        clean = raw
+        for _ in range(4):   # the recall block sits in front of the dashboard's blocks, but take either order
+            nxt = share_render.chu_nguoi_go(chat_recall.strip_block(clean.lstrip()))
+            if nxt == clean:
+                break
+            clean = nxt
+    except Exception:
+        clean = raw
+    return clean or raw
+
+
 def _log_agent_run(brain, slug, task, out):
+    task = _agent_run_task_text(task)
     try:
         d = _brain_memory_dir(brain) / "agents" / slug / "runs"
         d.mkdir(parents=True, exist_ok=True)
@@ -9090,8 +9116,11 @@ def raw_file_response(brain: str, path: str, dl: bool = False):
     if dl:
         return FileResponse(str(f), filename=f.name)   # ép tải (giữ tên, kể cả tên tiếng Việt)
     mt, _ = mimetypes.guess_type(f.name)
-    resp = FileResponse(str(f), media_type=mt or "application/octet-stream")
-    resp.headers["Content-Disposition"] = "inline"      # hiển thị trong trình duyệt, không ép tải
+    # inline WITH the file name (#898): a browser that cannot show the type (.xlsx) saves it, and with a bare "inline"
+    # it named the file after the last URL segment ("raw", no extension). Starlette writes a non-ASCII name as
+    # RFC 5987 filename*=utf-8''..., so an accented name stays a valid header.
+    resp = FileResponse(str(f), media_type=mt or "application/octet-stream", filename=f.name,
+                        content_disposition_type="inline")   # hiển thị trong trình duyệt, không ép tải
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
