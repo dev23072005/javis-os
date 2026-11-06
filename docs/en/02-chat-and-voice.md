@@ -120,7 +120,9 @@ Three session commands lead the list:
 
 On the web build, `/new` and `/reset` both open a new conversation.
 
-Right below are **twelve system commands** (see the next section), followed by **all skills of the selected brain**, each row showing `/slug`, the skill name and a one-line description.
+Right below are **twelve system commands** (see the next section), followed by **all skills of the selected brain**. Since 0.290.0 each entry fits on one line: the `/command` column has one shared width, so names and descriptions line up, and the groups (Commands, Agents, Workflows, Skill) carry small headings. While you type to filter, the headings go away and the group label sits at the end of the row.
+
+A command you have typed into the box (at the start of the message, or the name of a real skill mid-sentence) is **highlighted in orange**, so you can see which part Javis will treat as a command. A half-typed word that matches no command is not highlighted yet.
 
 Controlling the menu:
 
@@ -189,9 +191,15 @@ Javis proposes "done or not", but **whether to keep going is decided by code**, 
 - two rounds in a row report exactly the same thing missing (no progress);
 - Javis asks you a question that needs your decision;
 - a round fails, or Javis does not say whether the target was met;
-- **you type a new message, press Stop, open another conversation or type `/goal clear`** - your words always come first.
+- you type `/goal clear` or press the bin button on the goal bar.
 
-It runs inside the **chat tab that is open**: closing the tab or reloading the page stops it. Unlike `/plan`, `/goal` does real work (within the permissions you gave Javis), so write a concrete target that can be checked.
+Unlike `/plan`, `/goal` does real work (within the permissions you gave Javis), so write a concrete target that can be checked.
+
+**The goal bar (since 0.290.0).** While a goal exists, a bar sits right above the chat box in every chat view: an icon, the goal text, a timer of how long it has run, then three buttons: **delete**, **pause / resume** and an **arrow** that opens the details (full goal text, round out of five, what is still missing). With several goals (one per conversation) a **number** at the start of the bar says how many; press it to drop down the list and press a row to open that goal's conversation.
+
+- **Pause instead of stop:** pressing the chat's Stop button or typing a new message mid-run only pauses the goal (the timer stops), and your words still come first. Press resume on the bar and Javis runs the next round.
+- **Moving to another conversation:** the goal is not lost, it waits. It only moves on while its conversation is open, because the automatic rounds are sent by the browser into the chat you are looking at. Open that conversation again and it carries on.
+- **Reloading the page:** the goal stays on the bar, paused; press resume to run the next round. The five-round cap still holds.
 
 #### On Telegram
 
@@ -216,7 +224,7 @@ You can put files or images into a message for Javis to read. Three ways:
 2. **Drag and drop** files from your computer onto the Javis window (an overlay shows the drop zone).
 3. **Paste** directly with Ctrl + V.
 
-Pasting has one trick of its own: pasting an **image** attaches it as a file as usual, while pasting **very long text** (over 1500 characters or over 25 lines) into the chat box makes Javis package it as an attached `.txt` file instead of stuffing the whole thing into the input. Javis still reads all of it, and the screen only shows a tidy chip. This applies to the chat box only; other inputs still take plain text.
+Pasting has one trick of its own: pasting an **image** attaches it as a file as usual. Pasted **text** up to **12,000 characters and 150 lines** goes straight into the chat box, so you can read and edit it before sending. Past either limit, a **Preview pasted text** dialog shows the whole text (scrollable) with three buttons: **Paste into chat**, **Attach .txt** or **Cancel**. If you attach it, Javis still reads all of it and the screen only shows a tidy chip. This applies to the main chat box and the team chat box; other inputs still take plain text.
 
 Files appear as small chips above the input bar. Wait for the chip to report the upload finished, then type or speak your request and send as usual. Click the ✕ on a chip to drop that file from the message.
 
@@ -259,6 +267,7 @@ The card also shows the line count and a "click to view" hint, with an **Open �
 - Two tabs, **Preview** and **Source** (long code only has the source tab).
 - A **⧉** button to copy the source, a **⇩** button to download it as a file, and a **✕** button to close the panel.
 - Pressing **Esc** also closes the panel.
+- Since 0.405.0, diagrams and SVG pictures **zoom and pan**: the mouse wheel or a two-finger pinch zooms, dragging with the mouse or one finger pans, a double tap zooms in or back to fit. The bottom corner has **-**, **+** and **Fit** buttons. A picture opened in the editor works the same way.
 
 Mermaid diagrams need a rendering library fetched from the internet; offline, the panel says the library could not load and shows the source instead. ```` ```dataview ```` and ```` ```tasks ```` blocks do not become artifacts; they run and render as result tables, see [Tasks & Dataview in notes](19-tasks-and-dataview.md).
 
@@ -314,17 +323,22 @@ Hovering over a message (yours or Javis's) reveals a small button row underneath
 | Button | Tooltip | What it does |
 |---|---|---|
 | Timestamp | The full date, for example "Wednesday, 29/07/2026 14:05" | Display only |
-| ↻ | "Send this again" (your message) or "Answer the question above again" (Javis's message) | Resends the original text as a NEW turn at the end of the conversation, deleting nothing from the old turn |
-| ✎ | "Edit and send" | Only on your messages. Loads the original text into the input for editing; it does **not** send by itself |
+| ↺ | "Rewind to here" | Only on your messages. Asks first, then **deletes this message and everything below it** and puts the question back in the input to edit or resend; the conversation goes on from there as if the deleted turns never happened |
 | ⧉ | "Copy content" | Copies the whole message; the button briefly reads "✓ Copied" |
+| Pin | "Pin to contents" | Only on Javis's answers. Pins the answer into the conversation's **contents** (the marks rail on the right, or the ≡ button on phones): it sits in its place among your questions, with a pin instead of a number, and a click jumps to it. Click again to unpin. A pinned answer always shows its button row, with the pin in orange |
+| Speaker | "Read aloud" | Only on Javis's answers. Reads that answer aloud, even outside a call. While it reads, the button becomes a square "Stop reading"; click it to stop |
 
 Common points:
 
-- While a turn is running, ↻ dims and cannot be clicked, which prevents overlapping turns.
-- Messages with only an image and no text have no ↻ or ✎ buttons (there is nothing to resend).
+- While a turn is running, ↺ dims and cannot be clicked: press Stop first, then rewind.
+- Rewind really deletes, on the server too (a reload does not bring it back) and from the chatting brain's memory: on the next turn Javis only knows what is above. It cannot be undone, so Javis asks first.
+- To ask the same question again unchanged: rewind, then press send.
+- Messages with only an image and no text have no ↺ button (there is no text to put back).
 - Messages saved before timestamps existed simply hide the time rather than showing a made-up current time.
 - **Long** messages of yours (over 10 lines or over 900 characters) collapse, with **Show more** / **Show less** buttons.
 - Every code block has its own **⧉ Copy** button in the corner.
+- An answer that is still streaming has no pin button yet: it appears as soon as the answer is saved. Pins are kept on the server, so another device shows them too; rewinding past an answer removes its pin with it.
+- The small line under an answer now shows only the engine, the model and the context mode. The token count is gone from the chat; the **Usage** page has it.
 - If you have scrolled up to reread something while Javis answers, the chat does NOT jump down; a **↓ New messages** button appears at the bottom to jump when you are ready.
 
 ## Choosing a model, Effort and the engine badge
@@ -396,7 +410,13 @@ The voice list depends on the call path:
 - **Live with an API key**: that provider's voices, with no preview button.
 - **Basic**: 7 free Edge voices, Emma (default), Hoài My, Nam Minh, Ava, Andrew, Brian, William. With an OpenAI API key on the **Models** page you also get the 11 OpenAI voices (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer, verse). Last in the list is **Your ElevenLabs voice**. **▶ Preview** reads a sample sentence.
 
-Picking a voice also picks the provider (Edge, OpenAI or ElevenLabs). The Edge voice and the speaking rate are stored on this device; updates do not overwrite the voice you picked.
+Picking a voice also picks the provider (Edge, OpenAI or ElevenLabs). Since 0.298.0 the Edge voice is also saved on the server, so a voice picked on the laptop is used on the phone too, and by the voice notes sent through Telegram and Zalo. The speaking rate is still stored per device.
+
+**Male or female, and which voice speaks when (since 0.298.0).** Every voice in the list says Female or Male, grouped as Female voices and Male voices. The top of the card says in words what you will hear: "The mic calls through ChatGPT Live, voice: Juniper · Female" and "Answers are read with: Hoài My · Female".
+
+- On **ChatGPT Live** or **Live with an API key** the card has two separate fields: **Call voice** (the voice of the call) and **Answer reading voice** (chat answers and voice notes). Changing the second one does not change the call voice.
+- When the two are of different genders (say a male call voice and a female reading voice), a yellow warning shows with a **Use ... for calls** button that switches the call voice to the same gender in one tap.
+- After a save, **Saved** shows right under the field you changed.
 
 If a paid voice fails (quota used up, wrong key, no network), Javis reports the error so you can retry or pick another voice. It does not switch voices on its own.
 

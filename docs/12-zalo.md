@@ -55,7 +55,7 @@ Mới đăng nhập Zalo vào Javis thì Hộp thư chỉ có tin từ lúc bậ
 
 - Javis lấy các tin javis-zalo tự kéo về mỗi lần kết nối: khoảng **2 tuần** gần nhất, vì Zalo không cho lấy xa hơn. Tối đa 5.000 tin mỗi lần.
 - Chỉ nhập vào cuộc chat **chưa có tin nào** trong Hộp thư. Cuộc chat đã có tin thì bỏ qua, vì tin cũ chen vào sau sẽ hiện sai thứ tự.
-- Bot **không trả lời** các tin này, chúng **không tính là chưa đọc**, và nhóm vẫn chỉ giữ 100 tin gần nhất như thường lệ.
+- Bot **không trả lời** các tin này, chúng **không tính là chưa đọc**, và nhóm vẫn chỉ giữ 1.000 tin gần nhất như thường lệ.
 - Vừa quét QR xong thì đợi vài phút cho Zalo tải xong tin cũ rồi hãy bấm. Bấm lại nhiều lần không bị nhân đôi.
 
 ## Các tool MCP
@@ -70,6 +70,7 @@ Mới đăng nhập Zalo vào Javis thì Hộp thư chỉ có tin từ lúc bậ
 | `zalo_review_join_requests` | Duyệt hoặc từ chối người xin vào nhóm | Nguy hiểm |
 | `zalo_list_threads` | Liệt kê các cuộc chat đang có trong bộ đệm | Đọc |
 | `zalo_search_threads` | Tìm nhóm hoặc người theo tên | Đọc |
+| `zalo_get_labels` | Tag (thẻ phân loại) chủ gắn cho cuộc chat trong app Zalo, của một cuộc chat hoặc tất cả (từ javis-zalo 1.6.0) | Đọc |
 | `zalo_view_media` | Tải/mở ảnh, âm thanh hoặc video trên máy chủ (bộ não không thấy ảnh, xem `zalo_read_images` bên dưới) | Đọc |
 | `zalo_mark_read` | Đánh dấu đã xử lý đến một cursor | Ghi |
 | `zalo_send_message` | Gửi tin cho cá nhân hoặc nhóm | Nguy hiểm |
@@ -237,6 +238,15 @@ Bốn điều nên biết:
 - **Đấu nhiều tài khoản Zalo thì Javis hỏi lại** nên dùng tài khoản nào, giống phần gửi ảnh.
 
 Bot chuyên trách đứng trong nhóm Zalo thì **tự tag người nó đang trả lời**, không cần công cụ nào ở trên, xem [Chatbot](25-chatbot.md).
+
+## Chữ đậm, chữ màu và "đang soạn tin" (từ 0.413.0)
+
+Bot trả lời trên Zalo cá nhân giờ nhắn giống người thật hơn:
+
+- **Chữ đậm, nghiêng, gạch ngang và chữ màu.** Bot viết `**85.000đ**` thì khách thấy chữ đậm, không còn thấy dấu sao. Màu viết `{red:Giảm 50%}`, có `red`, `orange`, `yellow`, `green`, và `{big:...}`, `{small:...}` để đổi cỡ chữ. Dòng `- ` thành dấu `•`, tiêu đề thành một dòng đậm. Bot được dặn chỉ nhấn một hai chỗ như người thật nhắn tin.
+- **"Đang soạn tin".** Trong chat riêng, khách thấy dòng "đang soạn tin" trong lúc bot viết câu trả lời. Phần này cần javis-zalo 1.9.0 trở lên; bản cũ hơn thì bot vẫn trả lời bình thường, chỉ không hiện dòng đó. Trong nhóm không hiện, vì nhiều tin bot chọn không trả lời.
+
+Tin có định dạng đi qua lệnh `javis-zalo msg send --style`. Lệnh đó lỗi thì tin vẫn đi dưới dạng chữ thường, đã bỏ ký hiệu.
 
 ## Cách dùng trong chat
 

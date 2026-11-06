@@ -231,8 +231,13 @@
     }
     const tatCa = o.laTag ? t("ws.tag_all") : t("studio.all");
     const catHtml = cats.map(c => `<div class="gr-cat ${state.cat === c ? "sel" : ""}" data-cat="${esc(c)}"><span>${c === "ALL" ? esc(tatCa) : esc(ten(c))}</span><span class="n">${c === "ALL" ? items.length : so(c)}</span></div>`).join("");
+    // Phone (<=860px): one dropdown instead of the chip row, which ran off the screen past three groups (0.420.0).
+    const tieuDe = o.laTag ? t("studio.tags") : t("studio.groups");
+    const selHtml = `<label class="gr-pick"><span>${esc(tieuDe)}</span><select class="gr-sel" aria-label="${esc(tieuDe)}">${
+      cats.map(c => `<option value="${esc(c)}"${state.cat === c ? " selected" : ""}>${c === "ALL" ? esc(tatCa) : esc(ten(c))} (${c === "ALL" ? items.length : so(c)})</option>`).join("")
+    }</select></label>`;
     return `<div class="gr">
-      <div class="gr-side"><div class="sec">${esc(o.laTag ? t("studio.tags") : t("studio.groups"))}</div>${catHtml}</div>
+      <div class="gr-side"><div class="sec">${esc(tieuDe)}</div>${selHtml}${catHtml}</div>
       <div class="gr-main">
         <div class="gr-bar"><h4>${state.cat === "ALL" ? esc(tatCa) : esc(ten(state.cat))}</h4><span class="cnt"></span>
           <input id="${o.searchId}" placeholder="${esc(o.searchPh)}" value="${esc(state.q)}"></div>
@@ -258,6 +263,8 @@
     panel.querySelectorAll(".gr-side .gr-cat").forEach(c => {
       c.onclick = () => { state.cat = c.dataset.cat; o.veLai(); };
     });
+    const sel = panel.querySelector(".gr-side .gr-sel");
+    if (sel) sel.onchange = () => { state.cat = sel.value; o.veLai(); };
     const s = panel.querySelector("#" + o.searchId);
     if (s) s.oninput = () => { state.q = s.value; o.veDanhSach(); };
   }
@@ -527,8 +534,10 @@
     const box = document.getElementById("editorBox");
     box.classList.remove("agent-editor");
     const steps = w ? JSON.parse(JSON.stringify(w.steps || [])) : [{ agent: agentsCache[0].slug, task: "" }];
-    const opts = (sel) => agentsCache.map(a => `<option value="${a.slug}" ${a.slug === sel ? "selected" : ""}>${esc(a.name)}</option>`).join("");
-    const optsV = (sel) => `<option value="">${esc(t("studio.no_verify"))}</option>` + agentsCache.map(a => `<option value="${a.slug}" ${a.slug === sel ? "selected" : ""}>${esc(a.name)}</option>`).join("");
+    // data-desc feeds the searchable agent picker (agent-picker.js) that replaces these selects on screen.
+    const agOpt = (a, sel) => `<option value="${a.slug}" ${a.slug === sel ? "selected" : ""} data-desc="${esc(a.role || "")}">${esc(a.name)}</option>`;
+    const opts = (sel) => agentsCache.map(a => agOpt(a, sel)).join("");
+    const optsV = (sel) => `<option value="">${esc(t("studio.no_verify"))}</option>` + agentsCache.map(a => agOpt(a, sel)).join("");
     const agentName = (slug) => { const a = agentsCache.find(x => x.slug === slug); return a ? a.name : (slug || "?"); };
     // Bước gập lại để thấy toàn cảnh; bấm vào bước nào thì mở bước đó ra sửa. Workflow mới
     // chỉ có 1 bước nên mở sẵn. Các ô input VẪN nằm trong DOM khi gập (chỉ ẩn bằng CSS) -
@@ -598,6 +607,10 @@
           render();
         };
         sl.appendChild(row);
+        if (window.JavisAgentPicker) {
+          window.JavisAgentPicker.enhance(row.querySelector(".st-agent"), { title: t("ap.title_step") });
+          window.JavisAgentPicker.enhance(row.querySelector(".st-verify-agent"), { title: t("ap.title_verify") });
+        }
       });
       box.querySelector("#addStep").onclick = () => { captureSteps(); steps.push({ agent: agentsCache[0].slug, task: "" }); openIdx = steps.length - 1; render(); };
       box.querySelector("#cancelEd").onclick = () => editor.classList.remove("open");
@@ -757,8 +770,9 @@
     // lưu nên chưa gắn tài liệu được, chưa kết nối nhà cung cấp nào) vẫn hiện thẳng.
     const JI = window.JavisInfo;
     // 0.193.0: the assistant's own reasoning level (default medium) and, from a team, a button to message it privately.
-    const REASONING = [["off", "models.r_off"], ["low", "models.r_low"], ["medium", "models.r_med"], ["high", "models.r_high"],
-      ["xhigh", "models.r_xhigh"], ["ultra", "models.r_ultra"]];
+    // Same English level names as the main chat's effort chip (eff.*, owner 22/10/2026).
+    const REASONING = [["off", "eff.off"], ["low", "eff.low"], ["medium", "eff.medium"], ["high", "eff.high"],
+                       ["xhigh", "eff.xhigh"], ["ultra", "eff.ultra"]];
     const curReason = (a && a.reasoning) || "medium";
     const chatBtn = opts.chatButton && a && a.slug
       ? `<button type="button" class="s-btn-ghost ag-chat-btn" id="agChat">${ic("message-circle")} ${esc(t("studio.chat_private"))}</button>` : "";
@@ -793,8 +807,30 @@
       <label for="agReasoning">${esc(t("studio.reasoning"))}${JI ? JI.btn(t("info.more")) : ""}</label>
       <select id="agReasoning">${REASONING.map(([v, k]) => `<option value="${v}"${v === curReason ? " selected" : ""}>${esc(t(k))}</option>`).join("")}</select>
       ${infoBody(`<div class="dim" style="font-size:12px">${esc(t("studio.reasoning_hint"))}</div>`)}
-      <div class="editor-actions"><button class="s-btn-ghost" id="cancelEd"${opts.host ? ' style="display:none"' : ""}>${esc(t("common.cancel"))}</button><button class="s-btn" id="saveAg">${esc(t("common.save"))}</button></div>`;
-    if (window.JavisAvatar) window.JavisAvatar.picker(box.querySelector("#agAvatar"), avatar, v => { avatar = v; });
+      <div class="editor-actions ag-save-bar" id="agSaveBar"><span class="ag-save-state" id="agSaveState" aria-live="polite"></span><button class="s-btn-ghost" id="cancelEd"${opts.host ? ' style="display:none"' : ""}>${esc(t("common.cancel"))}</button><button class="s-btn ag-save-btn" id="saveAg" title="${esc(t("studio.save_hint"))}">${ic("save")} ${esc(a ? t("studio.save_changes") : t("studio.create_agent"))}</button></div>`;
+    // 0.298.0 (owner 23/10: "nút lưu trong cài đặt agent nữa cũng không thể hiện rõ"): the bar stays pinned at the bottom
+    // of the form, says when something is unsaved, confirms "Saved" in place (the form beside the chat stays open after a
+    // save, so a silent save looked like nothing happened), and Ctrl/Cmd+S saves.
+    const saveState = box.querySelector("#agSaveState"), saveBar = box.querySelector("#agSaveBar");
+    let dirty = false, savedTimer = 0;
+    const datTrangThai = (kind) => {
+      clearTimeout(savedTimer);
+      saveBar.classList.toggle("dirty", kind === "dirty");
+      saveBar.classList.toggle("saved", kind === "saved");
+      saveState.textContent = kind === "dirty" ? t("studio.unsaved") : kind === "saving" ? t("studio.saving")
+        : kind === "saved" ? t("studio.saved_ok") : "";
+      if (kind === "saved") savedTimer = setTimeout(() => { if (!dirty) datTrangThai(""); }, 4000);
+    };
+    const danhDau = () => { if (!dirty) { dirty = true; datTrangThai("dirty"); } };
+    box.addEventListener("input", (e) => { if (!e.target.closest("#spSearch")) danhDau(); });
+    box.addEventListener("change", (e) => { if (!e.target.closest("#spSearch")) danhDau(); });
+    box.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); box.querySelector("#saveAg").click(); }
+    });
+    // The picker reports its starting value once while it draws; only later changes are edits.
+    let avatarSan = false;
+    if (window.JavisAvatar) window.JavisAvatar.picker(box.querySelector("#agAvatar"), avatar, v => { avatar = v; if (avatarSan) danhDau(); });
+    avatarSan = true;
     // TÀI LIỆU & LINK của trợ lý: mở ĐÚNG ngăn kéo mà project và cuộc trò chuyện đang dùng
     // (sessions-ui.js), không dựng bản thứ hai ở đây. Trợ lý chưa lưu thì chưa có slug để gắn
     // vào, nên nút đứng im kèm một câu nói vì sao - ẩn nút đi thì người dùng tưởng không có.
@@ -857,6 +893,7 @@
         mProv = it.dataset.prov || ""; mModel = it.dataset.model || "";
         box.querySelector("#agModel").value = mModel ? val(mProv, mModel) : "";
         box.querySelector("#agModelTxt").textContent = nhanModel();
+        danhDau();
         dongPop();
         return;
       }
@@ -871,7 +908,11 @@
       // So bằng CHÍNH phần tử, không phải closest("#agModelPick"): trang Cộng sự có thể đang
       // mở form trong cột phải trong khi Studio bật thêm form trong modal, tức hai khung cùng
       // id trên một trang - so theo id là bấm vào khung này lại không đóng khung kia.
-      if (!mPop.hidden && !(mPick && mPick.contains(e.target))) dongPop();
+      // 0.348.0: follow the click's path, not e.target. Clicking a provider name redraws the list right away
+      // (veModelPop), so by the time this runs the clicked row has left the DOM, contains() says "outside" and the
+      // list closed instead of opening that provider (owner, 27/10/2026). Same fix as chat-goal.js.
+      const duong = e.composedPath ? e.composedPath() : [e.target];
+      if (!mPop.hidden && !(mPick && duong.indexOf(mPick) >= 0)) dongPop();
     };
     const escKhung = (e) => {
       if (!mPop || !mPop.isConnected) { document.removeEventListener("keydown", escKhung); return; }
@@ -902,6 +943,7 @@
       const mName = cut === -1 ? raw : raw.slice(cut + MODEL_SEP.length);
       const saveButton = box.querySelector("#saveAg");
       saveButton.disabled = true;
+      datTrangThai("saving");
       try {
         // KHÔNG gửi `group`: form không còn ô nhóm, mà gửi một giá trị đoán ra là ghi đè nhóm
         // người dùng vừa đổi ở cột trái. Server thấy thiếu field là giữ nguyên nhóm đang có.
@@ -909,10 +951,12 @@
           prompt: box.querySelector("#agPrompt").value, skills: sk, model: mName, model_provider: mProv,
           reasoning: (box.querySelector("#agReasoning") || {}).value || "medium",
           slug: a ? a.slug : "", brain: brain(), ...(avatar ? window.JavisAvatar.formFields(avatar) : {}) }) });
-        if (!saved.ok) { alert(loiLuu(saved.error)); return; }
+        if (!saved.ok) { datTrangThai(dirty ? "dirty" : ""); alert(loiLuu(saved.error)); return; }
+        dirty = false;
+        datTrangThai("saved");
         moDong(false);
         if (opts.onSaved) await opts.onSaved(saved); else loadAgents();
-      } catch (err) { alert(t("ws.save_failed")); }
+      } catch (err) { datTrangThai(dirty ? "dirty" : ""); alert(t("ws.save_failed")); }
       finally { saveButton.disabled = false; }
     };
     moDong(true);
@@ -1009,6 +1053,7 @@
     .gr-cat{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:15px;color:var(--text)}
     .gr-cat:hover{background:rgba(120,180,255,.08)} .gr-cat.sel{background:var(--info-wash);color:var(--info-ink)}
     .gr-cat .n{color:var(--text3);font-size:13px;flex:none}
+    .gr-pick{display:none}
     .gr-main{flex:1;min-width:0}
     .gr-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
     .gr-bar h4{margin:0;font-size:17px;color:var(--text)} .gr-bar .cnt{color:var(--text3);font-size:14px}
@@ -1116,20 +1161,17 @@
       .sk3-detail{position:fixed;top:0;right:0;bottom:0;z-index:60;width:min(420px,100vw);max-width:none;border-radius:0;overflow:auto}
       .sk3-scrim:not([hidden]){display:block}
     }
-    /* ===== Mobile (<=860px) ===== xep DOC: nhom thanh dai chip cuon ngang o tren, danh sach
+    /* ===== Mobile (<=860px) ===== xep DOC: nhom thanh MOT o chon (dropdown) o tren, danh sach
        full-width ben duoi (truoc day cot nhom 210px bop cot con lai con ~150px -> chu vo tung
-       tu). */
+       tu; roi hang chip cuon ngang thi tran man hinh khi co nhieu nhom, 0.420.0). */
     @media (max-width:860px){
       .gr{flex-direction:column;gap:12px}
-      .gr-side{width:auto;max-height:none;display:flex;flex-direction:row;gap:6px;padding:6px;
-        overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
-      .gr-side::-webkit-scrollbar{height:0}
-      .gr-side .sec{display:none}
-      .gr-cat{flex:none;padding:8px 13px;border:1px solid var(--hairline);
-        border-radius:999px;white-space:nowrap}
-      .gr-cat .n{padding:1px 6px;border-radius:9px;background:var(--surface-3)}
-      .gr-cat.sel{border-color:var(--info-line)}
-      #panel-skills .gr-cat.sel{border-color:var(--accent-line)}
+      .gr-side{width:auto;max-height:none;border:0;padding:0;overflow:visible}
+      .gr-side .sec,.gr-side .gr-cat{display:none}
+      .gr-pick{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--text2)}
+      .gr-pick span{flex:none}
+      .gr-sel{flex:1;min-width:0;height:44px;padding:0 10px;border:1px solid var(--hairline);border-radius:10px;
+        background:var(--field-bg);color:var(--text);font-size:16px}   /* 16px: chan iOS tu zoom */
       .gr-bar input{max-width:none;font-size:16px}   /* 16px: chan iOS tu zoom khi focus */
       .sk3-merged{display:none}
       .sk3-top{flex-wrap:wrap;gap:10px}
@@ -1454,6 +1496,14 @@
     const sw = box.querySelector(".sk3-sw");
     sw.onclick = () => { sw.disabled = true; toggleSkill(s, !on); };
     box.querySelector("#skDEdit").onclick = () => openSkillForm(s.slug);
+    if (on && !s.system && s.source !== ".agents" && window.JavisImprovementCandidates) {
+      const improve = document.createElement("button");
+      improve.type = "button";
+      improve.textContent = t("improve.title");
+      improve.onclick = () => window.JavisImprovementCandidates.open({brain:brain(), slug:s.slug,
+        isCurrent:() => _skState.open === s.slug && _skState.skills.some(x => x.slug === s.slug && x.enabled !== false && !x.system)});
+      box.querySelector(".sk3-d-act").append(improve);
+    }
     const exp = box.querySelector("#skDExp"); if (exp) exp.onclick = () => exportItem("skill", s.slug);
     const del = box.querySelector("#skDDel"); if (del) del.onclick = () => deleteSkill(s.slug, s.name);
     napThanSkill(s.slug);

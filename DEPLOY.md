@@ -109,11 +109,35 @@ link riêng chạy HTTPS mà không cần mua tên miền. **Lưu ý (đã kiể
    `CLAUDE_CWD` đã được dọn khỏi form; Docker image vẫn tự dùng đúng giá trị mặc định.
 4. **Deploy** → đợi 1-3 phút Traefik cấp SSL → mở `https://<DOMAIN_NAME>`.
 
-> Thiếu `DOMAIN_NAME` thì vẫn deploy được (chạy tạm ở `:7777`, chưa có HTTPS). Không thấy ô Environment?
-> Bấm **Manage → sửa .yaml**, đổi thẳng dòng `Host(...)` thành `Host(\`javis.srv1782015.hstgr.cloud\`)`.
+> **Mở ra là có link VPS (từ 0.302.0):** trên VPS không có Traefik (Ubuntu 26 trắng), bỏ trống `DOMAIN_NAME` cũng
+> được. Gateway đọc tên VPS (`srvXXXX.hstgr.cloud`) và tự cấp HTTPS cho cả `javis.srvXXXX.hstgr.cloud` lẫn chính
+> `srvXXXX.hstgr.cloud` (từ 0.304.0; tên nào trỏ về máy thì tên đó có chứng chỉ). **Cài đặt → Tên miền** cho biết
+> link đã chạy chưa, hay còn đang chờ chứng chỉ. Bấm **Open** ra `http://<ip>:7777`, trang tự chuyển sang link
+> HTTPS đó ngay khi nó chạy và đúng là Javis này. Thêm `?stay=1` vào link IP nếu muốn ở lại. Ứng dụng cài từ Catalog
+> của Hostinger (vd `omniroute-xxxx.srv....hstgr.cloud`) được Hostinger báo sẵn tên VPS lúc cài; cài bằng
+> "Compose from URL" thì không, nên nút Open không tự ghi được link đó. Trên mẫu Ubuntu 24 có Traefik thì vẫn
+> phải đặt `DOMAIN_NAME` một lần: mở Javis bằng IP → **Cài đặt → Tên miền** có sẵn dòng để sao chép.
+>
+> **VPS Hostinger cài Ubuntu 26 (hoặc hệ điều hành trắng, không có Traefik) - từ 0.300.0:** vẫn dán ĐÚNG link trên,
+> không phải đổi gì. Compose có thêm container `javis-gateway` (Caddy): thấy cổng 80/443 trống là nó tự xin và tự gia
+> hạn SSL Let's Encrypt cho `DOMAIN_NAME`; máy có Traefik của Hostinger thì nó đứng yên nhường Traefik. Cần hai điều:
+> máy đã có Docker (Docker Manager cài sẵn, hoặc `curl -fsSL https://get.docker.com | sh`), và tường lửa mở cổng
+> 80 + 443. Trước khi Deploy, kiểm tra tên miền đã trỏ về VPS: `ping javis.<hostname-vps>.hstgr.cloud` phải ra
+> đúng IP VPS (tên miền riêng thì tạo bản ghi A về IP VPS). Xem log `javis-gateway` để biết nó đang làm gì.
+>
+> **Traefik không lo việc cập nhật.** Traefik (hay Caddy) chỉ lo HTTPS cho tên miền. Cập nhật là việc của container
+> `javis-watchtower` đi kèm, nên nút **⬆ Cập nhật ngay** trong app chạy như nhau trên Ubuntu 24 lẫn 26.
+
+> Thiếu `DOMAIN_NAME` thì vẫn deploy được (chạy tạm ở `:7777`, chưa có HTTPS), và từ 0.302.0 nút **Open** mở
+> `http://<ip-vps>:7777` chứ không ra `localhost` nữa (nút Open đi theo tên miền trong nhãn Traefik, bản cũ ghi
+> `localhost` ở đó). Không biết hostname VPS? Mở Javis bằng IP → **Cài đặt → Tên miền**: Javis tự dò và hiện sẵn
+> dòng `DOMAIN_NAME=javis.srvXXXX.hstgr.cloud` kèm nút sao chép. Không thấy ô Environment? Bấm **Manage → sửa .yaml**,
+> đổi hai dòng nhãn thành `- traefik.enable=true` và
+> `- traefik.http.routers.javis.rule=Host(\`javis.srv1782015.hstgr.cloud\`)`.
 > **Điểm mấu chốt:** nhãn Traefik gắn thẳng vào service, **KHÔNG khai báo
 > `networks:` / `external: traefik-proxy`** (chỗ này trước đây làm deploy báo "network not found").
-> **Caddy (`docker-compose.https.yml`) KHÔNG dùng trên Hostinger** vì cổng 80/443 đã bị Traefik của họ chiếm.
+> **Đừng ghép thêm `docker-compose.https.yml` trên Hostinger**: nó publish cổng 80/443, đụng Traefik của họ. Compose
+> Hostinger đã có sẵn gateway Caddy tự bật khi máy không có Traefik.
 > Không rành? Dùng **Cloudflare Tunnel** (mục dưới) - cho URL HTTPS mà không đụng gì tới proxy của Hostinger.
 
 **VPS có tên miền riêng - auto Let's Encrypt, đặt NGAY TRONG APP (khuyên dùng):**
@@ -300,6 +324,23 @@ Dừng bằng `stop-javis.bat`. Mở http://localhost:7777
 >   `client version 1.25 is too old`. Docker mới từ chối bản đó. Dựng lại MỘT LẦN bằng compose
 >   mới (Hostinger: Docker Manager, dán lại URL compose rồi Deploy; VPS: hai lệnh ở trên), compose
 >   mới dùng bản fork `ghcr.io/nicholas-fedor/watchtower:1` tự thương lượng phiên bản với Docker.
+> - **Bấm cập nhật mà vẫn đứng ở bản cũ, `image:` trong file compose là một tên lạ** (ví dụ
+>   `javis-cwi:pc-0.206.0`, không có `ghcr.io/...`): đây là image tự đóng gói, thường gặp khi nhờ
+>   AI chuyển Javis từ máy tính lên VPS bằng `docker save` rồi `docker load`. Image đó không nằm trên
+>   kho nào nên kéo lại hay Redeploy vẫn ra đúng bản cũ (từ 0.267.0 trang Cập nhật nói thẳng điều này).
+>   Đổi sang image chính thức MỘT LẦN, dữ liệu giữ nguyên vì nó nằm trong các thư mục gắn vào:
+>   ```bash
+>   cd /opt/javis                      # thư mục có file compose
+>   cp compose.yml compose.yml.bak     # tên file có thể là docker-compose.yml
+>   docker compose config | grep -A1 "target:"   # đường dẫn bên trong phải là /data, /brains,
+>                                                 # /home/javis/.claude, /home/javis/.codex
+>   sed -i 's#^\(\s*image:\s*\).*#\1ghcr.io/blogminhquy/javis-os:latest#' compose.yml
+>   docker compose up -d --pull always
+>   ```
+>   Dòng `sed` đổi MỌI dòng `image:` trong file, nên chỉ dùng khi file có đúng một service; có nhiều
+>   service thì mở file sửa tay đúng dòng của Javis. Muốn có nút cập nhật trong app thì thêm service
+>   `watchtower` y như trong [`docker-compose.yml`](docker-compose.yml). Lỗi quyền ghi sau khi đổi: thư
+>   mục gắn vào phải thuộc user 10001 của container, chạy `sudo chown -R 10001:10001 brains data claude-auth codex-auth`.
 > - **Muốn TỰ cập nhật, khỏi bấm nút:** đặt `JAVIS_AUTO_UPDATE=true` trong `.env` (Hostinger: ô
 >   Environment) rồi dựng lại. Mặc định tắt vì tự cập nhật là app tự khởi động lại bất cứ lúc
 >   nào có bản mới, cắt ngang việc nền. Chu kỳ đổi bằng `JAVIS_AUTO_UPDATE_INTERVAL` (giây).

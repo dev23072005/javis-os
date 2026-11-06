@@ -43,6 +43,9 @@ _TEAM_COLUMNS = (
     ("assignee_key", "TEXT NOT NULL DEFAULT ''"),
     ("coordinator_key", "TEXT NOT NULL DEFAULT ''"),
     ("source_ref", "TEXT NOT NULL DEFAULT ''"),
+    ('acceptance_ready', 'INTEGER NOT NULL DEFAULT 0'),
+    ('acceptance_revision', 'INTEGER NOT NULL DEFAULT 0'),
+    ('acceptance_contract_version', 'INTEGER NOT NULL DEFAULT 0'),
 )
 _TEAM_ORDER = "(team_prio IS NULL), team_prio, team_seq"
 
@@ -107,6 +110,9 @@ class TaskStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # 0.140.0: kho có từ trước thì chụp một bản trước khi thêm cột làn `team` (khôi phục khi hạ phiên bản).
         team_migration.snapshot_once(self.path, "tasks", "lane")
+        team_migration.snapshot_once(self.path, 'tasks', 'acceptance_ready', suffix='.pre-0.283.0')
+        self.quality_prepare = None
+        self.quality_prepare_task = None
         self._lock = threading.RLock()
         self._db = sqlite3.connect(str(self.path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
@@ -207,6 +213,11 @@ class TaskStore:
                 CREATE INDEX IF NOT EXISTS idx_events_task
                     ON task_events(task_id, created_at DESC);
 
+                -- 2026-11-05: the Tasks page stats read finished events by type and time (task_stats.kanban_events),
+                -- which was a full scan of every event ever recorded, under the store lock.
+                CREATE INDEX IF NOT EXISTS idx_events_type_time
+                    ON task_events(event_type, created_at);
+
                 CREATE TABLE IF NOT EXISTS task_migrations (
                     migration_key TEXT PRIMARY KEY,
                     migrated_at REAL NOT NULL
@@ -235,6 +246,14 @@ class TaskStore:
                     team_id TEXT PRIMARY KEY,
                     version INTEGER NOT NULL DEFAULT 0
                 );
+                CREATE TABLE IF NOT EXISTS team_quality_required(team_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS team_acceptance_applied(
+                    task_id TEXT NOT NULL, decision_key TEXT NOT NULL, revision INTEGER NOT NULL,
+                    PRIMARY KEY(task_id,decision_key));
+                -- 0.411.0: "this job keeps coming back" hints the owner dismissed, per brain.
+                CREATE TABLE IF NOT EXISTS board_hints_dismissed(
+                    brain_root TEXT NOT NULL, hint_key TEXT NOT NULL, created_at REAL NOT NULL,
+                    PRIMARY KEY(brain_root, hint_key));
                 """
             )
             self._db.commit()
@@ -370,11 +389,14 @@ class TaskStore:
                 self._db.rollback()
                 raise
 
-    def _task_from_row(self, row: sqlite3.Row) -> dict:
+    def _task_from_row(self, row: sqlite3.Row, deps: Optional[list] = None) -> dict:
         task = dict(row)
         task["needs_approval"] = bool(task.get("needs_approval"))
         task["metadata"] = _loads(task.pop("metadata_json", "{}"), {})
         task["artifacts"] = _loads(task.pop("artifacts_json", "[]"), [])
+        if deps is not None:
+            task["deps"] = deps
+            return task
         with self._lock:
             deps = self._db.execute(
                 "SELECT depends_on_id FROM task_dependencies WHERE task_id=? ORDER BY depends_on_id",
@@ -403,6 +425,61 @@ class TaskStore:
         with self._lock:
             rows = self._db.execute(sql, args).fetchall()
         return [self._task_from_row(r) for r in rows]
+
+    def board_lists(self, brain_root: str, history_limit: int = 20, cap: int = 500) -> dict:
+        """What the Work page shows, in a handful of queries (0.411.0).
+
+        `list_tasks` sorted everything by priority then age and cut at 500, then ran one dependency query per task.
+        On a busy brain that hid NEW jobs behind 500 old finished ones, showed the 20 OLDEST finished jobs as
+        History, and cost 500 queries per 3-second poll. Open jobs and history are now separate queries, history
+        newest first with its own limit, and dependencies come in one query."""
+        root = str(brain_root)
+        open_status = sorted(ACTIVE_STATUS)
+        hist = max(1, min(500, int(history_limit or 20)))
+        with self._lock:
+            open_rows = self._db.execute(
+                f"""SELECT * FROM tasks WHERE brain_root=? AND lane<>'team'
+                    AND status IN ({','.join('?' for _ in open_status)})
+                    ORDER BY priority, created_at LIMIT ?""",
+                (root, *open_status, max(1, int(cap))),
+            ).fetchall()
+            hist_rows = self._db.execute(
+                """SELECT * FROM tasks WHERE brain_root=? AND lane<>'team'
+                   AND status IN ('done', 'cancelled')
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (root, hist + 1),
+            ).fetchall()
+            counts = {r["status"]: int(r["n"]) for r in self._db.execute(
+                """SELECT status, COUNT(*) AS n FROM tasks WHERE brain_root=? AND lane<>'team'
+                   GROUP BY status""", (root,)).fetchall()}
+            ids = [r["id"] for r in open_rows] + [r["id"] for r in hist_rows[:hist]]
+            deps: dict[str, list] = {i: [] for i in ids}
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                for d in self._db.execute(
+                    f"""SELECT task_id, depends_on_id FROM task_dependencies
+                        WHERE task_id IN ({','.join('?' for _ in chunk)}) ORDER BY depends_on_id""",
+                    chunk,
+                ).fetchall():
+                    deps[d["task_id"]].append(str(d["depends_on_id"]))
+        return {
+            "open": [self._task_from_row(r, deps[r["id"]]) for r in open_rows],
+            "history": [self._task_from_row(r, deps[r["id"]]) for r in hist_rows[:hist]],
+            "history_more": len(hist_rows) > hist,
+            "counts": counts,
+        }
+
+    def board_rev(self, brain_root: str) -> str:
+        """A cheap fingerprint of a brain's board: any added, removed or changed job, or a mode switch, changes it."""
+        root = str(brain_root)
+        with self._lock:
+            row = self._db.execute(
+                """SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS u FROM tasks
+                   WHERE brain_root=? AND lane<>'team'""", (root,)).fetchone()
+            board = self._db.execute(
+                "SELECT orchestration, updated_at FROM boards WHERE brain_root=?", (root,)).fetchone()
+        b = f"{board['orchestration']}:{board['updated_at']}" if board else ""
+        return f"{int(row['n'])}:{float(row['u']):.6f}:{b}"
 
     def list_events(self, task_id: str, limit: int = 100) -> list[dict]:
         with self._lock:
@@ -659,6 +736,43 @@ class TaskStore:
             except Exception:
                 self._db.rollback()
                 raise
+
+    # 0.411.0: a stopped job only the owner can move on (a question, a permission, a result to approve), as opposed
+    # to one Javis handles itself (technical hitch, usage limit). The Work page and the notices split on this.
+    OWNER_BLOCK_KINDS = ("needs_input", "capability")
+
+    @classmethod
+    def waits_for_owner(cls, task: dict) -> bool:
+        st = str(task.get("status") or "")
+        return st == "review" or (st == "blocked" and str(task.get("block_kind") or "") in cls.OWNER_BLOCK_KINDS)
+
+    def archive_attention(self, brain_root: str, owner: bool) -> int:
+        """Wipe one of the two stopped-job areas: `owner=True` the "Javis is asking you" area (review + owner
+        kinds), False the "Javis is handling it" area (every other blocked job). Same rules as archive_by_status."""
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT id, status, block_kind FROM tasks WHERE brain_root=? AND lane<>'team'
+                   AND status IN ('blocked', 'review')""", (brain_root,)).fetchall()
+        ids = [str(r["id"]) for r in rows if self.waits_for_owner(dict(r)) == bool(owner)]
+        if not ids:
+            return 0
+        with self._lock:
+            self._tx()
+            try:
+                ts = now()
+                for tid in ids:
+                    self._db.execute(
+                        """UPDATE tasks SET status='archived', block_kind='', block_reason='',
+                           claimed_by='', claim_expires_at=0, current_run_id='', updated_at=?
+                           WHERE id=? AND status IN ('blocked', 'review')""",
+                        (ts, tid),
+                    )
+                    self._event(tid, "operator_move", "-> archived: xoá tất cả")
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
+        return len(ids)
 
     def archive_by_status(self, brain_root: str, statuses: tuple) -> int:
         """Đẩy MỌI việc đang ở các trạng thái này sang `archived`. Trả số việc đã dọn.
@@ -1110,6 +1224,158 @@ class TaskStore:
                 raise
         return self.get_task(task_id), ""
 
+    # A follow-up can be sent to any job that is not running and not already waiting for an answer (that one goes
+    # through `answer`). Finished jobs included: "make paragraph 2 shorter" on a done job is the common case.
+    FOLLOWUP_STATUS = ("blocked", "review", "done", "cancelled", "triage", "todo", "ready")
+
+    def followup(self, task_id: str, text: str, by: str = "owner") -> tuple[Optional[dict], str]:
+        """The owner's extra instruction for a job, then back to the queue (0.411.0).
+
+        Before this the only way to change a stopped or finished job was Retry, which ran it again unchanged. The
+        note joins the job's Q&A log as an answered entry, with the last report as `progress`, so the next run
+        (`TasksFeature._hoi_dap`) builds on the earlier work instead of starting over, and does not resend what
+        was already sent. Attempts start fresh: this is a new instruction, not another try at the old one.
+        Returns (task, "") or (None, "empty" | "not_found" | "running" | "waiting")."""
+        text = (text or "").strip()
+        if not text:
+            return None, "empty"
+        with self._lock:
+            self._tx()
+            try:
+                row = self._db.execute(
+                    "SELECT * FROM tasks WHERE id=? AND lane<>'team'", (task_id,)
+                ).fetchone()
+                if not row:
+                    self._db.rollback()
+                    return None, "not_found"
+                if row["status"] == "running":
+                    self._db.rollback()
+                    return None, "running"
+                if row["status"] == "blocked" and row["block_kind"] == "needs_input":
+                    self._db.rollback()
+                    return None, "waiting"
+                if row["status"] not in self.FOLLOWUP_STATUS:
+                    self._db.rollback()
+                    return None, "not_found"
+                meta = _loads(row["metadata_json"], {})
+                qa = [x for x in (meta.get("qa") or []) if isinstance(x, dict)]
+                qa.append({
+                    "q": "Chủ nhắn thêm cho việc này",
+                    "a": text[:QA_TEXT_MAX], "kind": "followup", "by": by,
+                    "asked_at": now(), "answered_at": now(),
+                    "progress": str(row["result"] or "").strip()[:QA_PROGRESS_MAX],
+                })
+                meta["qa"] = qa[-QA_KEEP:]
+                meta.pop("once_pending", None)
+                if meta.get("acceptance_check") in ("unverified", "checking"):
+                    meta.pop("acceptance_check", None)
+                self._db.execute(
+                    """UPDATE tasks SET status='ready', block_kind='', block_reason='', attempts=0,
+                       metadata_json=?, claimed_by='', claim_expires_at=0, not_before=0,
+                       current_run_id='', updated_at=?
+                       WHERE id=?""",
+                    (_json(meta), now(), task_id),
+                )
+                self._event(task_id, "followup", text[:500], metadata={"by": by, "from": row["status"]})
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
+        return self.get_task(task_id), ""
+
+    def set_acceptance(self, task_id: str, state: str, why: str = "") -> Optional[dict]:
+        """Record a re-check of a finished job (0.411.0). `state`: "checking" while it runs, "ai" when it passed,
+        "failed" when it did not (the job moves to Needs you with the reason as its question, so the reply box can
+        fix it), "unverified" when the checker could not run again. Only a done or review job is touched."""
+        with self._lock:
+            self._tx()
+            try:
+                row = self._db.execute(
+                    "SELECT status, metadata_json FROM tasks WHERE id=? AND lane<>'team'", (task_id,)
+                ).fetchone()
+                if not row or row["status"] not in ("done", "review"):
+                    self._db.rollback()
+                    return None
+                meta = _loads(row["metadata_json"], {})
+                if state == "failed":
+                    reason = ("Chưa đạt điều kiện hoàn thành: " + (why or "lượt kiểm không nói rõ."))[:QA_TEXT_MAX]
+                    qa = [x for x in (meta.get("qa") or []) if isinstance(x, dict)]
+                    qa.append({"q": reason, "asked_at": now()})
+                    meta["qa"] = qa[-QA_KEEP:]
+                    meta["acceptance_check"] = "failed"
+                    self._db.execute(
+                        """UPDATE tasks SET status='blocked', block_kind='needs_input', block_reason=?,
+                           metadata_json=?, updated_at=? WHERE id=?""",
+                        (reason, _json(meta), now(), task_id),
+                    )
+                    self._event(task_id, "acceptance_failed", reason[:500])
+                else:
+                    meta["acceptance_check"] = state
+                    self._db.execute("UPDATE tasks SET metadata_json=?, updated_at=? WHERE id=?",
+                                     (_json(meta), now(), task_id))
+                    if state != "checking":
+                        self._event(task_id, "acceptance_" + state, why[:500])
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
+        return self.get_task(task_id)
+
+    # Repeat-job hints (0.411.0): a job the owner keeps asking for by hand is a reminder or a workflow waiting to
+    # happen. Only jobs a person asked for count; assistants, teams and schedules already run on their own.
+    HINT_SOURCES = ("user", "chat", "voice")
+    HINT_MIN_COUNT = 3
+    HINT_WINDOW_DAYS = 60
+    HINT_SCAN = 300
+
+    @staticmethod
+    def hint_words(title: str) -> frozenset:
+        """Words of a title with numbers dropped: "Báo cáo doanh thu 28/10" and "... 4/11" are the same job."""
+        return frozenset(w for w in norm_title(title).split() if not any(c.isdigit() for c in w) and len(w) > 1)
+
+    def repeat_hints(self, brain_root: str, limit: int = 3) -> list[dict]:
+        root = str(brain_root)
+        since = now() - self.HINT_WINDOW_DAYS * 86400
+        with self._lock:
+            rows = self._db.execute(
+                f"""SELECT id, title, intent, created_at FROM tasks
+                    WHERE brain_root=? AND lane<>'team' AND created_at>=?
+                      AND (created_by IN ({','.join('?' for _ in self.HINT_SOURCES)}) OR created_by LIKE 'bot:%')
+                    ORDER BY created_at DESC LIMIT ?""",
+                (root, since, *self.HINT_SOURCES, self.HINT_SCAN),
+            ).fetchall()
+            dismissed = {r["hint_key"] for r in self._db.execute(
+                "SELECT hint_key FROM board_hints_dismissed WHERE brain_root=?", (root,)).fetchall()}
+        groups: list[dict] = []
+        for r in rows:
+            words = self.hint_words(r["title"])
+            if len(words) < 2:
+                continue
+            for g in groups:
+                inter = len(words & g["words"])
+                if inter and inter / len(words | g["words"]) >= 0.7:
+                    g["count"] += 1
+                    break
+            else:
+                groups.append({"words": words, "count": 1, "title": r["title"], "intent": r["intent"],
+                               "task_id": r["id"], "last_at": float(r["created_at"])})
+        out = []
+        for g in groups:
+            key = " ".join(sorted(g["words"]))
+            if g["count"] >= self.HINT_MIN_COUNT and key not in dismissed:
+                out.append({"key": key, "count": g["count"], "title": g["title"],
+                            "intent": str(g["intent"] or "")[:600], "task_id": g["task_id"],
+                            "last_at": g["last_at"]})
+        out.sort(key=lambda h: (-h["count"], -h["last_at"]))
+        return out[:limit]
+
+    def dismiss_hint(self, brain_root: str, hint_key: str) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO board_hints_dismissed(brain_root, hint_key, created_at) VALUES (?, ?, ?)",
+                (str(brain_root), str(hint_key)[:500], now()))
+            self._db.commit()
+
     def move(self, task_id: str, status: str, reason: str = "operator") -> bool:
         if status not in VALID_STATUS:
             return False
@@ -1248,6 +1514,17 @@ class TaskStore:
         ).fetchone()
 
     def enqueue_team(
+        self, brain_root: str, team_id: str, title: str, intent: str, source_ref: str,
+        assignee_key: str = '', coordinator_key: str = '', chat_id: str = '', created_by: str = 'owner',
+        blocked_kind: str = '', blocked_reason: str = '',
+    ) -> tuple[str, bool]:
+        result = self._enqueue_team_record(brain_root, team_id, title, intent, source_ref, assignee_key,
+            coordinator_key, chat_id, created_by, blocked_kind, blocked_reason)
+        if self.quality_prepare_task:
+            self.quality_prepare_task(result[0])
+        return result
+
+    def _enqueue_team_record(
         self,
         brain_root: str,
         team_id: str,
@@ -1384,6 +1661,18 @@ class TaskStore:
                 self._db.rollback()
                 raise
 
+    def set_quality_required(self, team_id, enabled):
+        with self._lock:
+            self._db.execute('INSERT INTO team_quality_required VALUES(?,?) ON CONFLICT(team_id) DO UPDATE SET enabled=excluded.enabled',
+                             (team_id, int(enabled)))
+            self._db.commit()
+
+    def set_acceptance_ready(self, task_id, revision, contract_version):
+        with self._lock:
+            self._db.execute('UPDATE tasks SET acceptance_ready=1, acceptance_revision=?, acceptance_contract_version=? '
+                             'WHERE id=? AND team_rev=?', (revision, contract_version, task_id, revision))
+            self._db.commit()
+
     def claim_team_next(
         self, team_id: str, worker_id: str, lease_s: int = 90, max_running: int = 1,
     ) -> Optional[dict]:
@@ -1392,6 +1681,9 @@ class TaskStore:
         Kiểm chỗ chạy, chọn việc, đặt `team_running`, ghi `task_runs` và tăng version trong MỘT
         giao dịch `BEGIN IMMEDIATE`: không bao giờ có hai việc cùng chạy trong một nhóm."""
         team_id = str(team_id)
+        # Cross-store preparation deliberately precedes the claim transaction. A crash leaves the task unready.
+        if self.quality_prepare:
+            self.quality_prepare(team_id)
         ts = now()
         run_id = "run_" + uuid.uuid4().hex[:14]
         with self._lock:
@@ -1413,6 +1705,11 @@ class TaskStore:
                     self._db.rollback()
                     return None
                 tid = str(row["id"])
+                required = self._db.execute('SELECT enabled FROM team_quality_required WHERE team_id=?', (team_id,)).fetchone()
+                if (required and required[0]) or row['acceptance_contract_version']:
+                    if not row['acceptance_ready'] or row['acceptance_revision'] != row['team_rev']:
+                        self._db.rollback()
+                        return None
                 self._db.execute(
                     """UPDATE tasks SET status='team_running', attempts=attempts+1, claimed_by=?,
                        claim_expires_at=?, last_heartbeat_at=?, current_run_id=?, block_kind='',
@@ -1446,7 +1743,7 @@ class TaskStore:
     def _team_move(
         self, task_id: str, allowed_from: tuple, status: str, event_type: str, message: str = "",
         *, block_kind: str = "", block_reason: str = "", result: Optional[str] = None,
-        run_status: str = "", expected_rev: Optional[int] = None,
+        run_status: str = "", expected_rev: Optional[int] = None, acceptance_decision: Optional[str] = None,
     ) -> Optional[str]:
         """Chuyển trạng thái một việc nhóm. Trả trạng thái TRƯỚC khi chuyển, None nếu không áp. `expected_rev`: chỉ áp
         khi `team_rev` vẫn là bản đó (CAS cùng giao dịch, review T1 R7)."""
@@ -1454,6 +1751,10 @@ class TaskStore:
         with self._lock:
             self._tx()
             try:
+                if acceptance_decision and self._db.execute('SELECT 1 FROM team_acceptance_applied WHERE task_id=? AND decision_key=?',
+                        (task_id, acceptance_decision)).fetchone():
+                    self._db.rollback()
+                    return 'applied'
                 row = self._team_row(task_id)
                 if not row or row["status"] not in allowed_from or (
                         expected_rev is not None and int(row["team_rev"] or 1) != int(expected_rev)):
@@ -1475,6 +1776,9 @@ class TaskStore:
                         (run_status, ts, ts, (block_reason or "")[:4000], run_id),
                     )
                 self._event(task_id, event_type, message or block_reason or status, run_id)
+                if acceptance_decision:
+                    self._db.execute('INSERT INTO team_acceptance_applied VALUES(?,?,?)',
+                                     (task_id, acceptance_decision, int(row['team_rev'])))
                 self._bump_queue(str(row["team_id"]))
                 self._db.commit()
                 return prev
@@ -1487,14 +1791,21 @@ class TaskStore:
         return self._team_move(task_id, ("team_running", "team_queued"), "team_blocked", "team_blocked",
                                block_kind=str(kind or "failed"), block_reason=reason, run_status="blocked")
 
-    def team_reblock(self, task_id: str, kind: str, reason: str = "") -> Optional[str]:
+    def team_reblock(self, task_id: str, kind: str, reason: str = "", *, decision_key=None, expected_rev=None) -> Optional[str]:
         """A blocked job stays blocked for another reason (0.207.0: the owner rejected or revoked an approval, the request
         expired). Same place in the queue; the new kind decides which buttons the owner gets."""
         return self._team_move(task_id, ("team_blocked",), "team_blocked", "team_reblocked",
-                               block_kind=str(kind or "failed"), block_reason=reason)
+                               block_kind=str(kind or "failed"), block_reason=reason,
+                               acceptance_decision=decision_key, expected_rev=expected_rev)
 
-    def team_unblock(self, task_id: str) -> Optional[str]:
-        return self._team_move(task_id, ("team_blocked",), "team_queued", "team_unblocked")
+    def team_unblock(self, task_id: str, *, decision_key=None, expected_rev=None) -> Optional[str]:
+        return self._team_move(task_id, ("team_blocked",), "team_queued", "team_unblocked",
+                               acceptance_decision=decision_key, expected_rev=expected_rev)
+
+    def acceptance_decision_applied(self, task_id, decision_key):
+        with self._lock:
+            return self._db.execute('SELECT 1 FROM team_acceptance_applied WHERE task_id=? AND decision_key=?',
+                                    (task_id, decision_key)).fetchone() is not None
 
     def team_requeue(self, task_id: str, reason: str = "") -> Optional[str]:
         """Việc đang chạy về hàng chờ, giữ chỗ cũ (restart trước mốc gọi engine)."""
@@ -1507,14 +1818,70 @@ class TaskStore:
         return self._team_move(task_id, ("team_running",), "done", "team_done", "done",
                                result=result, run_status="completed", expected_rev=expected_rev)
 
-    def team_finish_reviewed(self, task_id: str, result: str = "", expected_rev: Optional[int] = None) -> Optional[str]:
+    def team_finish_reviewed(self, task_id: str, result: str = "", expected_rev: Optional[int] = None, *, decision_key=None) -> Optional[str]:
         """0.209.0: the owner confirmed the product of a job that waited for acceptance (blocked) -> done, same CAS."""
         return self._team_move(task_id, ("team_blocked",), "done", "team_done", "done (owner accepted)",
-                               result=result, run_status="completed", expected_rev=expected_rev)
+                               result=result, run_status="completed", expected_rev=expected_rev, acceptance_decision=decision_key)
 
     def team_cancel(self, task_id: str, reason: str = "owner cancel") -> Optional[str]:
         return self._team_move(task_id, TEAM_OPEN_STATUS, "cancelled", "team_cancelled", reason,
                                block_kind="cancelled", block_reason=reason, run_status="cancelled")
+
+    # ───── Javis Core giao việc cho nhóm (0.357.0, issue #826) ─────
+    # Việc nhóm không dùng `metadata_json` ở đâu khác, nên nơi giao việc nằm ở đó: `core` (mã đối chiếu, nơi báo kết
+    # quả, kênh), `core_said` (trạng thái đã báo gần nhất), `core_closed` (đã báo lần cuối, thôi theo dõi).
+
+    def team_core_mark(self, task_id: str, info: dict) -> None:
+        """Ghi nơi giao của một việc nhóm do Core mở. Chỉ ghi lần đầu: gửi lại cùng mã đối chiếu không đổi nơi báo."""
+        with self._lock:
+            row = self._db.execute("SELECT metadata_json FROM tasks WHERE id=? AND lane='team'", (task_id,)).fetchone()
+            if not row:
+                return
+            meta = _loads(row["metadata_json"], {}) or {}
+            if isinstance(meta.get("core"), dict):
+                return
+            meta["core"] = dict(info or {})
+            self._db.execute("UPDATE tasks SET metadata_json=? WHERE id=?", (_json(meta), task_id))
+            self._db.commit()
+
+    def team_core_watch(self, limit: int = 200) -> list:
+        """Việc nhóm do Core mở mà chưa báo lần cuối, cũ nhất trước."""
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT * FROM tasks WHERE lane='team' AND metadata_json LIKE '%"core":{%'
+                     AND metadata_json NOT LIKE '%"core_closed":true%' ORDER BY updated_at LIMIT ?""",
+                (int(limit),),
+            ).fetchall()
+        return [self._task_from_row(r) for r in rows]
+
+    def team_core_find(self, team_id: str, correlation_id: str) -> Optional[dict]:
+        """Việc nhóm do Core mở theo mã đối chiếu (mới nhất nếu trùng)."""
+        cid = str(correlation_id or "").strip()
+        if not cid:
+            return None
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT * FROM tasks WHERE lane='team' AND team_id=? AND metadata_json LIKE ?
+                   ORDER BY created_at DESC LIMIT 20""",
+                (team_id, '%"correlation_id":' + _json(cid) + '%'),
+            ).fetchall()
+        for row in rows:
+            task = self._task_from_row(row)
+            if ((task.get("metadata") or {}).get("core") or {}).get("correlation_id") == cid:
+                return task
+        return None
+
+    def team_core_said(self, task_id: str, said: str, closed: bool = False) -> None:
+        with self._lock:
+            row = self._db.execute("SELECT metadata_json FROM tasks WHERE id=? AND lane='team'", (task_id,)).fetchone()
+            if not row:
+                return
+            meta = _loads(row["metadata_json"], {}) or {}
+            meta["core_said"] = str(said or "")
+            if closed:
+                meta["core_closed"] = True
+            self._db.execute("UPDATE tasks SET metadata_json=? WHERE id=?", (_json(meta), task_id))
+            self._db.commit()
 
     def team_amend(self, task_id: str, addition: str) -> Optional[int]:
         """Chủ sửa yêu cầu của việc chưa kết thúc: nối phần thêm vào `intent`, tăng `team_rev`."""
@@ -1586,6 +1953,25 @@ class TaskStore:
                 self._event(task_id, "team_taken_over", f"taken over by {worker_id}")
             self._db.commit()
             return cur.rowcount == 1
+
+    def team_set_retry_at(self, task_id: str, at: float) -> None:
+        """0.436.0: when a job blocked by a temporary error runs again on its own (`team_retry`). The team lane reuses
+        the Kanban `not_before` column; 0 clears it. The claim of the team queue does not read it: only the retry tick
+        does, and only for jobs blocked with `team_retry.BLOCK_KIND`."""
+        with self._lock:
+            self._db.execute("UPDATE tasks SET not_before=? WHERE id=? AND lane='team'",
+                             (float(at or 0.0), str(task_id)))
+            self._db.commit()
+
+    def team_retry_due(self, kind: str, at: float, limit: int = 50) -> list[dict]:
+        """Jobs blocked with `kind` whose retry time has come, oldest first."""
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT * FROM tasks WHERE lane='team' AND status='team_blocked' AND block_kind=?
+                   AND not_before > 0 AND not_before <= ? ORDER BY not_before LIMIT ?""",
+                (str(kind), float(at), max(1, min(500, int(limit)))),
+            ).fetchall()
+        return [self._task_from_row(r) for r in rows]
 
     def teams_with_waiting(self) -> list[str]:
         with self._lock:

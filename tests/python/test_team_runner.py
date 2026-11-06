@@ -814,13 +814,17 @@ TID = T["team_id"]
 live = {"now": 0, "peak": 0}
 
 
-def slow(text, gate=None):
+def slow(text, gate=None, *, startup_delay=0, rendezvous=False):
     async def answer(req):
+        if startup_delay:
+            await asyncio.sleep(startup_delay)
         live["now"] += 1
         live["peak"] = max(live["peak"], live["now"])
         try:
             if gate is not None:
-                await asyncio.wait_for(gate.wait(), 2)
+                if rendezvous and live["now"] == 2:
+                    gate.set()
+                await asyncio.wait_for(gate.wait(), 10 if rendezvous else 2)
             else:
                 await asyncio.sleep(0.1)
         finally:
@@ -829,10 +833,19 @@ def slow(text, gate=None):
     return answer
 
 
-fake.say("ag_minh", "member_reply", slow("Minh trả lời"))
-fake.say("ag_hoa", "member_reply", slow("Hoa trả lời"))
 s1 = r.submit(TID, "Hai bạn xem giúp", mentions=["ag_minh", "ag_hoa"], client_msg_id="w1")
-outs = run(r.run_replies(s1))
+
+
+async def reply_overlap_probe():
+    # Hold the first answer until both arrive, including a deliberately slower startup.
+    # A serialized runner still times out and fails the unchanged peak-of-two assertion.
+    both_started = asyncio.Event()
+    fake.say("ag_minh", "member_reply", slow("Minh trả lời", both_started, rendezvous=True))
+    fake.say("ag_hoa", "member_reply", slow("Hoa trả lời", both_started, startup_delay=0.2, rendezvous=True))
+    return await r.run_replies(s1)
+
+
+outs = run(reply_overlap_probe())
 check("0.260.0 nhiều @ trong một tin: trả lời CÙNG LÚC", live["peak"] == 2 and len(outs) == 2, (live, outs))
 check("0.260.0 cả hai lượt có kết cục done", [x["status"] for x in tm.replies_of(TID, s1["message_id"])] == ["done", "done"],
       tm.replies_of(TID, s1["message_id"]))

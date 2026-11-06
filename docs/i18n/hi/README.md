@@ -1,13 +1,15 @@
 <!-- translated-from: README.md sha256:2e10ad3d2a86 -->
 <div align="center">
 
-<img src="../../../dashboard/logo.svg" width="88" alt="Javis OS का लोगो">
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI."></a>
 
 # Javis OS
 
-### आपका self-hosted AI agent, जिसका ब्रेन बदला जा सकता है, और एक Second Brain जो हर दिन ज़्यादा समझदार होता जाता है।
+### आपकी AI टीम। सबसे अच्छा AI कभी न चूकें।
 
-इसे अपने laptop या किसी छोटे VPS पर चलाइए। इससे आवाज़ में बात कीजिए। Claude, ChatGPT, Grok, Gemini या 12 providers में से किसी को भी जोड़िए, provider बदलने पर भी हर tool वैसा ही बना रहता है, और जब आप सो रहे हों तब इसे background में काम करने दीजिए।
+Javis OS **Claude, ChatGPT, Gemini, Grok** और आपके चुने हुए models को आपकी अपनी मशीन या server पर 24/7 काम करने वाली टीम में बदल देता है। हर साथी की अपनी भूमिका होती है, सब एक ही memory और tools साझा करते हैं, और background में काम करते रहते हैं। बेहतर model आए तो बदल दीजिए, टीम ने जो कुछ सीखा वह सब बना रहता है।
+
+**🌐 वेबसाइट: [javisos.com](https://javisos.com)** · Open source · Self-hosted · 14 AI providers
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](../../../LICENSE)
@@ -149,7 +151,7 @@ Javis में model एक ऐसा पुर्ज़ा है जिसे
 हर ब्रेन आपके जुड़े हुए MCP servers को call कर सकता है, Brain को पढ़ और लिख सकता है, skills चला सकता है, Kanban में काम queue कर सकता है, और agents, workflows, loops और reminders बना सकता है। CLI engines इसके अलावा **shell commands** चलाते हैं, **web से fetch और search** करते हैं, और **parallel sub-agents** शुरू करते हैं।
 
 > [!WARNING]
-> **किसी subscription से background काम करवाने से पहले यह पढ़िए।** Anthropic, Claude Pro/Max को Claude Code के **सामान्य निजी इस्तेमाल** तक सीमित रखता है। लगातार background execution (loops, reminders, Kanban jobs, chatbots), VPS पर चलाना, या कई लोगों का एक ही account शेयर करना, ये सब उस दायरे से बाहर हैं, और इसकी वजह से accounts **suspend हो चुके हैं**। Javis आपका login token कभी नहीं पढ़ता: यह असली `claude` binary चलाता है, लेकिन इससे चौबीसों घंटे का background इस्तेमाल जायज़ नहीं हो जाता। सुरक्षित रहने के लिए Models page पर Claude Code को **API key** पर चलाइए, या **background-work model** को किसी दूसरे provider पर सेट कीजिए। यही सावधानी xAI plan पर भी लागू होती है। देखें `server/claude_auth.py`।
+> **किसी subscription से background काम करवाने से पहले एक बात।** Anthropic, Claude Pro/Max को Claude Code के **सामान्य निजी इस्तेमाल** तक सीमित रखता है। लगातार background execution (loops, reminders, Kanban jobs, chatbots), VPS पर चलाना, या कई लोगों का एक ही account शेयर करना, ये सब उस दायरे से बाहर हैं, इसलिए account **block होने का जोखिम** है, हालाँकि अब तक Javis के पास ऐसा कोई मामला दर्ज नहीं है। अगर आपके साथ ऐसा हो, तो कृपया [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose) में developer को बताइए। Javis आपका login token कभी नहीं पढ़ता: यह असली `claude` binary चलाता है, लेकिन इससे चौबीसों घंटे का background इस्तेमाल जायज़ नहीं हो जाता। सुरक्षित रहने के लिए Models page पर Claude Code को **API key** पर चलाइए, या **background-work model** को किसी दूसरे provider पर सेट कीजिए। यही सावधानी xAI plan पर भी लागू होती है। देखें `server/claude_auth.py`।
 
 ---
 
@@ -507,5 +509,6 @@ Javis OS मुफ़्त और open source है, और इसका code 
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 <b><a href="https://minhquy.vn">Minh Quý</a></b> ने वियतनाम में ☕ के साथ बनाया
 </div>

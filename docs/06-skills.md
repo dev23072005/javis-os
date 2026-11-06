@@ -63,7 +63,7 @@ Cách xử lý: tắt bớt skill không dùng tới để 20 chỗ trong router
 
 Javis chia skill làm 2 loại:
 
-- **Skill hệ thống** (thẻ có nhãn "hệ thống"): chức năng mặc định của Javis OS, hiện gồm 6 cái:
+- **Skill hệ thống** (thẻ có nhãn "hệ thống"): chức năng mặc định của Javis OS, hiện gồm 7 cái:
 
   | Slug | Làm gì |
   |---|---|
@@ -73,6 +73,7 @@ Javis chia skill làm 2 loại:
   | `lint-wiki` | Rà soát sức khoẻ wiki, trả về danh sách vấn đề |
   | `notes` | Lưu tin nhắn hiện tại nguyên văn vào `sources/` (kèm ảnh), tự chưng cất lên wiki nếu note đáng |
   | `html-to-webcake` | Chuyển một trang HTML thành file `.pke` mở được trong trình dựng trang Webcake |
+  | `security-audit` | Rà soát bảo mật mã nguồn theo quy trình của Cloudflare: tìm lỗ hổng có bằng chứng, kiểm chứng độc lập, báo cáo kèm cách sửa |
 
   Bản gốc nằm trong thư mục cài đặt của app (không nằm trong brain), nên chúng **có mặt ở mọi brain** và **tự cập nhật khi bạn cập nhật Javis OS** lên phiên bản mới. Loại này không xoá được từ dashboard (lỡ xoá file thủ công thì lần khởi động sau tự cài lại); muốn ngừng dùng thì **tắt** như skill thường - trạng thái tắt được giữ nguyên qua mọi lần cập nhật.
 - **Skill của bạn**: tạo qua nút + Skill, qua chat, nhập từ gói `.zip`, hoặc do trang Tự học đề xuất. Đây là dữ liệu của brain - đổi brain thì bộ skill đổi theo, cập nhật app không đụng tới.
@@ -186,6 +187,15 @@ Xoá là thao tác dứt điểm: cả thư mục skill bị xoá khỏi ổ đ�
 - **⤒ Nhập** (ở đầu trang, cạnh nút + Skill): chọn file để đưa vào brain đang chọn. Nhận `.zip` (gói Javis), `.md` lẻ, hoặc gói `.skill` của Claude (Javis tự nhận diện `SKILL.md` trong gói và đưa vào đúng thư mục). Javis hỏi trước: "Nếu đã có agent/skill/workflow TRÙNG TÊN thì GHI ĐÈ bằng bản mới?" - bấm OK để ghi đè, bấm Huỷ để giữ bản cũ và chỉ nhập cái chưa có. Nhập xong Javis liệt kê đã nhập gì, bỏ qua gì.
 
 Lưu ý: nội dung skill là hướng dẫn cho AI làm theo, nên chỉ nhập gói từ nguồn bạn tin tưởng. Chi tiết cơ chế đóng gói kèm phụ thuộc ở [Agents & Workflows](07-agents-va-workflows.md).
+
+## Khuyên dùng trong Javis Store
+
+Tab đầu tiên của **Javis Store** là **Khuyên dùng**: skill chép **nguyên văn** từ repo GitHub của chính tác giả (ví dụ bộ skill chính chủ của Remotion, hay Lemo-Opuscar để dựng phim ngắn bằng code). Không dịch, không sửa, đọc đúng như tác giả viết.
+
+- Mỗi thẻ có dòng **Cập nhật từ tác giả** dẫn tới repo GitHub kèm ngày lấy bản mới nhất.
+- Mỗi ngày kho so lại với repo gốc. Tác giả sửa skill thì gói lên bản mới, Javis báo trong chuông, bạn bấm **Cập nhật** (vẫn qua màn hình xác nhận như mọi lần).
+- Skill bạn đã tự sửa thì Javis giữ nguyên khi cập nhật, không ghi đè.
+- Skill kèm tệp riêng (`scripts/`, `references/`...) thì khi nạp, Javis nói cho model biết thư mục của skill để nó tìm đúng các tệp đó.
 
 ## Nhờ Javis tạo skill bằng lời
 

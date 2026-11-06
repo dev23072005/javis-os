@@ -19,14 +19,16 @@ import unicodedata
 # Thêm trang mới thì thêm ở cả ba chỗ.
 PAGES = (
     "home", "chat", "settings", "workspace", "teams", "skills", "chatbots", "conversations", "files",
-    "terminal", "coding", "selfimprove", "webhooks", "learn", "kanban", "models", "channels", "mcp", "plugins",
+    "terminal", "coding", "tasks", "webhooks", "learn", "models", "channels", "mcp", "plugins",
     "packs", "logs", "account", "usage", "logins", "pet", "share",
 )
 
 # Bí danh người dùng hay nói, ánh xạ về id trang. Thường hoá không dấu trước khi tra, nên viết
 # khoá ở đây KHÔNG DẤU. Nhãn tiếng Việt đang hiện trên thanh bên phải có mặt trong bảng này.
 ALIASES = {
-    "viec": "kanban", "cong viec": "kanban", "bang viec": "kanban", "task": "kanban", "tasks": "kanban",
+    # 0.422.0: Kanban and Scheduled became the Tasks page ("Nhiem vu"); the old ids stay as aliases.
+    "viec": "tasks", "cong viec": "tasks", "bang viec": "tasks", "task": "tasks", "tasks": "tasks",
+    "nhiem vu": "tasks", "kanban": "tasks", "selfimprove": "tasks", "lap lai": "tasks", "thoi quen": "tasks",
     "tep": "files", "tep tin": "files", "file": "files", "thu muc": "files", "brain": "files",
     "cai dat": "settings", "setting": "settings", "thiet lap": "settings",
     "mo hinh": "models", "model": "models", "bo nao": "models", "engine": "models",
@@ -35,12 +37,12 @@ ALIASES = {
     "kenh": "channels", "telegram": "channels", "zalo": "channels",
     "muc dung": "usage", "token": "usage", "chi phi": "usage",
     "tro chuyen": "chat", "hoi thoai": "chat", "trang chu": "home", "javis": "home",
-    "do thi": "home", "graph": "home", "khoang nao": "home", "do thi tri thuc": "home",
+    "do thi": "home", "graph": "home", "mang no ron": "home", "mang no-ron": "home", "neural network": "home", "khoang nao": "home", "do thi tri thuc": "home",
     "linh vat": "pet", "mascot": "pet", "con pet": "pet", "pet": "pet", "thu cung": "pet",
     "chia se": "share", "share": "share", "link chia se": "share", "duong link": "share",
     "shared links": "share", "quan ly chia se": "share",
-    "tu hoc": "selfimprove", "self improve": "selfimprove", "hoc": "learn",
-    "viec dinh ky": "selfimprove", "nhac hen": "selfimprove",
+    "tu hoc": "tasks", "self improve": "tasks", "hoc": "learn",
+    "viec dinh ky": "tasks", "nhac hen": "tasks",
     "webhook": "webhooks", "webhooks": "webhooks", "hook": "webhooks",
     "kho dang nhap": "logins", "dang nhap": "logins", "cookie": "logins", "cookies": "logins",
     "logins": "logins", "login vault": "logins", "tai khoan dang nhap": "logins",
@@ -83,14 +85,16 @@ _EXACT_PAGE = {"nhom": "teams"}
 # Nhóm trên thanh bên = RAIL_GROUPS trong dashboard/console.js (khoá `id`) và GROUPS trong
 # dashboard/ui-actions.js. Mở NHÓM khác mở TRANG: người dùng hay muốn bung phần đang gập để
 # nhìn xem trong đó có gì, chứ chưa chọn trang nào.
-GROUPS = ("bo_nao", "code", "nang_luc", "viec", "ket_noi", "he_thong")
+GROUPS = ("bo_nao", "nang_luc", "viec", "ket_noi", "he_thong")
 
 GROUP_ALIASES = {
     # Nhóm "Trợ lý" đã bỏ ở 0.58.0 (gộp vào Bộ não); giữ bí danh cũ trỏ sang Bộ não để
     # câu lệnh bằng lời quen tay không chết.
     "tro ly": "bo_nao", "assistant": "bo_nao",
     "bo nao": "bo_nao", "second brain": "bo_nao", "brain": "bo_nao",
-    "code": "code", "lap trinh": "code",
+    # The "Code" group left the rail in 0.347.0; Terminal now sits in Capabilities, so the old
+    # words open that group instead of failing.
+    "code": "nang_luc", "lap trinh": "nang_luc",
     "nang luc": "nang_luc", "kha nang": "nang_luc", "capability": "nang_luc",
     "viec": "viec", "cong viec": "viec", "task": "viec",
     "ket noi": "ket_noi", "connect": "ket_noi", "ket noi va model": "ket_noi",

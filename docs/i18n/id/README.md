@@ -1,13 +1,15 @@
 <!-- translated-from: README.md sha256:2e10ad3d2a86 -->
 <div align="center">
 
-<img src="../../../dashboard/logo.svg" width="88" alt="Logo Javis OS">
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI."></a>
 
 # Javis OS
 
-### Agen AI self-hosted Anda dengan otak yang bisa diganti, dan Second Brain yang makin pintar setiap hari.
+### Tim AI Anda. Jangan pernah ketinggalan AI terbaik.
 
-Jalankan di laptop atau VPS kecil. Ajak bicara dengan suara. Pasang Claude, ChatGPT, Grok, Gemini atau salah satu dari 12 provider, semua tool tetap ada saat Anda berganti, dan biarkan ia bekerja di background selagi Anda tidur.
+Javis OS mengubah **Claude, ChatGPT, Gemini, Grok** dan model pilihan Anda menjadi satu tim yang bekerja 24/7 di mesin atau server Anda sendiri. Setiap rekan punya peran, berbagi memori dan tool yang sama, dan terus bekerja di background. Saat model yang lebih baik rilis, cukup ganti dan semua yang sudah dipelajari tim tetap ada.
+
+**🌐 Situs web: [javisos.com](https://javisos.com)** · Open source · Self-hosted · 14 penyedia AI
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](../../../LICENSE)
@@ -149,7 +151,7 @@ Pilih otak di halaman **Models** dan ganti kapan pun Anda mau. Saat ini Javis me
 Setiap otak bisa memanggil server MCP yang Anda hubungkan, membaca dan menulis Brain, menjalankan skill, mengantrekan pekerjaan Kanban, serta membuat agent, workflow, loop dan pengingat. Engine CLI juga bisa menjalankan **perintah shell**, **mengambil dan mencari di web**, serta **menjalankan sub-agent secara paralel**.
 
 > [!WARNING]
-> **Baca ini sebelum membiarkan langganan menjalankan pekerjaan background.** Anthropic membatasi Claude Pro/Max untuk **penggunaan pribadi biasa** Claude Code. Eksekusi background terus-menerus (loop, pengingat, job Kanban, chatbot), menjalankannya di VPS, atau beberapa orang berbagi satu akun, semuanya berada di luar cakupan itu, dan sudah ada akun yang **ditangguhkan** karenanya. Javis tidak pernah membaca token login Anda: ia menjalankan binary `claude` yang asli, tetapi itu tidak membuat penggunaan background nonstop menjadi sah. Agar aman, atur Claude Code agar berjalan dengan **API key** di halaman Models, atau arahkan **model untuk pekerjaan background** ke provider lain. Kehati-hatian yang sama berlaku untuk paket xAI. Lihat `server/claude_auth.py`.
+> **Catatan sebelum membiarkan langganan menjalankan pekerjaan background.** Anthropic membatasi Claude Pro/Max untuk **penggunaan pribadi biasa** Claude Code. Eksekusi background terus-menerus (loop, pengingat, job Kanban, chatbot), menjalankannya di VPS, atau beberapa orang berbagi satu akun, berada di luar cakupan itu, jadi ada risiko akun **diblokir**, meski sejauh ini Javis belum mencatat satu kasus pun. Jika Anda mengalaminya, mohon kabari pengembang lewat [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose). Javis tidak pernah membaca token login Anda: ia menjalankan binary `claude` yang asli, tetapi itu tidak membuat penggunaan background nonstop menjadi sah. Agar aman, atur Claude Code agar berjalan dengan **API key** di halaman Models, atau arahkan **model untuk pekerjaan background** ke provider lain. Kehati-hatian yang sama berlaku untuk paket xAI. Lihat `server/claude_auth.py`.
 
 ---
 
@@ -507,5 +509,6 @@ Tidak bisa berdonasi? Menggunakan Javis, mengirim masukan, atau membuka pull req
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 Dibuat dengan ☕ di Vietnam oleh <b><a href="https://minhquy.vn">Minh Quý</a></b>
 </div>

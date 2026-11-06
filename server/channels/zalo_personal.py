@@ -19,6 +19,7 @@ from typing import Optional
 
 from channels import KenhSpec
 import localefmt
+import zalo_markup
 
 SPEC = KenhSpec(
     id="zalo_personal", nhan="Zalo cá nhân", kind="account", logo="zalo", mau="#0068FF",
@@ -87,6 +88,14 @@ NGHI_GIUA_DOAN = 1.2        # giây nghỉ giữa hai đoạn của một câu t
 # Chỗ cắt tốt theo thứ tự ưu tiên: hết đoạn văn, hết dòng, hết câu, rồi mới tới khoảng trắng.
 _CHO_CAT = (re.compile(r"\n\s*\n"), re.compile(r"\n"), re.compile(r"[.!?…:;](?=\s)"), re.compile(r"\s"))
 _TAG_STATE: dict = {}       # conn_id -> {"fails": số lần hỏng liên tiếp, "until": giờ hết nghỉ}
+# "Đang soạn tin" while the bot writes a private reply (0.413.0, owner 30/10/2026: customers should not be able to tell
+# the bot from a person). Needs the MCP tool `zalo_send_typing` (javis-zalo >= 1.9.0); an older MCP answers "tool not
+# found" and the indicator is simply skipped for TYPING_OFF seconds, the reply itself never waits on it.
+TYPING_TOOL = "zalo_send_typing"
+TYPING_DELAY = 1.5          # seconds: a turn that ends quickly (silence, takeover) never shows the indicator
+TYPING_EVERY = 4.0          # Zalo drops the indicator after a few seconds without a new event
+TYPING_OFF = 3600           # seconds without trying again once the MCP lacks the tool or refuses it
+_TYPING_OFF_UNTIL: dict = {}  # conn_id -> time the indicator may be tried again
 _UID_RE = re.compile(r"\d{3,25}")
 
 
@@ -122,7 +131,7 @@ def _bo_dau(s: str) -> str:
     return "".join(out)
 
 
-def tag_ten_trong_cau(text: str, danh_ba, bo_qua=()) -> list:
+def tag_ten_trong_cau(text: str, danh_ba, bo_qua=(), chiem=()) -> list:
     """`[(pos, uid, len)]` (UTF-16 units) for every "@Name" in `text` that names someone in `danh_ba`.
 
     Field report 2026-10-14: a bot told to tag "@Minh Quý" and "@Phạm Đại" wrote both names, but only
@@ -130,7 +139,10 @@ def tag_ten_trong_cau(text: str, danh_ba, bo_qua=()) -> list:
     one. `danh_ba` is `[{uid, name}]` (conversations.group_speakers: everyone who has written in the
     group). Longest names are tried first ("@Minh Quý Phạm" beats "@Minh Quý"), case and diacritics
     are ignored ("@minh quy" still tags), a name must end on a word boundary, and `bo_qua` holds uids
-    already tagged (the person being answered) or never to tag (the account itself)."""
+    already tagged (the person being answered) or never to tag (the account itself).
+
+    `chiem` holds `(pos, len)` stretches that already carry a tag (the person being answered). An "@" inside one is
+    skipped: "@Tuan Fernel" must not also become "@Tuan" for another member (0.331.0, see `_khong_chong`)."""
     import re as _re
     ten = []
     for d in danh_ba or []:
@@ -145,6 +157,9 @@ def tag_ten_trong_cau(text: str, danh_ba, bo_qua=()) -> list:
     ra, da_tag = [], set(bo_qua)
     for m in _re.finditer("@", text):
         i = m.start() + 1
+        at = _utf16_len(text[:m.start()])
+        if any(p <= at < p + n_ for p, n_ in chiem):
+            continue
         for key, uid, n in ten:
             if uid in da_tag or chuan[i:i + n] != key:
                 continue
@@ -155,6 +170,19 @@ def tag_ten_trong_cau(text: str, danh_ba, bo_qua=()) -> list:
             da_tag.add(uid)
             break
     return ra
+
+
+def _khong_chong(specs) -> list:
+    """`[(pos, uid, len)]` with no two tags over the same text, sorted by position. The first claim wins.
+
+    Field report 2026-10-26: the reply tag covered "@Tuan Fernel" and the name finder also tagged "@Tuan" at the same
+    spot for another member. Zalo on a computer drew one tag; Zalo on a phone laid the second tag over the markup
+    of the first and showed `@Tuannntion href="zm://Profile/..._mention">@Tuan Fernel</a_mention>` as text."""
+    giu = []
+    for pos, uid, ln in specs:
+        if all(pos + ln <= p or p + n <= pos for p, _u, n in giu):
+            giu.append((pos, uid, ln))
+    return sorted(giu)
 
 
 def _danh_ba_nhom(conn_id: str, chat_id: str) -> list:
@@ -190,11 +218,40 @@ def _tag_result(conn_id: str, ok: bool) -> None:
     st["fails"] += 1
     if st["fails"] >= TAG_FAIL_LIMIT:
         st["fails"], st["until"] = 0, time.time() + TAG_PAUSE
-        print(f"[zalo-personal] tag người hỏng {TAG_FAIL_LIMIT} lần liên tiếp, nghỉ {TAG_PAUSE // 60} phút "
-              f"(tin vẫn gửi như thường)", file=sys.stderr)
+        print(f"[zalo-personal] gửi qua CLI (tag người, định dạng) hỏng {TAG_FAIL_LIMIT} lần liên tiếp, nghỉ "
+              f"{TAG_PAUSE // 60} phút (tin vẫn gửi như thường)", file=sys.stderr)
 
 
-async def _send_tagged(conn: dict, chat_id: str, text: str, mention) -> Optional[tuple]:
+def _style_args(styles) -> list:
+    """`--style` arguments of `javis-zalo msg send` for `zalo_markup.to_zalo` styles (positions in UTF-16 units)."""
+    specs = [f"{int(a)}:{int(n)}:{name}" for a, n, name in styles or () if int(n) > 0 and name in zalo_markup.STYLE_NAMES]
+    return ["--style"] + specs if specs else []
+
+
+async def _send_styled(conn: dict, chat_id: str, text: str, loai: int, styles) -> Optional[tuple]:
+    """Send one message WITH text styles (bold, colours...) through `javis-zalo msg send --style` (0.413.0): the MCP
+    send tool took plain text only before javis-zalo 1.9.0. Returns `(ok, error)` once there is an outcome, or None when
+    nothing was sent and the caller should send the plain text through the MCP. A timeout is an outcome (the CLI may
+    have sent it already), like `_send_tagged`."""
+    import zalo_cli
+    home = zalo_cli.home_of(conn)
+    cid = str(conn.get("id") or "")
+    args = _style_args(styles)
+    if not home or not args or _tag_paused(cid):
+        return None
+    ok, _data, err = await zalo_cli.run_cli(
+        {"home": home}, ["msg", "send"], [chat_id, text], ["-t", str(int(loai))] + args, timeout=TAG_TIMEOUT)
+    if ok:
+        _tag_result(cid, True)
+        return True, ""
+    _tag_result(cid, False)
+    if zalo_cli.is_timeout(err):
+        return False, f"không rõ tin có định dạng đã đi chưa ({err})"
+    print(f"[zalo-personal] gửi có định dạng lỗi, gửi lại chữ thường: {err[:200]}", file=sys.stderr)
+    return None
+
+
+async def _send_tagged(conn: dict, chat_id: str, text: str, mention, styles=()) -> Optional[tuple]:
     """Gửi một tin nhóm CÓ TAG. Trả `(ok, lỗi)` khi đã có kết cục, hoặc None khi chưa gửi gì và người gọi nên gửi thường.
 
     Hết giờ là kết cục KHÔNG RÕ: CLI có thể đã gửi xong mới bị giết. Gửi lại bằng đường khác thì có thể thành hai tin dưới tên chủ trong
@@ -211,17 +268,21 @@ async def _send_tagged(conn: dict, chat_id: str, text: str, mention) -> Optional
     if uid:
         final, pos, ln = tagged_text(text, name)
         specs.append((pos, uid, ln))
-    # Every other "@Name" the message carries (0.123.0), never the account itself.
+    # Every other "@Name" the message carries (0.123.0), never the account itself, never inside the reply tag.
     minh = str((zc._ID_MINH.get(cid) or {}).get("uid") or "")
-    specs += tag_ten_trong_cau(final, _danh_ba_nhom(cid, chat_id), bo_qua={u for u in (uid, minh) if u})
+    specs += tag_ten_trong_cau(final, _danh_ba_nhom(cid, chat_id), bo_qua={u for u in (uid, minh) if u},
+                               chiem=[(p, n) for p, _u, n in specs])
     if not specs:
         return None
-    specs.sort()
+    specs = _khong_chong(specs)
+    # "@Name " put in front of the text moves every style by its length.
+    lech = _utf16_len(final) - _utf16_len(text)
+    styles = [(a + lech, n, name) for a, n, name in styles or ()]
     # Tiếng vọng của tin có tag mang cả "@Tên": nhớ luôn bản này, không thì vòng đọc tưởng chủ vừa tự tay nhắn và bot im 10 phút.
     zc.ghi_da_gui(cid, chat_id, final)
     ok, _data, err = await zalo_cli.run_cli(
         {"home": home}, ["msg", "send"], [chat_id, final],
-        ["-t", "1", "--mention"] + [f"{p}:{u}:{n}" for p, u, n in specs], timeout=TAG_TIMEOUT)
+        ["-t", "1", "--mention"] + [f"{p}:{u}:{n}" for p, u, n in specs] + _style_args(styles), timeout=TAG_TIMEOUT)
     if ok:
         _tag_result(cid, True)
         return True, ""
@@ -286,7 +347,10 @@ async def gui(tk: dict, chat_id: str, text: str, chat_type: str = "private", men
         except Exception:      # noqa: BLE001 - worst case one duplicate line in the inbox
             pass
     text = sach
-    doan = cat_tin(str(text or "")) or [str(text or "")]
+    # Several short messages the bot chose to send (0.281.0, bot_split): each part is its own message, and a part
+    # still longer than `TIN_TOI_DA` is cut as before. Without the marker this is exactly the old single split.
+    import bot_split
+    doan = [d for p in (bot_split.parts(text) or [str(text or "")]) for d in (cat_tin(p) or [])] or [str(text or "")]
     if len(doan) == 1:
         return await _gui_mot(conn, chat_id, doan[0], chat_type, mention)
     # Tin dài: gửi lần lượt từng đoạn. Mỗi đoạn về vòng đọc như một tin riêng, nên phải nhớ TỪNG đoạn là
@@ -308,11 +372,19 @@ async def gui(tk: dict, chat_id: str, text: str, chat_type: str = "private", men
 
 
 async def _gui_mot(conn: dict, chat_id: str, text: str, chat_type: str, mention=None):
-    """Gửi MỘT tin (đã vừa trần `TIN_TOI_DA`). `(ok, lỗi)`."""
+    """Gửi MỘT tin (đã vừa trần `TIN_TOI_DA`). `(ok, lỗi)`.
+
+    Markdown in the reply becomes Zalo text styles (0.413.0, `zalo_markup.to_zalo`): the customer sees bold or coloured
+    words, never the stars. When the styled send cannot run, the plain text still goes out through the MCP."""
     import zalo_personal_channel
     loai = 1 if str(chat_type or "") == "group" else 0
-    if loai == 1 and (mention or "@" in str(text or "")):
-        r = await _send_tagged(conn, str(chat_id), str(text or ""), mention)
+    text, styles = zalo_markup.to_zalo(str(text or ""))
+    if loai == 1 and (mention or "@" in text):
+        r = await _send_tagged(conn, str(chat_id), text, mention, styles)
+        if r is not None:
+            return r
+    if styles:
+        r = await _send_styled(conn, str(chat_id), text, loai, styles)
         if r is not None:
             return r
     try:
@@ -320,6 +392,68 @@ async def _gui_mot(conn: dict, chat_id: str, text: str, chat_type: str, mention=
             "threadId": str(chat_id), "text": str(text or ""),
             "threadType": loai, "type": loai,
         })
+    except Exception as e:
+        return False, str(e)[:300]
+    if isinstance(d, dict) and d.get("success") is False:
+        return False, str(d.get("error") or d.get("message") or localefmt.chu("Zalo từ chối", "Zalo refused"))[:300]
+    # javis-zalo returns the id Zalo gave the message. "success" without one means Zalo never confirmed it (0.283.0,
+    # 22/10/2026: replies in the bot history that never reached the customer): report a failure, so the inbox marks the
+    # reply as not sent instead of showing it as delivered.
+    if isinstance(d, dict) and d.get("success") is True and "messageId" in d and not d.get("messageId"):
+        return False, localefmt.chu("Zalo không xác nhận đã nhận tin (không có mã tin)",
+                                    "Zalo did not confirm the message (no message id)")
+    return True, ""
+
+
+async def send_typing(conn_id: str, chat_id: str, chat_type: str = "private") -> bool:
+    """Show "đang soạn tin" in one chat (0.413.0, `zalo_send_typing` of javis-zalo >= 1.9.0). True when Zalo took it.
+    Never raises: the indicator is a nicety, and a connection whose MCP lacks the tool is not asked again for
+    TYPING_OFF seconds."""
+    import zalo_personal_channel
+    cid = str(conn_id or "")
+    if time.time() < float(_TYPING_OFF_UNTIL.get(cid) or 0):
+        return False
+    conn = zalo_personal_channel.ket_noi_theo_id(cid)
+    if not conn:
+        return False
+    try:
+        d = await zalo_personal_channel._goi(conn, TYPING_TOOL, {
+            "threadId": str(chat_id), "threadType": 1 if str(chat_type or "") == "group" else 0})
+    except Exception as e:      # noqa: BLE001 - older javis-zalo: "Tool zalo_send_typing not found"
+        _TYPING_OFF_UNTIL[cid] = time.time() + TYPING_OFF
+        print(f"[zalo-personal] không bật được \"đang soạn tin\" ({str(e)[:120]}), thử lại sau "
+              f"{TYPING_OFF // 60} phút", file=sys.stderr)
+        return False
+    if isinstance(d, dict) and d.get("success") is False:
+        _TYPING_OFF_UNTIL[cid] = time.time() + TYPING_OFF
+        return False
+    return True
+
+
+async def keep_typing(conn_id: str, chat_id: str, chat_type: str = "private") -> None:
+    """Run while a reply is being written; the caller cancels it. Starts after TYPING_DELAY, repeats every
+    TYPING_EVERY seconds, stops for good as soon as one attempt fails."""
+    await asyncio.sleep(TYPING_DELAY)
+    while await send_typing(conn_id, chat_id, chat_type):
+        await asyncio.sleep(TYPING_EVERY)
+
+
+async def send_reaction(tk: dict, chat_id: str, msg_id: str, name: str, chat_type: str = "private",
+                      cli_msg_id: str = ""):
+    """Put an emoji reaction on one message (0.334.0, javis-zalo >= 1.7.0 `zalo_add_reaction`). `(ok, error)`.
+
+    `cli_msg_id` is optional: the MCP looks it up from its buffer or history when it is missing."""
+    import zalo_personal_channel
+    conn = zalo_personal_channel.ket_noi_theo_id(str(tk.get("id") or tk.get("external_id") or ""))
+    if not conn:
+        return False, localefmt.chu("tài khoản Zalo này không còn ở trang Kết nối (hoặc đang tắt)",
+                                     "this Zalo account is no longer on the Connections page (or is turned off)")
+    args = {"threadId": str(chat_id), "threadType": 1 if str(chat_type or "") == "group" else 0, "msgId": str(msg_id),
+            "reaction": str(name)}
+    if cli_msg_id:
+        args["cliMsgId"] = str(cli_msg_id)
+    try:
+        d = await zalo_personal_channel._goi(conn, "zalo_add_reaction", args)
     except Exception as e:
         return False, str(e)[:300]
     if isinstance(d, dict) and d.get("success") is False:
@@ -426,6 +560,15 @@ class Transport:
                 elif tt.get("loi"):
                     self.status = "error"
                     self.last_error = str(tt["loi"])
+                elif zc.evicted_recently(self.conn_id):
+                    # 0.283.0: reading answers, but another session of the account holds the live socket, so the bot
+                    # hears only seconds after each reconnect. Green here hid three hours of missed tags (22/10/2026).
+                    self.status = "error"
+                    self.last_error = localefmt.chu(
+                        "Một phiên khác của cùng nick đang giành kết nối Zalo, bot lỡ phần lớn tin. Đóng Zalo Web của "
+                        "nick này và các Javis hay Claude khác dùng cùng nick.",
+                        "Another session of this account keeps taking the Zalo connection, so the bot misses most "
+                        "messages. Close Zalo Web for this account and any other Javis or Claude client using it.")
                 elif tt.get("lan_cuoi"):
                     self.status = "polling"
                     self.last_error = ""
@@ -512,7 +655,8 @@ class Transport:
             saved, why = await zalo_attachments.fetch_file(att, inbox)
             if saved:
                 da_tai.append(saved)
-                text += "\n" + zalo_attachments.turn_text(saved)
+                # Off the event loop: a long PDF takes a moment to turn into text (0.336.0).
+                text += "\n" + await asyncio.to_thread(zalo_attachments.turn_text, saved)
             else:
                 text += "\n[Không tải được file Zalo: " + why + ". Không suy đoán nội dung.]"
         if zc._BOTS.get(self.conn_id) is not self:
@@ -547,9 +691,13 @@ class Transport:
         vao_nhom = md0.get("member_join")
         if vao_nhom and loai != "group":
             return
-        if loai not in ("private", "group") or (kieu not in ("text", "image", "file") and not vao_nhom):
+        if loai not in ("private", "group") or (kieu not in ("text", "image", "file", "reaction", "video", "audio")
+                                                and not vao_nhom):
             return
         nhom = loai == "group"
+        # A customer's emoji reaction (0.334.0) reaches the bot as its describing line. Nothing here decides whether it
+        # deserves an answer: the judge does in a group ("Tự đánh giá"), the Agent everywhere else.
+        is_reaction = kieu == "reaction"
         # File khách gửi (một tin file, hoặc các file đi theo lượt gộp chat riêng của `zc.gop_tin`).
         # Rào chặt: sai tài khoản, không phải khách, thiếu người gửi, chat riêng mà người gửi không phải
         # chủ cuộc chat, hoặc không có precheck thì KHÔNG tải. Lượt chỉ có file thì bỏ cả lượt; lượt có
@@ -570,6 +718,12 @@ class Transport:
         # Tin ảnh có CHÚ THÍCH (0.65.13) xử lý như tin chữ với chú thích làm nội dung: "@Javis Vũ ..." viết trong phần chú thích của ảnh
         # là một cái tag thật. Trước đây mọi tin không phải chữ bị bỏ, nên tag kèm ảnh không bao giờ tới bot. Ảnh trơn: xem `_nho_anh_tron`.
         co_anh = kieu == "image"
+        # 0.433.0: a video the customer sent in this private turn; the bot looks at its frames (`chatbot_runtime`).
+        video_url = str(md0.get("video_url") or "") if loai == "private" and not vao_nhom else ""
+        # 0.435.0: voice messages of this private turn (a merged turn carries a list, a single message its own link).
+        audio_urls = ([] if loai != "private" or vao_nhom
+                      else list(md0.get("audio_urls") or []) if md0.get("gop")
+                      else [md0["audio_url"]] if kieu == "audio" and md0.get("audio_url") else [])
         if vao_nhom:
             # 0.84.2: someone joined the group. The newcomer is the "sender", so a reply tags them (`_gui`).
             # Javis writes no greeting of its own: the bot's Agent decides, and stays silent when its
@@ -578,7 +732,9 @@ class Transport:
         else:
             # Lượt gộp (0.128.0, `zalo_personal_channel.gop_tin`) đã bóc chú thích ảnh từng tin rồi nối lại: lấy nguyên.
             gop = bool(md0.get("gop"))
-            text = (conversations.chu_thich_anh(ev.get("text")) if co_anh and not gop else str(ev.get("text") or "").strip())
+            text = (conversations.chu_thich_anh(ev.get("text")) if co_anh and not gop
+                    else "" if kieu in ("video", "audio") and not gop      # its text is only its link
+                    else str(ev.get("text") or "").strip())
         if chi_file and not text:
             text = "(người dùng gửi file)"
         thread = str(ev.get("external_chat_id") or "")
@@ -595,9 +751,16 @@ class Transport:
                 return
             # Chat riêng: ảnh không kèm chữ vẫn là người ta đang nhờ xem ảnh (gửi đề, gửi bài làm). Trước đây bị bỏ hẳn
             # ở đây, nên bot không bao giờ thấy ảnh gửi trơn (15/10/2026). Đưa cho bot kèm ảnh, Agent tự quyết hỏi gì.
-            if not (co_anh and loai == "private" and (ev.get("metadata") or {}).get("image_url")):
+            if audio_urls and not co_anh and not video_url:
+                import chatbot_runtime
+                text = chatbot_runtime.AUDIO_TRON
+            elif video_url and not co_anh:
+                import chatbot_runtime
+                text = chatbot_runtime.VIDEO_TRON
+            elif not (co_anh and loai == "private" and (ev.get("metadata") or {}).get("image_url")):
                 return
-            text = "[Khách gửi một ảnh, không kèm lời nhắn]"
+            else:
+                text = "[Khách gửi một ảnh, không kèm lời nhắn]"
         # Không biết cuộc chat là nhóm hay chat riêng (đã hỏi lại bảng mà vẫn không thấy): KHÔNG trả
         # lời. Đoán là chat riêng nghĩa là trả lời từng tin của một nhóm, dưới tên người thật.
         if (ev.get("metadata") or {}).get("chua_ro_loai"):
@@ -634,14 +797,29 @@ class Transport:
             "user_name": str(ev.get("sender_name") or ""), "username": "",
             "message_id": str(ev.get("external_message_id") or ""),
             "account_id": self.conn_id,
+            # The message a reaction from the bot would go on (0.334.0): this one, or the last real message of a merged
+            # private turn. Never a reaction.
+            "react_to": (str(md0.get("react_to") or "") if md0.get("gop")
+                         else "" if is_reaction else str(ev.get("external_message_id") or "")),
+            "react_to_cli": str((md0.get("react_to_cli") if md0.get("gop") else md0.get("cliMsgId")) or ""),
         }
+        if is_reaction:
+            meta["reaction"] = True
+        # Labels the owner put on this chat in the Zalo app (0.281.0, javis-zalo 1.6.0): the bot can skip chats tagged
+        # e.g. "Gia đình" (`chatbot_runtime._ly_do_im`) and sees the tags in its prompt. Cached per connection, so this
+        # await costs nothing on most messages; any failure leaves the list empty and the turn runs as before.
+        try:
+            meta["zalo_labels"] = await zc.labels_of_chat(self.conn_id, thread)
+        except Exception as e:      # noqa: BLE001
+            meta["zalo_labels"] = []
+            print(f"[zalo-personal bot {self.conn_id}] tag Zalo lỗi: {type(e).__name__}", file=sys.stderr)
         if co_anh:
             meta["co_anh"] = True
             # 0.74.1: the photo's link, so the bot can actually look at it (see `chatbot_runtime.anh_cho_bot`).
             meta["image_url"] = str((ev.get("metadata") or {}).get("image_url") or "")
             if not nhom:
                 zc.nho_anh_rieng(self.conn_id, thread, meta["image_url"])
-        elif not vao_nhom:
+        elif not vao_nhom and not is_reaction:
             # 0.141.0: a message that QUOTES a photo ("@bot xem ảnh này" as a reply to it) shows the bot that photo.
             # Checked BEFORE the remembered private photo (0.172.0): a quoted photo is the one the person means, the
             # latest photo is only a guess.
@@ -657,6 +835,18 @@ class Transport:
                 meta.update(co_anh=True, image_url=url, anh_truoc=True)
                 text = (text + "\n[Kèm ảnh khách gửi lúc " + datetime.fromtimestamp(gio, localefmt.tz()).strftime("%H:%M")
                         + " trong cuộc chat này, có thể liên quan tới tin trên]")
+        if audio_urls:
+            meta["audio_urls"] = audio_urls
+        if video_url:
+            meta["video_url"] = video_url
+            meta["video_msg"] = str(md0.get("video_msg") or ev.get("external_message_id") or "")
+            zc.remember_private_video(self.conn_id, thread, video_url, meta["video_msg"])
+        elif not nhom and not vao_nhom and not is_reaction and zc.recent_private_video(self.conn_id, thread):
+            # A text right after a video ("anh xem hỗ trợ em với"): show that video again, saying it came earlier.
+            from datetime import datetime
+            gio, url, mid = zc.recent_private_video(self.conn_id, thread)
+            meta.update(video_url=url, video_msg=mid,
+                        video_truoc=datetime.fromtimestamp(gio, localefmt.tz()).strftime("%H:%M"))
         duoc_goi = False
         pol = None
         if vao_nhom:
@@ -684,6 +874,15 @@ class Transport:
                     pol = None
                     print(f"[zalo-personal bot {self.conn_id}] bộ phán xử lỗi: {type(e).__name__}: {e}", file=sys.stderr)
                 duoc_goi = duoc_goi or bool(meta.get("mentioned"))
+        if nhom and not vao_nhom and not is_reaction:
+            # Files in a group (0.336.0, see `zc.remember_bare_file`): a file nobody addressed to the bot waits for its
+            # sender's next call; a call that quotes a file, or comes right after the sender's bare file, gets it.
+            nguoi = str(ev.get("sender_id") or "")
+            if chi_file and files and not duoc_goi and self._che_do_nhom() != "always":
+                zc.remember_bare_file(self.conn_id, thread, nguoi, files[0], float(ev.get("created_at") or 0))
+            elif (duoc_goi and not files and nguoi and ev.get("sender_type") == "customer" and self.precheck_fn
+                  and str(ev.get("account_id") or "") == self.conn_id):
+                files = zc.quoted_file(self.conn_id, thread, md0) or zc.take_bare_files(self.conn_id, thread, nguoi)
         try:
             if self.precheck_fn:
                 r = self.precheck_fn(text, meta)
@@ -701,7 +900,8 @@ class Transport:
                     # Bộ phán xử thay cửa từ khoá: tin hiển nhiên không đáng đã được ghi vết và bỏ ở `prepare`.
                     if pol.get("action") == "drop":
                         return
-                elif not chatbot_tu_dong.nhin_nhu_cau_hoi(text)[0]:
+                elif is_reaction or not chatbot_tu_dong.nhin_nhu_cau_hoi(text)[0]:
+                    # Without the judge, "auto" only answers what looks like a question; a reaction never is one.
                     return
                 # Chờ TRƯỚC khi cầm khoá cuộc chat: khoá là của các lượt được tag, đừng bắt chúng
                 # xếp hàng sau một lượt đang ngủ.
@@ -730,6 +930,9 @@ class Transport:
                                                + " / ".join(cu["texts"]) + ". Hãy trả lời MỘT lần cho các tin này cùng tin mới "
                                                "bên dưới, đừng hỏi lại điều khách đã nói. Việc lượt trước đã làm bằng công cụ (ghi file, gửi tin, "
                                                "đặt lịch) là ĐÃ xong, đừng làm lại.]")
+                # "Đang soạn tin" while the reply is written (0.413.0), private chats only: in a group most turns end
+                # in silence by design, and an indicator followed by nothing reads as a person who changed their mind.
+                go = None if nhom else asyncio.create_task(keep_typing(self.conn_id, thread, loai))
                 try:
                     out = await self.answer_fn(text, meta, None)
                 except BaseException:
@@ -738,6 +941,9 @@ class Transport:
                     if cu:
                         zc.bo_do_gui(self.conn_id, thread, cu["texts"], int(cu.get("n") or 0))
                     raise
+                finally:
+                    if go is not None:
+                        go.cancel()
                 anh = []
                 if isinstance(out, dict):
                     if out.get("khach_nhan_them"):
@@ -746,6 +952,8 @@ class Transport:
                             f.unlink(missing_ok=True)
                         zc.bo_do_gui(self.conn_id, thread, list(cu.get("texts") or []) + [chu_khach], int(cu.get("n") or 0) + 1)
                         return
+                    if out.get("reaction") and zc._BOTS.get(self.conn_id) is self:
+                        await self._react(thread, loai, meta, str(out["reaction"]))
                     if out.get("im_lang"):
                         return
                     cau = str(out.get("text") or "").strip()
@@ -767,6 +975,23 @@ class Transport:
             self.last_error = f"{type(e).__name__}: {e}"[:300]
             print(f"[zalo-personal bot {self.conn_id}] lượt hỏng: {self.last_error}",
                   file=sys.stderr)
+
+    async def _react(self, thread: str, chat_type: str, meta: dict, name: str) -> None:
+        """Put the reaction the judge or the Agent chose on the customer's message (0.334.0). No target (a turn made
+        only of reactions) or an unknown name: nothing. A failure only shows on the bot card, the turn goes on."""
+        import bot_reaction
+        import zalo_personal_channel as zc
+        target = str((meta or {}).get("react_to") or "")
+        if not target or name not in bot_reaction.NAMES:
+            return
+        bot_name = str(((self.cfg_fn() if self.cfg_fn else {}) or {}).get("name") or "")
+        # Remembered BEFORE sending: the echo may reach the read loop in the very next round.
+        zc.remember_bot_reaction(self.conn_id, thread, target, name, bot_name)
+        ok, err = await send_reaction({"id": self.conn_id}, thread, target, name, chat_type,
+                                      str((meta or {}).get("react_to_cli") or ""))
+        if not ok:
+            self.last_error = localefmt.chu(f"Thả cảm xúc Zalo lỗi: {err}", f"Zalo reaction failed: {err}")[:300]
+            print(f"[zalo-personal bot {self.conn_id}] {self.last_error}", file=sys.stderr)
 
     async def _gui(self, thread: str, cau: str, chat_type: str = "private", meta: Optional[dict] = None):
         import zalo_personal_channel as zc

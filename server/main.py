@@ -7,6 +7,7 @@ Javis KHÔNG gọi Anthropic API trực tiếp. Mọi reasoning + tool calling �
 """
 import brain_seed_i18n   # file hạt giống của brain mới theo ngôn ngữ người dùng
 import brain_label   # tên hiển thị của brain, tách khỏi thư mục (0.219.0)
+import brain_order   # thứ tự brain trong bảng chọn: chủ tự sắp, còn lại theo tên hiển thị (0.431.0)
 import localefmt   # múi giờ theo cấu hình, thay UTC+7 nhúng cứng
 import html as html_mod   # escape lời báo lỗi OAuth trên trang callback (biến cục bộ `html` che tên module)
 import posixpath
@@ -17,6 +18,7 @@ import asyncio
 import dataclasses
 import glob
 import hashlib
+import ipaddress
 # `sys` phải nằm ở ĐẦU file: rải rác trong file có chỗ `import sys` cục bộ, nhưng cũng có chỗ
 # dùng sys.stderr mà quên import - và vì chúng nằm trong nhánh `except` (đường ghi log lỗi),
 # chúng chỉ nổ đúng lúc đã có sự cố khác, biến một lỗi lẽ ra chỉ cần ghi log thành NameError
@@ -80,25 +82,32 @@ import grok_cli          # bộ não thứ 11: Grok Build CLI (`grok`) - gói Su
 import totp            # xác thực 2 lớp (TOTP) cho cổng đăng nhập - thuần toán, không đụng cấu hình
 import claude_auth     # gói Claude Code xác thực bằng gì: phiên subscription hay API key
 import aux_engine   # engine việc nền: Claude / Codex / API rẻ
+import model_routing   # 0.350.0: provider order, per-card model/effort, several accounts per provider
+import plan_accounts   # 0.353.0: several accounts on one subscription plan card (Codex, Grok, Claude Code)
+import adv_keys   # gateway lists: Advanced API key (OpenAI route) and Claude Compatible (Anthropic route)
 import mcp_store
 import mcp_client
 import mcp_catalog
 import mcp_hub
+from improvement_task_skill_turn import TaskSkillTurn
 import connect_health   # sức khoẻ kết nối: vòng check nền + phân loại lỗi tiếng người
 import purge          # xoá kết nối cho sạch: chủ sở hữu duy nhất của việc dọn dấu vết
 import core_off       # năng lực MẶC ĐỊNH gỡ được: trạng thái ghi ở STATE_DIR, không sửa cây code
 import packs          # GÓI mở rộng: thả thư mục vào STATE_DIR/packs là có thêm connector
 import cred_exchange   # đổi credential hộ user (vd App Password -> Google master token) khi đấu
+import ops_index_watch   # keeps every brain's Javis/index.md current, cheaply
 import plugins_host   # hệ PLUGIN: thư mục Python thả vào, tự thêm tool/hook cho mọi engine qua hub
 import web_security   # chống CSRF-to-localhost + DNS-rebinding cho web API cục bộ
 import image_gen      # tạo ảnh bằng gói ChatGPT (OAuth) - Codex Responses + tool image_generation
 import media_gc       # dọn vùng cache media (attachments/ + inbox/) theo hạn tuổi + trần dung lượng
 import inbox         # hòm thư: mọi kết quả chạy nền để lại một mẩu thư bền ở server
+import notify_policy  # 0.403.0: Javis Core decides which notices ring (groups, levels, modes, the owner's reactions)
 import webpush       # thông báo đẩy trình duyệt (Web Push, tự mã hoá - không thêm thư viện)
 import stt            # nghe tin thoại (Whisper qua Groq) -> chữ, cho kênh Telegram/Zalo
 import luot_dang_chay # sổ lượt chat đang chạy theo brain: tool giao việc tự biết khung chat nào hỏi
 import tool_label     # một dòng mô tả lệnh gọi công cụ (lệnh nào, file nào) cho khối tiến trình
 import nghe_sua       # sửa chữ nghe nhầm theo ngữ cảnh (David -> Javis) + hotwords cho Whisper
+import transcript_fix  # rewrites what the mic heard at the end of a dictation: the main brain, with the chat as context
 import phien_am       # từ tiếng Anh -> cách đọc kiểu Việt (đọc loa + so âm câu nghe được)
 import voice_privacy
 voice_privacy.install()
@@ -110,6 +119,7 @@ import skill_router   # nguồn chân lý khám phá skill (canonical <brain>/sk
 import skill_usage     # telemetry: đếm skill nào THẬT SỰ được dùng qua javis_use_skill (tín hiệu DƯƠNG một chiều)
 import share_bundle   # xuất/nhập gói agent/skill/workflow (.zip) để chia sẻ giữa brain/người dùng
 import share_store    # link CHIA SẺ CÔNG KHAI của một file trong brain (/s/<token>)
+import share_stats    # view counter of those public links
 import share_render   # dựng trang xem cho link chia sẻ (markdown -> html, khung trang)
 import usage_store   # đếm token/chi phí Javis tự đo (đa nhà cung cấp)
 import usage_index   # dashboard token: index log thô Claude+Codex + query summary/insights
@@ -143,11 +153,15 @@ import zalo_bot   # kênh Zalo Bot của chủ (API chính thức) - cùng khế
 import owner_channels   # owner's control channels on Slack and WhatsApp (0.71.0)
 import whatsapp_bot     # WhatsApp transport + webhook router (0.71.0)
 import messenger_bot    # Messenger transport + webhook router (0.134.0)
+import messenger_setup  # Messenger connect wizard and health check (0.311.0)
+import messenger_oauth  # Log in with Facebook for the Messenger card (0.434.0)
+import zalo_oa_bot      # Zalo OA transport + webhook router (0.412.0)
 import channel_context   # metadata kênh + gom file trả về kênh chat (port gateway hermes-agent)
 import lang as lang_mod   # chốt ngôn ngữ trả lời cho một lượt
 import lang_registry      # sổ đăng ký: mọi thứ về một ngôn ngữ nằm đúng một chỗ
 import background_status  # việc nền còn sống của một khung chat + bắt lời hứa "xong em báo"
 import tien_trinh_nen     # lệnh chạy ngầm engine bỏ lại: nhận theo dõi, xong tự báo + làm tiếp
+import turn_done_notice   # a long chat turn that finishes rings the bell (the owner has left the screen)
 import chatbot_log       # nhật ký hội thoại khách + thống kê câu bot trả lời không nổi
 import chatbot_runtime   # bộ giám sát Bot chuyên trách (mỗi bot một poller Telegram)
 import agent_avatar
@@ -157,6 +171,8 @@ import cli_autoinstall   # trạng thái agy/grok do container Docker tự cài 
 import agent_assets      # tài liệu & link gắn vào MỘT trợ lý (lưu trong frontmatter agent)
 import workflow_chat     # persona_cua_phien: kênh agent:/workflow: đổi cách _do_turn chạy lượt
 import javis_core        # Javis Core (0.185.0): system assistant pinned in every brain
+import main_prompt_rendering  # pure shared prompt blocks; no live reads
+import main_attachment_rendering  # pure shared attachment templates; no live reads
 import memory_control    # 0.188.0: list/edit/forget memories, learning switch, person profile
 import memory_chat       # 0.190.0: the same, plus agent lessons, from chat (tool javis_memory)
 import memory_receipt    # 0.190.0: the "Đã nhớ · Hoàn tác" line under an answer, and no empty "đã quên"
@@ -171,6 +187,7 @@ import channels          # sổ đăng ký kênh của Hộp thư hội thoại 
 import conversations     # Hộp thư hội thoại khách: kho khách -> hội thoại -> tin (Chatbot V2)
 import zalo_personal_channel   # Hộp thư hội thoại: đọc tin Zalo cá nhân từ MCP theo cursor
 import deploy_info              # Javis đang đứng ở đâu (docker/native) - xem _deploy_mode
+import node_security            # News item when this machine's Node.js misses a security release
 import ollama_catalog           # danh mục model để gợi ý + tìm kiếm
 import ollama_local             # dò/tải/gỡ model trên máy chạy Ollama
 import sessions                  # PROJECT_INSTRUCTIONS_MAX cho khối project trong system prompt
@@ -193,7 +210,10 @@ import voice_ear     # tai nghe lại: model đa ngôn ngữ nghe âm thanh rồ
 import agent_notify  # 0.205.0: unread and mute for private partner chats
 import steer_inbox  # 0.206.0: messages the owner sends while a turn runs
 import codex_steer  # 0.213.0: Codex chat turns on app-server take those messages mid-way
+import warm_pool  # 0.382.0: engine processes kept warm between the owner's chat turns
+import claude_warm  # 0.382.0: Claude Code chat turns on a warm process
 import codex_realtime  # ChatGPT Live: một Codex app-server sống lâu, realtime trên gói ChatGPT (0.65.17)
+import voice_persona  # a voice call from a partner's chat speaks as that partner
 import voice_call     # nút mic là gọi Javis: tự chọn ChatGPT Live / Live API / Cơ bản (0.65.18)
 
 app = FastAPI(title="Javis OS")
@@ -239,11 +259,15 @@ _REGISTRY_SHADOW_TASKS = set()
 # middleware gắn sau bọc response thành stream, đứng ngoài chúng thì không còn thấy câu trả lời nào là một cục.
 import nen_phan_hoi
 app.add_middleware(nen_phan_hoi.NenPhanHoi)
-# CORS KHÔNG dùng '*' nữa: dashboard cùng-origin (không cần CORS). Chỉ mở cross-origin cho localhost
-# (tiện dev). Chống trang web độc ĐỌC API qua trình duyệt; phần chống GHI/CSRF ở _csrf_guard bên dưới.
-app.add_middleware(CORSMiddleware,
-                   allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
-                   allow_methods=["*"], allow_headers=["*"])
+# CORS KHÔNG dùng '*' nữa: dashboard cùng-origin (không cần CORS). Chống trang web độc ĐỌC API qua trình duyệt;
+# phần chống GHI/CSRF ở _csrf_guard bên dưới.
+# Vá bảo mật 2026-11-05: cửa CORS cho MỌI localhost:<cổng> (để tiện dev) giờ chỉ mở khi JAVIS_DEV_CORS=1. Trên
+# máy không đặt mật khẩu, nó cho bất kỳ trang nào chạy ở một cổng localhost khác (dev server, app khác) đọc được
+# cả API: file trong brain, hội thoại. Dashboard, CLI và plugin không cần nó.
+if (os.getenv("JAVIS_DEV_CORS", "") or "").strip().lower() in ("1", "true", "yes", "on"):
+    app.add_middleware(CORSMiddleware,
+                       allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
+                       allow_methods=["*"], allow_headers=["*"])
 
 # Đường dẫn KHÔNG cần đăng nhập. CHỈ các auth endpoint công khai (status/login/setup) -
 # KHÔNG để cả prefix /auth public vì /auth/disable, /auth/logout phải yêu cầu đăng nhập.
@@ -253,10 +277,16 @@ app.add_middleware(CORSMiddleware,
 # canh đúng một ký tự này.
 # "/hooks/" (0.198.0): webhook triggers, called by outside systems with no cookie. Same trailing
 # slash rule as "/s/"; each hook checks its own secret token in webhook_triggers.accept().
-_AUTH_PUBLIC_PREFIX = ("/static", "/health", "/s/", "/hooks/")
+# 2026-11-05 audit: "/static" and "/health" had no trailing slash, the same trap as "/s" above. "/health" opened
+# /health/loop (stack traces, server paths, restart history) and would open any later /health* or /static* route.
+# The probe stays public as an exact path; the static mount keeps its prefix WITH the slash.
+_AUTH_PUBLIC_PREFIX = ("/static/", "/s/", "/hooks/")
 # /brand-logo: hiện trên màn đăng nhập (trước session). /tls-check: Caddy gọi (không đăng nhập được).
-_AUTH_PUBLIC_EXACT = ("/", "/favicon.ico", "/auth/status", "/auth/login", "/auth/setup",
+_AUTH_PUBLIC_EXACT = ("/", "/favicon.ico", "/health", "/auth/status", "/auth/login", "/auth/setup",
                       "/brand-logo", "/brand-theme.css", "/tls-check",
+                      # /domain/auto, /domain/whoami (0.302.0): the login page opened by IP asks whether a
+                      # verified https link exists; neither reveals anything beyond that link and a random id.
+                      "/domain/auto", "/domain/whoami",
                       # /hub/mcp: Claude CLI/Codex gọi bằng Bearer hub_token riêng (không có cookie).
                       # /connect/oauth/callback: browser redirect từ provider OAuth về.
                       "/hub/mcp", "/connect/oauth/callback",
@@ -266,7 +296,21 @@ _AUTH_PUBLIC_EXACT = ("/", "/favicon.ico", "/auth/status", "/auth/login", "/auth
                       "/whatsapp/webhook",
                       # /messenger/webhook (0.134.0): same contract as WhatsApp, the signature is
                       # checked in the route under the app secrets of the Messenger accounts.
-                      "/messenger/webhook")
+                      "/messenger/webhook",
+                      # /messenger/oauth/callback (0.434.0): Facebook sends the browser back here; the
+                      # unguessable `state` from an authenticated /messenger/oauth/start is the check.
+                      # /messenger/privacy: the policy page Meta must reach to switch the app to Live.
+                      "/messenger/oauth/callback", "/messenger/privacy",
+                      # Threads (0.448.0): the webhook (signature checked in the route), the login callback (the
+                      # unguessable state is the check) and the two callbacks the Threads use case requires.
+                      "/threads/webhook", "/threads/oauth/callback", "/threads/uninstall", "/threads/delete",
+                      # /zalo-oa/webhook (0.412.0): Zalo calls it with no cookie; the route checks
+                      # X-ZEvent-Signature under the OA secret keys of the Zalo OA accounts.
+                      "/zalo-oa/webhook",
+                      # /chatbot-api/v1/turn (0.459.0): a server of the owner asks one Chatbot. No cookie; the route
+                      # checks the source address and the key of an internal API channel account itself
+                      # (channels/api.py). That key opens this path only, and an API token does not open it.
+                      "/chatbot-api/v1/turn")
 # Endpoint CHỈ-LOCALHOST: agent (Claude CLI chạy cùng máy/container) curl được mà không cần
 # cookie đăng nhập; request từ ngoài (qua Traefik/Caddy/LAN) đến từ IP khác loopback → vẫn bị chặn.
 # /reminders/cancel đi cùng nhóm với /reminders (TẠO nhắc): huỷ là thao tác YẾU HƠN tạo, nên
@@ -340,7 +384,10 @@ async def _auth_guard(request: Request, call_next):
         path = duong_dan_router(request)   # KHÔNG phải request.url.path - xem duong_dan_router
         public = (path in _AUTH_PUBLIC_EXACT
                   or any(path.startswith(p) for p in _AUTH_PUBLIC_PREFIX)
-                  or (path in _AUTH_LOCAL_EXACT and _direct_local_request(request))
+                  or (path in _AUTH_LOCAL_EXACT and _local_tool_call(request))
+                  # Zalo's domain check fetches /zalo_verifier<code>.html (0.412.0). The route answers
+                  # only codes the owner saved and 404s everything else, so nothing leaks.
+                  or (path.startswith("/zalo_verifier") and path.endswith(".html") and "/" not in path[1:])
                   # Đường HTTP của plugin mà CHÍNH plugin khai là công khai (0.64.26). Chỉ hỏi
                   # khi đúng tiền tố, để request thường không phải đi tra danh sách plugin.
                   or ((path.startswith("/ext/") or path.startswith("/.well-known/"))
@@ -383,7 +430,42 @@ DASHBOARD_PATH = Path(__file__).parent.parent / "dashboard"
 # Windows/mimetypes không biết .webp -> StaticFiles trả text/plain; khai rõ để logo webp đúng kiểu ảnh.
 import mimetypes
 mimetypes.add_type("image/webp", ".webp")
-app.mount("/static", StaticFiles(directory=str(DASHBOARD_PATH)), name="static")
+# Office files (#898): a slim image without /etc/mime.types does not know .xlsx/.docx/.pptx, so /files/raw sent them as
+# application/octet-stream and the browser could not tell what it was saving.
+for _mt, _ext in (("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"),
+                  ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"),
+                  ("application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx")):
+    mimetypes.add_type(_mt, _ext)
+import tinh_gon  # noqa: E402
+
+
+class _TinhGonStatic(StaticFiles):
+    """StaticFiles, trừ .js/.css của dashboard thì gửi bản nén gọn (tinh_gon.py, 0.416.0).
+
+    ETag là crc32 của chính bản gửi đi, và 304 so theo nó; không gửi Last-Modified để trình duyệt khỏi hỏi lại bằng
+    ngày sửa file (ngày đó nói về bản gốc, không phải bản nén). Mọi thứ khác (ảnh, json, file .min.*) đi đường cũ."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if resp.status_code != 200 or not tinh_gon.nen_duoc(path):
+            return resp
+        full = getattr(resp, "path", None)
+        if not full:
+            return resp
+        try:
+            # 0.444.4: the first serve after a restart minifies in pure Python (1.5 s for all files on a fast CPU,
+            # several seconds on a 1 vCPU VPS): a worker thread, so /health and other pages keep answering.
+            data, crc = await asyncio.to_thread(tinh_gon.ban_phuc_vu, Path(full), path)
+        except OSError:
+            return resp
+        etag = '"' + crc + '"'
+        from starlette.datastructures import Headers as _Headers
+        if _Headers(scope=scope).get("if-none-match") == etag:
+            return Response(status_code=304, headers={"etag": etag})
+        return Response(data, media_type=resp.media_type, headers={"etag": etag})
+
+
+app.mount("/static", _TinhGonStatic(directory=str(DASHBOARD_PATH)), name="static")
 
 
 class _NenTinh:
@@ -497,7 +579,12 @@ SYSTEM_PROMPT = CLAUDE_MD_PATH.read_text(encoding="utf-8") if CLAUDE_MD_PATH.exi
 # chính test đó canh sự khớp: sửa một bên mà quên bên kia là đỏ. Đó là cái chặn thật - muốn
 # nâng trần thì phải sửa HAI chỗ và phải viết ra lý do ở cả hai, đủ ma sát để người sửa dừng
 # lại nghĩ thay vì gõ số mới cho xong.
-PROMPT_KERNEL_MAX_CHARS = 33_600
+#
+# 0.345.0: lowered from 33,600 to 29,200. The plugin, capability-building, attached-file and
+# agent/workflow sections were condensed (their templates and details already live in the
+# javis-builder skill and the tool descriptions), saving about 1,850 tokens on every turn of every
+# engine. The cap moves down with it so the saving is not quietly refilled; same ~600 spare chars.
+PROMPT_KERNEL_MAX_CHARS = 29_200
 
 # Bộ nhớ dài hạn - lưu TRONG vault đang chọn để đi theo vault
 MEMORY_SEED = (
@@ -669,84 +756,13 @@ def _brain_memory_dir(brain: str) -> Path:
 # (~5,7k token) và tăng tuyến tính theo số ký ức - đúng cái bệnh curator vừa mắc, không có gì
 # chặn. Trần này chưa cắt gì hôm nay (18.363 < 20.000), nó biến đường dốc thành đường phẳng.
 MEMORY_INDEX_MAX = int(os.getenv("JAVIS_MEMORY_INDEX_MAX", "20000"))
-_MEM_ITEM_RE = re.compile(r'^(\s*-\s*\[[^\]]*\]\([^)]*\))\s*[-–—]?\s*(.*)$')
+# Existing memory-index consumers use the same matcher as the shared formatter.
+_MEM_ITEM_RE = main_prompt_rendering._MEM_ITEM_RE
 
 
 def _fit_memory_index(mem: str, cap: int = None) -> str:
-    """Ép chỉ mục bộ nhớ xuống dưới trần mà KHÔNG làm mất ký ức nào cho tới phút chót.
-
-    Hạ dần theo bậc: giữ nguyên -> rút mô tả còn 100 ký tự -> còn 60 -> chỉ còn tiêu đề+link
-    -> (cùng lắm) cắt bớt dòng kèm lời chỉ đường. Rút mô tả KHÔNG mất năng lực nhớ: tiêu đề và
-    đường dẫn file vẫn còn nguyên, chi tiết đầy đủ vẫn nằm trong memory/facts/*.md và đọc được
-    bất cứ lúc nào. Mất hẳn dòng mới là mất trí nhớ, nên đó là bậc CUỐI.
-    """
-    cap = cap or MEMORY_INDEX_MAX
-    if len(mem) <= cap:
-        return mem
-    lines = mem.split("\n")
-
-    def rebuild(desc_cap):
-        out = []
-        for l in lines:
-            m = _MEM_ITEM_RE.match(l)
-            if not m:
-                out.append(l)
-                continue
-            head, desc = m.group(1), m.group(2).strip()
-            if not desc:
-                out.append(head)
-            elif desc_cap is None:
-                out.append(head)
-            elif len(desc) <= desc_cap:
-                out.append(f"{head} - {desc}")
-            else:
-                out.append(f"{head} - {desc[:desc_cap].rstrip()}…")
-        return "\n".join(out)
-
-    for desc_cap in (100, 60, None):
-        got = rebuild(desc_cap)
-        if len(got) <= cap:
-            note = ("\n\n> (Mô tả trong chỉ mục đã rút gọn cho vừa ngữ cảnh. Chi tiết đầy đủ của "
-                    "từng ký ức nằm trong file tương ứng ở memory/facts/ - cứ đọc khi cần.)")
-            return got + note
-
-    # Bậc cuối: buộc phải bỏ bớt dòng. Giữ các dòng ĐẦU (ký ức nền tảng ghi sớm nhất) và nói rõ
-    # còn bao nhiêu, kèm đường đọc tiếp - đừng để mất im lặng.
-    # 0.222.0: also NAME the hidden memories (file names only, within a small budget). A model
-    # cannot look up a memory it does not know exists: with only a count, "who is Lan?" got "I do
-    # not know" while facts/lan-em-gai.md sat on disk unread.
-    hidden_budget = min(1200, cap // 5)
-    kept, total = [], 0
-    items = 0
-    rebuilt = rebuild(None).split("\n")
-    for l in rebuilt:
-        if total + len(l) + 1 > cap - 300 - hidden_budget:
-            break
-        kept.append(l)
-        total += len(l) + 1
-        if _MEM_ITEM_RE.match(l):
-            items += 1
-    con_lai = sum(1 for l in lines if _MEM_ITEM_RE.match(l)) - items
-    names = []
-    used = 0
-    for l in rebuilt[len(kept):]:
-        m = _MEM_ITEM_RE.match(l)
-        link = re.search(r"\]\(([^)]*)\)", m.group(1)) if m else None
-        if not link:
-            continue
-        slug = Path(link.group(1).strip()).stem
-        if not slug:
-            continue
-        if used + len(slug) + 2 > hidden_budget:
-            names.append("…")
-            break
-        names.append(slug)
-        used += len(slug) + 2
-    ten = (f" Tên file của chúng: {', '.join(names)}. Cần ký ức nào thì đọc memory/facts/<tên>.md."
-           if names else "")
-    return "\n".join(kept) + (
-        f"\n\n> (Chỉ mục quá dài nên còn {con_lai} ký ức chưa liệt kê ở đây.{ten} "
-        "Đọc memory/MEMORY.md để xem đủ danh sách, và memory/facts/ để xem chi tiết.)")
+    """Compatibility wrapper for the shared pure legacy memory formatter."""
+    return main_prompt_rendering.fit_memory_index(mem, cap or MEMORY_INDEX_MAX)
 
 
 # ── Khối PROJECT ghép vào system prompt ──────────────────────────────────────
@@ -786,11 +802,8 @@ def _project_block(project_id: str, chi_huong_dan: bool = False) -> str:
         return ""
     if not p:
         return ""
-    ra = ""
-    hd = (p.get("instructions") or "").strip()
-    if hd:
-        ra += (f"\n\n# === HƯỚNG DẪN RIÊNG CỦA PROJECT: {p.get('name') or ''} ===\n"
-               f"{hd[:sessions.PROJECT_INSTRUCTIONS_MAX]}")
+    ra = main_prompt_rendering.render_project_instructions(
+        p.get("name") or "", p.get("instructions") or "", instructions_max=sessions.PROJECT_INSTRUCTIONS_MAX)
     if chi_huong_dan:
         return ra
 
@@ -800,58 +813,45 @@ def _project_block(project_id: str, chi_huong_dan: bool = False) -> str:
         return ra
 
     dong, da_nap = _liet_ke_tai_lieu(p.get("brain") or "brain", files, links)
-    if dong:
-        ra += ("\n\n# === TÀI LIỆU & LINK CỦA PROJECT ===\n"
-               "Đây là DANH SÁCH, không phải nội dung: mở file bằng tool đọc file khi cần, "
-               "đừng đoán nội dung từ cái tên. Link chỉ mở được nếu lượt này có tool duyệt web; "
-               "không có thì nói thẳng chứ đừng đoán nội dung trang.\n" + "\n".join(dong))
-    if da_nap:
-        ra += ("\n\n# === NỘI DUNG FILE ĐÃ GHIM (nạp sẵn, không cần mở lại) ===" + "".join(da_nap))
-    return ra
+    return ra + main_attachment_rendering.render_project_assets(dong, da_nap)
+
+
+def _project_has_rules(project_id: str) -> bool:
+    """True when `project_id` names a project with instructions.
+
+    A turn in such a project must not take the fast path: its capsule carries no project block, so
+    the rules ("start every answer with label X") would hold on one turn and not the next."""
+    if not project_id:
+        return False
+    try:
+        return bool(((get_store().get_project(project_id) or {}).get("instructions") or "").strip())
+    except Exception:  # noqa: BLE001 - a store error only means "no rules known", never a broken turn
+        return False
 
 
 def _liet_ke_tai_lieu(brain: str, files: list, links: list):
-    """(dòng liệt kê, nội dung file đã ghim) cho một danh sách tài liệu + link.
+    """Observe ordinary pinned file rows; the shared pure renderer owns templates.
 
-    Tách khỏi `_project_block` vì khung "file & link của CUỘC TRÒ CHUYỆN" gắn tay dùng lại
-    nguyên bộ luật này. Hai chỗ mà chép đôi thì trần token trôi lệch, và trần token trôi lệch
-    là kiểu hỏng không ai thấy cho tới lúc hoá đơn hoặc lỗi quá hạn mức xuất hiện.
+    Preserve the legacy read order and per-row errors, including duplicate stored
+    paths and reads after the content budget is exhausted. Source permissions and
+    decoding remain on this production path, outside protected trial rendering.
     """
-    dong, da_nap, con_lai = [], [], PROJECT_GHIM_TONG_MAX
-    for f in files[:PROJECT_FILES_LIET_KE]:
-        ten, duong = f.get("name") or "", f.get("path") or ""
-        if not f.get("pinned"):
-            dong.append(f"- [file] {ten} - {duong}")
-            continue
-        duoi = os.path.splitext(duong)[1].lower()
-        if duoi not in PROJECT_GHIM_DUOI:
-            # Nói THẲNG là ghim nhưng không nạp được, kèm lý do. Im lặng bỏ qua thì người dùng
-            # ghim xong tưởng Javis đã đọc, rồi ngạc nhiên vì nó trả lời như chưa thấy gì.
-            dong.append(f"- [file, đã ghim nhưng là tệp nhị phân - tự mở khi cần] {ten} - {duong}")
-            continue
-        try:
-            # `_safe_serve_path` chứ không phải `_safe_path`: đây là đường ĐỌC, và trần duyệt
-            # có thể nằm CAO hơn gốc brain (vd localhost duyệt tới cả ổ đĩa). Lúc đó một đường
-            # dẫn lưu theo gốc brain sẽ không resolve được từ trần, và ngược lại - hàm serve
-            # thử cả hai quy ước, cả hai đều bị khoá trong trần. Nhánh THÊM file thì vẫn dùng
-            # `_safe_path` (chặt hơn): ở đó người dùng chọn từ trình duyệt file nên đường dẫn
-            # chắc chắn theo trần, và ghi vào kho thì phải chặt.
-            noi_dung = _safe_serve_path(brain, duong).read_text(
-                encoding="utf-8", errors="replace")
-        except Exception:
-            dong.append(f"- [file, đã ghim nhưng đọc không được] {ten} - {duong}")
-            continue
-        cat = noi_dung[:min(PROJECT_GHIM_FILE_MAX, max(0, con_lai))]
-        if not cat:
-            dong.append(f"- [file, đã ghim nhưng hết chỗ nạp trong lượt này] {ten} - {duong}")
-            continue
-        con_lai -= len(cat)
-        thieu = " (đã cắt bớt)" if len(cat) < len(noi_dung) else ""
-        da_nap.append(f"\n## {ten} - {duong}{thieu}\n{cat}")
-    for l in links[:PROJECT_FILES_LIET_KE]:
-        dong.append(f"- [link] {l.get('label') or l.get('url')} - {l.get('url')}"
-                    + (" (ghim)" if l.get("pinned") else ""))
-    return dong, da_nap
+    loaded = []
+    for item in files[:PROJECT_FILES_LIET_KE]:
+        prepared = None
+        path = item.get("path") or ""
+        if item.get("pinned") and os.path.splitext(path)[1].lower() in PROJECT_GHIM_DUOI:
+            try:
+                # Read policy includes the serving ceiling, as in the legacy path.
+                text = _safe_serve_path(brain, path).read_text(encoding="utf-8", errors="replace")
+                prepared = main_attachment_rendering.PreparedAttachmentText(text[:PROJECT_GHIM_FILE_MAX], len(text))
+                del text
+            except Exception:
+                pass
+        loaded.append(prepared)
+    return main_attachment_rendering.render_attachment_lists(
+        files, links, loaded, list_max=PROJECT_FILES_LIET_KE, allowed_suffixes=PROJECT_GHIM_DUOI,
+        file_max=PROJECT_GHIM_FILE_MAX, total_max=PROJECT_GHIM_TONG_MAX)
 
 
 def _session_block(session_id: str) -> str:
@@ -879,17 +879,7 @@ def _session_block(session_id: str) -> str:
     if not files and not links:
         return ""
     dong, da_nap = _liet_ke_tai_lieu(sess.get("brain") or "brain", files, links)
-    ra = ""
-    if dong:
-        ra += ("\n\n# === TÀI LIỆU & LINK NGƯỜI DÙNG GẮN VÀO CUỘC NÀY ===\n"
-               "Người dùng tự gắn tay ở khung \"Trong cuộc trò chuyện này\", nên đây là thứ họ "
-               "coi là quan trọng cho ĐÚNG cuộc này. Vẫn là DANH SÁCH chứ không phải nội dung: "
-               "mở file bằng tool đọc file khi cần, đừng đoán nội dung từ cái tên.\n"
-               + "\n".join(dong))
-    if da_nap:
-        ra += ("\n\n# === NỘI DUNG FILE ĐÃ GHIM TRONG CUỘC NÀY (nạp sẵn, không cần mở lại) ==="
-               + "".join(da_nap))
-    return ra
+    return main_attachment_rendering.render_session_assets(dong, da_nap)
 
 
 def _agent_assets_block(brain: str, meta: dict) -> str:
@@ -923,19 +913,74 @@ def _agent_assets_block(brain: str, meta: dict) -> str:
 
 
 def _javis_core_block(session_id: str) -> str:
-    """Javis Core's role block when `session_id` is a Javis Core chat, else "" (0.185.0)."""
+    """Javis Core's role block when `session_id` is a Javis Core chat, else "" (0.185.0). It ends with the name and
+    style the person gave Javis Core in that chat's brain (owner, 04/11/2026)."""
     try:
         row = get_store().get_session(session_id) if session_id else None
     except Exception:
         row = None
-    return javis_core.prompt_block() if row and javis_core.is_core_channel(row.get("channel")) else ""
+    if not (row and javis_core.is_core_channel(row.get("channel"))):
+        return ""
+    try:
+        brain = str(row.get("brain") or "brain")
+        root = _brain_root(brain)
+        block = javis_core.prompt_block(root)
+        # 2026-11-05: documents attached on its card ride along, the same block an agent gets.
+        return block + _agent_assets_block(brain, javis_core.read_core(root)[0])
+    except Exception as e:  # noqa: BLE001 - a broken brain file must not break the turn
+        print(f"[javis core block] {type(e).__name__}: {e}", file=sys.stderr)
+        return javis_core.prompt_block()
+
+
+# Stable prompt (0.445.0, #975): the clock line points at the per-message header instead of holding the time.
+_STABLE_CLOCK_NOTE = ("Giờ hiện tại ghi ở dòng `[Giờ gửi tin này: ...]` đầu tin nhắn mới nhất của user; "
+                      "dùng đúng giờ đó cho \"bây giờ\", \"hôm nay\", \"hôm qua\".")
+
+
+def _turn_facts_header(brain: str, session_id: str, lang: str = "", first: bool = True) -> str:
+    """The per-turn facts a stable system prompt leaves out, as short lines at the head of the user message.
+
+    Every turn: the send time and the dashboard session id (`web:<id>`, needed for `chat_id`/`owner_chat`).
+    First turn of a Claude Code thread only: the latest workflow run and today's usage. A resumed thread keeps
+    the system prompt of its first turn anyway, so these were frozen there before; the header keeps the same
+    freshness without breaking the shared prompt cache (issue #975). Never raises: a missing line must not
+    break the chat turn.
+    """
+    lines = []
+    try:
+        lines.append(context_compiler.dong_ho_ngan(lang=lang))
+    except Exception:  # noqa: BLE001
+        pass
+    if session_id:
+        lines.append(f"[Phiên chat: web:{session_id}]")
+    if first:
+        try:
+            last = _dong_lan_chay_gan_nhat(brain)
+            if last:
+                lines.append(f"[{last}]")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _t = usage_store.summary().get("today", {}).get("total", {})
+            if _t.get("in") or _t.get("out"):
+                lines.append(f"[Mức dùng hôm nay (Javis tự đo, không phải hạn mức gói): "
+                             f"{_t.get('in', 0):,} token vào + {_t.get('out', 0):,} token ra qua "
+                             f"{_t.get('turns', 0)} lượt. Chi tiết ở panel 'Mức dùng'.]")
+        except Exception:  # noqa: BLE001
+            pass
+    return "\n".join(lines)
 
 
 def build_system_prompt(brain: str = "brain", include_memory: bool = True,
                         include_skills: bool = True,
                         lang: "lang_mod.LangDecision | str | None" = None,
-                        project_id: str = "", session_id: str = "") -> str:
+                        project_id: str = "", session_id: str = "", stable: bool = False) -> str:
     """CLAUDE.md + nạp MEMORY.md của vault đang chọn → Javis luôn nhớ ngữ cảnh.
+
+    `stable` (0.445.0, issue #975): leave out what changes from turn to turn (the clock, today's
+    usage, the latest workflow run) so the prompt is byte-identical across new chats of one brain.
+    The Claude Code lane appends this prompt as ONE cached block, so any changed character made each
+    new chat rewrite ~40k tokens of cache. Those facts then travel in `_turn_facts_header`.
 
     `project_id`: hội thoại đang nằm trong project nào. Có thì ghép thêm hướng dẫn riêng +
     danh sách tài liệu của project đó (xem `_project_block`).
@@ -958,7 +1003,7 @@ def build_system_prompt(brain: str = "brain", include_memory: bool = True,
         # 0.188.0: the person's own profile (every brain) BEFORE the brain's memory, which wins where they differ.
         base += memory_control.profile_block()
     if include_memory and mem.strip():
-        base += "\n\n# === BỘ NHỚ DÀI HẠN (nạp sẵn) ===\n" + _fit_memory_index(mem)
+        base += main_prompt_rendering.render_memory_block(mem, memory_cap=MEMORY_INDEX_MAX)
     if not memory_control.learning_enabled(_brain_memory_dir(brain)):
         base += memory_control.LEARNING_OFF_NOTE
     # Ngay sau bộ nhớ, TRƯỚC lớp agentic: hướng dẫn project là luật hành xử, phải đứng cùng
@@ -994,26 +1039,7 @@ def build_system_prompt(brain: str = "brain", include_memory: bool = True,
     ag, wf = _agents_dir(brain), _workflows_dir(brain)
     lp = Path(root) / "Javis" / "loops"
     sk = _skills_dir(brain)
-    base += (
-        "\n\n# === LỚP AGENTIC (vault đang làm việc) ===\n"
-        f"Vault root: {root}\n"
-        f"- AGENT: tạo/sửa tại `{ag}/<slug>.md`\n"
-        f"- WORKFLOW: tạo/sửa tại `{wf}/<slug>.md`\n"
-        f"- LOOP (nhiệm vụ lặp vô hạn): tạo/sửa tại `{lp}/<slug>.md`\n"
-        f"- SKILL: tạo/sửa tại `{sk}/<slug>/SKILL.md` (tự mirror sang .claude/skills cho Claude native)\n"
-        f"- FILE KHÁC (bài viết, báo cáo, nháp, dữ liệu): ghi VÀO TRONG vault root ở trên bằng đường "
-        f"dẫn TUYỆT ĐỐI `{root}/<thư mục>/<tên file>`. TUYỆT ĐỐI không ghi tương đối theo thư mục "
-        "làm việc và không ghi ra ngoài vault: file ngoài vault không hiện ở trang Tệp tin và mất "
-        "khi cập nhật. Trong câu trả lời, dẫn link bằng đường dẫn TƯƠNG ĐỐI so với vault root "
-        "(vd `bai-viet/bai-1.txt`), KHÔNG dùng giao thức `file://` và không mã hoá %20 dù harness "
-        "có dặn khác (khung chat và Telegram mở không được), và CHỈ dẫn link tới file đã ghi xong "
-        "thật. Khi đếm hay liệt kê "
-        "file (vd \"còn bao nhiêu bài chưa xong\"), liệt kê lại thư mục bằng tool ngay lúc đó, "
-        "đừng nhớ lại từ lượt trước.\n"
-        "Khi user yêu cầu tạo/sửa agent, workflow hoặc loop qua chat, ghi file .md đúng định dạng "
-        "(xem mục 'Tạo/sửa Agent & Workflow qua chat' và 'Điều phối' trong system prompt) bằng "
-        "ĐƯỜNG DẪN TUYỆT ĐỐI ở trên. Trang Agents/Workflows/Việc định kỳ sẽ tự nhận file mới."
-    )
+    base += main_prompt_rendering.render_agentic_paths(root, ag, wf, lp, sk)
     # Resonance (M2): chỉ brain đã bật mới có dòng này và mới thấy tool javis_goal. CLAUDE.md đã hết ngân sách
     # ký tự, và brain chưa bật thì không được dài thêm chữ nào.
     # Đường tìm tool khác nhau theo engine. Khi engine Claude dựng được server plugin in-process
@@ -1039,7 +1065,7 @@ def build_system_prompt(brain: str = "brain", include_memory: bool = True,
     except Exception:
         _skills = None
     try:
-        base += _javis_capability_summary(brain, _skills)   # chỉ mục năng lực LIVE (mọi engine biết Javis có gì)
+        base += _javis_capability_summary(brain, _skills, with_last_run=not stable)   # chỉ mục năng lực LIVE (mọi engine biết Javis có gì)
     except Exception:
         pass
     try:
@@ -1053,18 +1079,15 @@ def build_system_prompt(brain: str = "brain", include_memory: bool = True,
     # Khối NGÔN NGỮ + đồng hồ đi CÙNG NHAU và đi CUỐI, sát chỗ model bắt đầu trả lời.
     # Ngôn ngữ đặt ở cuối vì luật càng gần chỗ sinh chữ thì model càng ít trôi; đồng hồ
     # đi kèm vì tên thứ trong tuần cũng phải theo ngôn ngữ đó.
-    base += "\n\n# === BÂY GIỜ ===\n" + context_compiler.dong_ho(lang=_lma)
-    base += lang_mod.khoi_ngon_ngu(_lq or lang_mod.LangDecision(_lma, "default", 1.0, True))
+    base += main_prompt_rendering.render_clock_language(
+        _STABLE_CLOCK_NOTE if stable else context_compiler.dong_ho(lang=_lma),
+        lang_mod.khoi_ngon_ngu(_lq or lang_mod.LangDecision(_lma, "default", 1.0, True)))
+    if stable:
+        return base   # usage goes in _turn_facts_header
     try:
         # 1 dòng MỨC DÙNG để Javis TRẢ LỜI được khi user hỏi "token tiêu bao nhiêu" (chi tiết ở panel).
         _t = usage_store.summary().get("today", {}).get("total", {})
-        if _t.get("in") or _t.get("out"):
-            _c = f", ~${_t.get('cost', 0):.4f}" if _t.get("cost") else ""
-            base += (f"\n\n# === MỨC DÙNG HÔM NAY (Javis tự đo) ===\n"
-                     f"{_t.get('in', 0):,} token vào + {_t.get('out', 0):,} token ra qua "
-                     f"{_t.get('turns', 0)} lượt{_c}. Đây là token Javis TỰ ĐO, KHÔNG phải hạn mức gói "
-                     f"thuê bao (đa số nhà cung cấp không cho lấy hạn mức tài khoản qua API). Chi tiết "
-                     f"từng nhà cung cấp ở panel 'Mức dùng' trên dashboard.")
+        base += main_prompt_rendering.render_usage_block(_t)
     except Exception:
         pass
     return base
@@ -1131,7 +1154,7 @@ def do_phan_bo_prompt(brain: str = "brain") -> dict:
 
 
 def build_adaptive_source_prompt(brain: str = "brain", include_memory: bool = False,
-                                 include_skills: bool = False) -> str:
+                                 include_skills: bool = False, *, routing_overlays: bool = False) -> str:
     """Small Phase 8 base. Context Compiler already owns identity/safety/output contracts.
 
     Only a source that has not entered its canary is restored here. This intentionally
@@ -1161,7 +1184,12 @@ def build_adaptive_source_prompt(brain: str = "brain", include_memory: bool = Fa
         try:
             system_sync.ensure_synced(root)
             system_sync.mirror_skills(root)
+            # M4: owner-applied routing descriptions of the main chat only when the caller says the turn
+            # runs on an API engine; CLI engines also read .claude/skills natively.
             skill_meta = skill_router.list_skills(root)
+            if routing_overlays:
+                import improvement_routing
+                skill_meta = improvement_routing.with_descriptions(skill_meta, improvement_routing.main_chat_descriptions(root))
             parts.append(_skill_router_block(brain, root, skill_meta))
         except Exception:
             # The caller records source fallback through Phase 8 status; empty router
@@ -1250,16 +1278,19 @@ _ASSET_FP: dict = {}          # đường dẫn -> {"khoa": (mtime, size), "crc"
 
 def _asset_fp_one(rel: str) -> str:
     """crc32 của MỘT file tĩnh trong dashboard/. "" nếu không đọc được.
-    Nhớ theo (mtime, size) nên gọi lại nhiều lần vẫn rẻ; file đổi là tự băm lại."""
+    Nhớ theo (mtime, size) nên gọi lại nhiều lần vẫn rẻ; file đổi là tự băm lại.
+
+    0.416.0: băm đúng các bytes máy chủ GỬI ĐI (bản đã nén gọn của tinh_gon), không phải file trên đĩa. freshness.js
+    băm thứ trình duyệt nhận được, nên hai bên phải băm cùng một thứ, không thì gác cổng báo oan mọi file là cũ. Hệ quả
+    tốt: sửa riêng chú thích không đổi bản gửi đi, nên không bắt ai tải lại file đó (zlib.crc32 nằm trong tinh_gon)."""
     try:
         f = DASHBOARD_PATH / rel
         st = f.stat()
-        khoa = (st.st_mtime_ns, st.st_size)
+        khoa = (st.st_mtime_ns, st.st_size, tinh_gon.bat())
         ent = _ASSET_FP.get(rel)
         if ent and ent["khoa"] == khoa:
             return ent["crc"]
-        import zlib
-        crc = format(zlib.crc32(f.read_bytes()) & 0xFFFFFFFF, "08x")
+        _data, crc = tinh_gon.ban_phuc_vu(f, rel)
         _ASSET_FP[rel] = {"khoa": khoa, "crc": crc}
         return crc
     except OSError:
@@ -1284,7 +1315,7 @@ async def app_version():
         html = (DASHBOARD_PATH / "index.html").read_text(encoding="utf-8")
     except OSError:
         html = ""
-    return {"version": _app_version() or "0", "assets": _asset_fps(html)}
+    return {"version": _app_version() or "0", "assets": await asyncio.to_thread(_asset_fps, html)}
 
 
 @app.get("/")
@@ -1296,7 +1327,8 @@ async def root():
     # sửa đổi frontend trở nên vô hình. Gắn phiên bản vào đây thì mỗi lần bump là tự bể cache.
     ver = _app_version() or "0"
     # Vân tay tính TRƯỚC khi đổi `?v=` - regex tìm theo `?v=` nên thứ tự này bắt buộc.
-    fps = _asset_fps(html)
+    # 0.444.4: ở luồng phụ, vì lần đầu sau khởi động nó nén gọn mọi file (vài giây trên VPS 1 nhân).
+    fps = await asyncio.to_thread(_asset_fps, html)
     # Khoá cache theo VÂN TAY TỪNG FILE, không theo số phiên bản chung.
     #
     # Trước đây mọi file mang `?v=<phiên bản app>`, nên bump VERSION là 42 URL đổi MỘT LƯỢT
@@ -1741,6 +1773,29 @@ def _direct_local_request(request: Request) -> bool:
     return not any(request.headers.get(h) for h in _FORWARD_HEADERS)
 
 
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _local_tool_call(request: Request) -> bool:
+    """A login-exempt call from a tool on this machine (javis_schedule, an engine's curl), never from a web page.
+
+    Security fix (2026-11-05 audit): _direct_local_request() only looks at the client address. With login on, the
+    DNS-rebinding Host check in web_security is skipped, so a page the owner opens could rebind its own name to
+    127.0.0.1 and POST /reminders with muc_quyen=full from inside the browser: client 127.0.0.1, no forwarding header,
+    Origin equal to Host. A tool call names a loopback Host and carries no browser fetch metadata (Origin,
+    Sec-Fetch-Site); a page cannot drop either. The logged-in dashboard never needs this path, it has its cookie.
+    """
+    if not _direct_local_request(request):
+        return False
+    try:
+        host = web_security.host_only(request.headers.get("host") or "")
+    except Exception:  # noqa: BLE001
+        return False
+    if host.strip("[]") not in _LOOPBACK_HOSTS:
+        return False
+    return not (request.headers.get("origin") or request.headers.get("sec-fetch-site"))
+
+
 @app.post("/auth/disable")
 async def auth_disable(request: Request, password: str = Form(""), code: str = Form("")):
     """Turn off the login requirement (clears the password). Security report C2, 0.224.0.
@@ -1880,6 +1935,66 @@ PROVIDER_DEFS = [   # thứ tự = thứ tự hiển thị card ở trang Models
 ]
 
 _PROVIDER_KEY_FIELDS = tuple(p["key_field"] for p in PROVIDER_DEFS if p.get("key_field"))
+# Providers addressed by an endpoint, not by an account: one key at most, no account list (0.350.0).
+_ROUTING_SINGLE_KEY = ("openai-compat", "anthropic-compat", "ollama-local")
+
+
+def _card_label(p: dict) -> str:
+    """Name a card shows on the Models page. Owner 05/11/2026: the Anthropic-compatible route is "Claude Compatible"
+    again (0.477.0 had renamed it "Advanced API key" and the owner lost it). The advanced keys run on the
+    OpenAI-compatible card, which keeps its name. Both cards hold several keys."""
+    if p.get("id") == adv_keys.ANTHROPIC:
+        return "Claude Compatible"
+    return p.get("label") or p.get("id") or ""
+# Plan providers: their quota belongs to the account, so the background order lists each once (same rule as aux_engine).
+_ROUTING_PLAN_PROVIDERS = ("anthropic-cli", "openai-oauth", "grok-cli", "antigravity-cli")
+
+
+def _routing_key_fields() -> dict:
+    """{provider: old key field} of the API cards that hold a list of keys (model_routing)."""
+    return {p["id"]: p["key_field"] for p in PROVIDER_DEFS
+            if p.get("key_field") and p["id"] not in _ROUTING_SINGLE_KEY}
+
+
+def _routing_defaults() -> dict:
+    """Each provider's starting config (spec 2.4.2): plan and CLI cards run the provider's own default model with no
+    reasoning parameter; an API card runs the first model this app ships for it (OpenRouter: the free auto-pick)."""
+    out = {}
+    for p in PROVIDER_DEFS:
+        model = ""
+        if p["kind"] == "api" and p["id"] != "openrouter":
+            model = (p.get("default_models") or [""])[0]
+        out[p["id"]] = {"model": model, "reasoning": "off"}
+    return out
+
+
+def _routing_connected_ids(cfg) -> list:
+    """Providers counted as signed in, in PROVIDER_DEFS order. Same flags the Models page shows; a plan card whose
+    binary is missing does not count (it could not run a turn)."""
+    try:
+        return [p["id"] for p in _providers_view(cfg) if p.get("configured") and p.get("cli_found") is not False]
+    except Exception as e:  # noqa: BLE001 - a broken check must not stop the server from starting
+        print(f"[routing] connected providers: {type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
+def _routing_telegram_chat_keys(cfg) -> list:
+    """Telegram chats the owner talks in: configured ids plus every chat the bot remembers (not customer bots)."""
+    keys = [str(x) for x in tg_parse_ids((cfg.get("telegram") or {}).get("chat_id", ""))]
+    for k in list(_TG_SID_MAP.keys()):
+        if not str(k).startswith("bot:") and "@" not in str(k):
+            keys.append(str(k))
+    return keys
+
+
+def _routing_migrate(cfg) -> bool:
+    """One-time move of the settings to the 0.350.0 layout (model_routing.migrate). True when it changed cfg."""
+    m = cfg.setdefault("model", {})
+    if int(m.get("routing_version") or 0) >= model_routing.ROUTING_VERSION:
+        return False
+    return model_routing.migrate(
+        m, connected_ids=_routing_connected_ids(cfg), defaults=_routing_defaults(),
+        key_fields=_routing_key_fields(), telegram_chat_keys=_routing_telegram_chat_keys(cfg))
 
 
 def _provider_def(pid):
@@ -1932,16 +2047,16 @@ def _providers_view(cfg):
             # nối" cho mọi máy, kể cả máy chưa hề đặt địa chỉ - ô chọn model liền bày một nhà
             # "đã nối" mà bấm vào thì rỗng. Cùng cái bẫy đã dính với Claude/Codex (cli_found).
             configured = bool((m.get("ollama_local_endpoint") or "").strip())
-        elif p["id"] == "openai-compat":
-            configured = bool((m.get("openai_compat_base") or "").strip())
-        elif p["id"] == "anthropic-compat":
-            configured = bool((m.get("anthropic_compat_base") or "").strip())
+        elif p["id"] in adv_keys.PROVIDERS:
+            configured = bool(adv_keys.gateways(m, p["id"]))
         elif p["key_field"] is None:
             configured = True
         else:
             configured = bool(m.get(p["key_field"]))
         item = {
-            "id": p["id"], "label": p["label"], "kind": p["kind"],
+            "id": p["id"], "kind": p["kind"],
+            # Owner 05/11/2026: OpenAI Compatible and Claude Compatible are two cards, each with several keys.
+            "label": _card_label(p),
             "needs_key": p["key_field"] is not None,
             "configured": configured,
             "models": models,
@@ -1952,7 +2067,9 @@ def _providers_view(cfg):
         }
         if p["kind"] == "oauth":
             item["account"] = oauth.get("account_id", "")
-            item["plan"] = oauth.get("plan", "")
+            # The vendor's plan code, named by javis-store's plan-name catalog or tidied (no table in code).
+            import plan_limits
+            item["plan"] = plan_limits.ten_goi(oauth.get("plan", ""), "codex")
             # Đăng nhập ChatGPT do CHÍNH JAVIS lo (OAuth device code, token ghi vào ~/.codex)
             # nên "Đã kết nối" không chứng minh máy có binary `codex`. Máy thiếu nó là thẻ
             # xanh mà chat vỡ - báo cáo 16/08: người mới cài kết nối được nhưng không dùng
@@ -1966,7 +2083,8 @@ def _providers_view(cfg):
             item["cli_found"] = bool(grok_cli.find_grok_cli())
             item["auth_method"] = _k.get("method", "")
             item["account"] = _k.get("account", "")
-            item["plan"] = _k.get("plan", "")
+            import plan_limits
+            item["plan"] = plan_limits.ten_goi(_k.get("plan", ""), "grok")
             item["auth_error"] = _k.get("error", "")
             item["cai_lenh"] = grok_cli.lenh_cai()
             item["tu_cai"] = cli_autoinstall.state("grok")   # Docker tự cài lúc khởi động (0.85.1)
@@ -1981,9 +2099,10 @@ def _providers_view(cfg):
             item["auth_error"] = _a.get("error", "")
             item["cai_lenh"] = antigravity_cli.lenh_cai()
             item["tu_cai"] = cli_autoinstall.state("agy")    # Docker tự cài lúc khởi động (0.85.1)
-            # Không có nút Ngắt: token nằm trong keyring của hệ điều hành, Javis không giữ nên
-            # cũng không gỡ hộ được. Dựng nút rồi bên dưới không làm gì mới là dối.
+            # The token lives in the OS keyring, which Javis does not hold. Since 05/11/2026 the card still has Disconnect:
+            # it runs the CLI's own sign-out when there is one, else switches the card off in Javis (`javis_off`).
             item["auth_by_javis"] = False
+            item["javis_off"] = bool(_a.get("javis_off"))
             # Đăng nhập làm trong TERMINAL, không phải trên dashboard - xem
             # `antigravity_cli.login_huong_dan()` để biết vì sao. Thẻ Models chỉ đưa lại đúng
             # lệnh cần gõ.
@@ -2009,14 +2128,10 @@ def _set_telegram_model(cfg, provider, model):
     cfg["model"]["telegram"] = {"provider": provider, "model": model or ""}
 
 
-def _tg_dat_model(cfg, provider, model):
-    """Lệnh đổi model gõ TỪ Telegram ghi vào đâu: đang ghim thì vào ô Telegram, chưa ghim thì
-    vào model chính như trước (và web đổi theo - đó là hành vi cũ, giữ nguyên để ai không ghim
-    không thấy gì khác)."""
-    if _tg_ghim(cfg.get("model") or {}):
-        _set_telegram_model(cfg, provider, model)
-    else:
-        _set_main_model(cfg, provider, model)
+def _tg_dat_model(cfg, provider, model, chat_key):
+    """A model chosen FROM Telegram pins that Telegram chat only (0.350.0, spec 2.5): it no longer changes MAIN or the
+    web, and other Telegram chats keep following MAIN."""
+    model_routing.set_telegram_pin(cfg["model"], chat_key, provider, model)
 
 
 def _set_main_model(cfg, provider, model):
@@ -2030,6 +2145,9 @@ def _set_main_model(cfg, provider, model):
         usage_saving.ghi_moc("model", f"{provider}/{model}",
                              f"{_cu.get('provider') or ''}/{_cu.get('model') or ''}",
                              f"Đổi bộ não sang {model or provider}")
+    # 0.350.0: MAIN is the top card of the usage order. Choosing a provider here (composer chip, Telegram
+    # fallback paths, disconnect handlers) moves its card to the top; the others keep their order.
+    model_routing.promote(m, provider, model)
     m["main"] = {"provider": provider, "model": model}
     if provider == "openrouter":
         m["engine"] = "openrouter"; m["openrouter_model"] = model
@@ -2057,6 +2175,29 @@ def _set_main_model(cfg, provider, model):
         m["engine"] = "anthropic-compat"
     else:  # anthropic-cli
         m["engine"] = "cli"; m["claude_model"] = model
+
+def _sync_legacy_engine(m) -> None:
+    """After the usage order or MAIN's card changed: rewrite the old engine fields from MAIN (0.350.0)."""
+    main = m.get("main") or {}
+    if main.get("provider") and _provider_def(main["provider"]):
+        _set_main_model({"model": m}, main["provider"], main.get("model") or "")
+
+
+def _routing_key_saved(m, key_field) -> None:
+    """A key typed into a card's old single key box (connect, change key): it becomes account 1 of that card, and a
+    newly connected card joins the END of the usage order (spec 2.1.5)."""
+    d = next((p for p in PROVIDER_DEFS if p.get("key_field") == key_field), None)
+    if not d:
+        return
+    if d["id"] not in _ROUTING_SINGLE_KEY:
+        cur = model_routing.accounts(m, d["id"], key_field)
+        if cur and cur[0]["key"] != m[key_field]:
+            cur[0] = dict(cur[0], key=m[key_field], enabled=True)
+        elif not cur:
+            cur = [{"id": model_routing.new_account_id(), "label": "Key 1", "enabled": True, "key": m[key_field]}]
+        model_routing.save_accounts(m, d["id"], cur, key_field)
+    model_routing.add_to_order(m, d["id"])
+
 
 def _aux_model():
     """Model việc nền khi provider là Claude. '' = không đổi (mặc định CLI).
@@ -2110,6 +2251,33 @@ async def _reply_policy_review_ask(prompt: str) -> str:
         elif ev.get("type") == "error":
             raise RuntimeError(str(ev.get("content") or "lỗi engine")[:200])
     return final
+
+
+async def _transcript_rewrite_ask(prompt: str) -> str:
+    """One text-only turn on the MAIN brain for the end of a dictation (transcript_fix.rewrite_transcript, 2026-11-06).
+
+    Owner: rewrite what the mic heard with "chính mô hình chính", whether it is a subscription CLI or an API key. Same
+    sandbox as the group chat judge's review: an empty folder, no MCP, every tool refused, so a dictated sentence that
+    sounds like an order is only rewritten, never carried out."""
+    base = _reply_policy_sandbox_engine(transcript_fix.REWRITE_SYSTEM, "transcript-rewrite",
+                                        cwd_name="transcript_rewrite_cwd")
+    cli = aux_engine.swap(base, mode="suggest", tag="transcript-rewrite", spec=aux_engine.main_spec(),
+                          codex_profile=_write_codex_profile)
+    cli = aux_engine.strip_tools(cli, base)
+    if not cli.is_available():
+        raise RuntimeError("main brain not ready")
+    final = ""
+    async for ev in cli.query(prompt):
+        if ev.get("type") == "final":
+            final = ev.get("content", "") or ""
+        elif ev.get("type") == "error":
+            raise RuntimeError(str(ev.get("content") or "engine error")[:200])
+    if aux_engine.final_loi_dang_nhap(final):
+        raise RuntimeError("main brain signed out")
+    return final
+
+
+transcript_fix.wire(ask=_transcript_rewrite_ask)
 
 
 def _reply_policy_write_feedback(bot: dict, text: str) -> None:
@@ -2203,6 +2371,22 @@ def _resonance_turn_provider(brain) -> str:
         return ""
 
 
+def _session_assistant(conv_sid, brain, get_session) -> str:
+    """slug of the Partners-page assistant whose private chat `conv_sid` is (channel `agent:<slug>`), "" for
+    any other chat, a chat of another brain, or an assistant whose file is gone. Read by the host from the stored
+    session row, so javis_schedule can stamp the jobs a partner chat creates with that assistant. Never raises."""
+    try:
+        row = get_session(conv_sid) or {}
+        persona = workflow_chat.persona_cua_phien(row)
+        if not persona or persona[0] != "agent":
+            return ""
+        if _brain_key(row.get("brain")) != _brain_key(brain):
+            return ""
+        return persona[1] if (_agents_dir(brain) / f"{persona[1]}.md").is_file() else ""
+    except Exception:  # noqa: BLE001 - a missing stamp must not break the chat turn
+        return ""
+
+
 def _resonance_turn_agent(conv_sid, brain, get_session):
     """A1: agent của phiên `conv_sid` (dòng phiên đọc bằng `get_session`), để gắn vào ngữ cảnh lượt
     (`turn_context`, khoá `agent`).
@@ -2217,6 +2401,11 @@ def _resonance_turn_agent(conv_sid, brain, get_session):
     try:
         session_row = get_session(conv_sid) or {}
         persona = workflow_chat.persona_cua_phien(session_row)
+        if javis_core.is_core_channel(session_row.get("channel")):
+            # 2026-11-05: Javis Core has Auto always on, so its chats carry its Resonance identity like an agent's.
+            persona = ("agent", javis_core.SLUG)
+            javis_core.ensure_file(_brain_root(brain))
+            _core_auto_on(brain)
         if not persona or persona[0] != "agent":
             return None
         if _brain_key(session_row.get("brain")) != _brain_key(brain):
@@ -2329,6 +2518,12 @@ def _resonance_after_turn(conv_sid, brain, user_mid, t0, runtime_trace):
 # Kèm `turn_status` của LƯỢT HOST (review sửa pilot 4, P2-2): "completed" | "cancelled" | "failed". Engine đã trả final
 # không có nghĩa cả lượt đã xong: lượt có thể bị huỷ ở bước lưu sau đó. Huỷ hay lỗi thắng final trước đó.
 _TURN_ENGINE: dict = {}
+
+# Sent in the same Claude Code thread when a chat turn ended cleanly with no text at all (0.332.0). Model prompt:
+# Vietnamese, like the other Javis notes to the model.
+EMPTY_ANSWER_NUDGE = ("[Javis] Lượt vừa rồi bạn kết thúc mà không viết chữ nào cho người dùng, nên họ chỉ thấy một "
+                      "bong bóng trống. Hãy trả lời tin nhắn cuối cùng của họ ngay bây giờ (kể cả khi chỉ là một câu "
+                      "ngắn). Việc lượt trước đã làm bằng công cụ là ĐÃ xong, đừng làm lại.")
 
 
 def _engine_outcome_reset(conv_sid) -> None:
@@ -2456,10 +2651,29 @@ def _resonance_agents_meta(root):
     return out
 
 
+def _resonance_agents_meta_core(root):
+    """The Auto page's list: Javis Core first (Auto always on, owner 05/11/2026), then the brain's agents. Teams keep
+    `_resonance_agents_meta`, without Javis Core."""
+    try:
+        main_prov = _chat_provider(cfgmod.read_settings().get("model", {}) or {})[0]
+    except Exception:  # noqa: BLE001
+        main_prov = ""
+    out = []
+    try:
+        _cm = javis_core.read_core(root)[0]
+        _cp = _core_pin(cfgmod.read_settings().get("model", {}) or {})
+        out.append({"slug": javis_core.SLUG, "name": _cm.get("name") or javis_core.NAME,
+                    "provider": _cp.get("provider") or main_prov, "avatar": agent_avatar.for_agent(_cm, javis_core.SLUG),
+                    "title": str(_cm.get("role") or "")[:120], "system": True})
+    except Exception as e:  # noqa: BLE001
+        print(f"[resonance meta core] {type(e).__name__}: {e}", file=sys.stderr)
+    return out + _resonance_agents_meta(root)
+
+
 _RESONANCE_API_DEPS = resonance_api.ResonanceApiDeps(
     store=lambda: _resonance_store(), brain_key=lambda b: _brain_key(b),
     engine_factory=lambda s, t="resonance": _resonance_engine(s, t), session_store=lambda: get_store(),
-    agents_meta=_resonance_agents_meta, agent_file=lambda root, slug: _agent_md_path(root, slug),
+    agents_meta=_resonance_agents_meta_core, agent_file=lambda root, slug: _agent_md_path(root, slug),
     broadcast=lambda ev: _CHAT_RUNTIME.publish(ev))
 resonance_api.register(app, _RESONANCE_API_DEPS)
 _RESONANCE_TICK_BUSY = [False]
@@ -2589,19 +2803,65 @@ def _provider_key(mcfg, d):
         if not (mcfg.get("anthropic_compat_base") or "").strip():
             return ""
         return (mcfg.get("anthropic_compat_key") or "").strip() or "none"
-    return mcfg.get(d["key_field"], "") if d.get("key_field") else ""
+    if not d.get("key_field"):
+        return ""
+    # 0.350.0: several keys per provider, used top to bottom; a key put to rest after a quota error is skipped.
+    acc = model_routing.active_account(mcfg, d["id"], d["key_field"])
+    return acc["key"] if acc else (mcfg.get(d["key_field"], "") or "")
+
+
+def _route_ready(mcfg, prov) -> bool:
+    """Whether a card can take a chat turn right now: an API card needs a key that is not resting, a plan card must
+    not be known to be out of quota. Unknown means yes: the turn itself reports the provider's own error."""
+    d = _provider_def(prov)
+    if not d:
+        return False
+    if d.get("kind") == "api":
+        if prov in adv_keys.PROVIDERS and adv_keys.gateways(mcfg, prov):
+            return adv_keys.active(mcfg, prov) is not None
+        if d.get("key_field") and d["id"] not in _ROUTING_SINGLE_KEY:
+            return bool(model_routing.usable_accounts(mcfg, prov, d["key_field"]))
+        return bool(_provider_key(mcfg, d))
+    if _pin_limited_until(prov):
+        return False
+    if plan_accounts.in_use(prov) and plan_accounts.has_extra(mcfg, prov):
+        return plan_accounts.pick(mcfg, prov) is not None   # every account of the plan off, resting or signed out
+    return True
 
 
 def _chat_provider(mcfg):
-    """Provider dùng cho chat (id, kind, key, model) - từ model chính hiệu lực."""
+    """Provider dùng cho chat (id, kind, key, model).
+
+    0.350.0 (docs/dev/2026-10-model-routing-spec.md): MAIN is the top card of the usage order. When MAIN cannot run
+    right now (every key resting, the plan out of quota) the turn starts on the next card that can, with that card's
+    own model. Nothing saved changes: the next turn tries MAIN again."""
     em = _effective_main({"model": mcfg})
     prov, model = em["provider"], em["model"]
+    if not _route_ready(mcfg, prov):
+        # Only cards still signed in can take over (the stored order keeps a card that lost its login until the
+        # Models page saves again). Computed here only, MAIN being unable to run is the rare path.
+        try:
+            signed_in = set(_routing_connected_ids(cfgmod.read_settings()))
+        except Exception:  # noqa: BLE001
+            signed_in = None
+        for cand in model_routing.order(mcfg)[1:]:
+            if (signed_in is None or cand in signed_in) and _route_ready(mcfg, cand):
+                prov, model = cand, model_routing.profile(mcfg, cand)["model"]
+                break
     d = _provider_def(prov) or {}
     kind = d.get("kind", "cli")
     key = _provider_key(mcfg, d)
     if prov == "openrouter":
         model = model or mcfg.get("openrouter_model")
     return prov, kind, key, model
+
+
+def _chat_reasoning(mcfg, prov) -> str:
+    """Effort of the card a chat turn runs on (0.350.0: effort belongs to each card, MAIN's mirrors `reasoning`)."""
+    if prov == model_routing.main_provider(mcfg):
+        return _reasoning_level(mcfg)
+    r = model_routing.profile(mcfg, prov).get("reasoning")
+    return r if r in engine.REASONING_LEVELS else "off"
 
 
 # Provider mà AGENT chạy THẬT được. Không phải mọi provider ở trang Models: aux_engine chỉ
@@ -2631,6 +2891,236 @@ def _agent_model_provider(model: str, provider: str = "") -> str:
     return "openai-oauth" if _is_codex_model(model) else "anthropic-cli"
 
 
+# A subscription that ran out of quota (0.285.0, owner 22/10/2026): provider -> epoch until which a chat PINNED to it
+# runs on the main chat's model instead. Set by the chat turn when an engine reports "usage limit reached"; the reset
+# time it gives is used, or an hour when it gives none. Only the pin falls back: the main model is never changed.
+_PIN_LIMITED: dict = {}
+# Antigravity was missing here until 05/11/2026, so an `agy` turn out of quota marked nothing: a chat pinned to it kept running
+# on it and failed every turn instead of moving to the main card (owner's report, 05/11/2026).
+_LIMIT_ENGINE_PROVIDER = {"claude-code": "anthropic-cli", "codex": "openai-oauth", "grok-cli": "grok-cli",
+                          "antigravity-cli": "antigravity-cli"}
+PIN_LIMIT_DEFAULT_S = 3600
+# provider -> account id the last chat engine of that provider ran on (plan_accounts, 0.353.0). Read when that turn
+# reports "out of quota", so the account that ran out is the one that rests.
+_PLAN_ACCOUNT_LAST: dict = {}
+
+
+def _plan_account_apply(engine, provider: str, mcfg=None) -> str:
+    """Point a chat engine at the subscription account that should run now; account 1 when there is no other."""
+    try:
+        m = mcfg if mcfg is not None else (cfgmod.read_settings().get("model") or {})
+        aid = plan_accounts.apply(engine, provider, m)
+    except Exception as e:  # noqa: BLE001 - choosing an account must never stop a chat turn
+        print(f"[plan accounts] {provider}: {type(e).__name__}: {e}", file=sys.stderr)
+        aid = plan_accounts.MAIN
+    _PLAN_ACCOUNT_LAST[provider] = aid
+    return aid
+
+
+def _note_pin_limit(engine_hint: str, reset_epoch: float = 0.0, now: float = None, account: str = None) -> None:
+    prov = _LIMIT_ENGINE_PROVIDER.get(str(engine_hint or ""))
+    if not prov:
+        return
+    now = time.time() if now is None else now
+    until = float(reset_epoch) if reset_epoch and reset_epoch > now else now + PIN_LIMIT_DEFAULT_S
+    # 0.353.0: the account that ran out rests; while another account of the same plan can run, the plan is not
+    # out of quota and nothing is pinned away from it. `account` is the account the failing turn ran on; without
+    # it the last account any turn picked stands in (another chat may have picked a different one since).
+    try:
+        aid = account or _PLAN_ACCOUNT_LAST.get(prov, plan_accounts.MAIN)
+        model_routing.mark_rest(prov, aid, until=until, persist=True)
+        if plan_accounts.in_use(prov):   # Claude on an API key has no other account to move on to
+            m = cfgmod.read_settings().get("model") or {}
+            if plan_accounts.has_extra(m, prov) and plan_accounts.usable(m, prov, now):
+                return
+    except Exception as e:  # noqa: BLE001
+        print(f"[plan accounts] rest {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+    _PIN_LIMITED[prov] = until
+
+
+def _plan_main_signed_in(provider: str) -> None:
+    """Account 1 of a plan card just finished signing in (0.420.2). The owner may have signed in as ANOTHER account
+    after the old one ran out, so the old account's rest and the plan's out-of-quota mark go. Signing in the same
+    empty account again costs nothing: the next turn hits the limit before writing a word and moves on (spec 6.4)."""
+    try:
+        model_routing.clear_rest(provider, plan_accounts.MAIN)
+    except Exception as e:  # noqa: BLE001 - a sign-in must never fail on this
+        print(f"[plan accounts] clear rest {provider}: {type(e).__name__}: {e}", file=sys.stderr)
+    _PIN_LIMITED.pop(provider, None)
+
+
+def _clear_pin_limit(provider: str) -> bool:
+    """The owner chose this card on purpose (made it MAIN, pinned a chat to it, or tapped "Use again now"), so its
+    out-of-quota mark goes and the next turn tries it. A plan that really is still empty refuses before writing a word
+    and the turn moves on to the next card (spec 6.4), so trying costs one quick refusal at most.
+
+    Before this, a mark could outlive the quota it stood for (a reset epoch far away, or a refusal another card
+    triggered): every turn skipped the card the owner had just chosen and landed on a card that was out of quota
+    itself, with no way to undo it from the page (owner's report, 05/11/2026). True when a mark was lifted."""
+    prov = str(provider or "")
+    had = _PIN_LIMITED.pop(prov, None) is not None
+    try:
+        m = cfgmod.read_settings().get("model") or {}
+        if not (plan_accounts.in_use(prov) and plan_accounts.has_extra(m, prov)):
+            model_routing.clear_rest(prov, plan_accounts.MAIN)   # one account: its rest IS the card's rest
+    except Exception as e:  # noqa: BLE001 - lifting a mark must never fail the owner's click
+        print(f"[routing] clear limit {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+    return had
+
+
+def _note_api_limit(mcfg, prov: str, key: str, raw: str = "", seconds: float = 0.0) -> None:
+    """An API key ran out of quota in a chat turn: that key rests (0.354.0), so the turn and the next ones run on the
+    provider's next key, or on the next card when it has none."""
+    if prov in adv_keys.PROVIDERS:
+        try:
+            secs = seconds or aux_engine.cooldown_for(raw) or aux_engine.COOLDOWN_QUOTA_S
+            with cfgmod._SETTINGS_LOCK:
+                cfg = cfgmod.read_settings()
+                if adv_keys.rest_and_rotate(cfg["model"], prov, key, secs):
+                    cfgmod.write_settings(cfg)
+                    _PROV_MODELS_CACHE.pop(prov, None)
+        except Exception as e:  # noqa: BLE001
+            print(f"[routing] rest {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+        return
+    try:
+        d = _provider_def(prov) or {}
+        acc = model_routing.account_for_key(mcfg or {}, prov, key, d.get("key_field") or "")
+        if acc:
+            secs = seconds or aux_engine.cooldown_for(raw) or aux_engine.COOLDOWN_QUOTA_S
+            model_routing.mark_rest(prov, acc["id"], seconds=secs)
+    except Exception as e:  # noqa: BLE001
+        print(f"[routing] rest {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+# 0.354.0 (spec 6.4): a chat turn that runs out of quota before writing a word or calling a tool runs again at once on
+# the next route: the next account of the same card, then the next card of the usage order. At most this many hops.
+REROUTE_MAX_HOPS = 3
+# Lines Javis itself writes into the step list; they are not tool calls of the model.
+_REROUTE_QUIET_TOOLS = ("javis_nen_mach", "javis_autoshrink")
+_ROUTE_SHORT = {"anthropic-cli": "Claude Code", "openai-oauth": "ChatGPT", "grok-cli": "Grok Build",
+                "antigravity-cli": "Antigravity"}
+
+
+class _RerouteText(str):
+    """What `_do_turn` returns when its turn must run again on another route: no answer, plus where to go."""
+    reroute = None
+
+
+def _route_name(prov: str) -> str:
+    if prov in _ROUTE_SHORT:
+        return _ROUTE_SHORT[prov]
+    lab = _api_label(prov)
+    return lab if lab != prov else ((_provider_def(prov) or {}).get("label") or prov)
+
+
+def _route_account_no(mcfg, prov: str, key: str = ""):
+    """(number, label) of the account a route runs on: the plan account picked now, or the API key given."""
+    try:
+        if prov in adv_keys.PROVIDERS:
+            return adv_keys.account_no(mcfg, prov, key)
+        if plan_accounts.supported(prov):
+            lst = plan_accounts.accounts(mcfg, prov)
+            aid = (plan_accounts.pick(mcfg, prov) or {}).get("id") if key == "" else key
+            i = next((n for n, a in enumerate(lst) if a["id"] == aid), None)
+            return (i + 1, lst[i]["label"]) if i is not None else (0, "")
+        d = _provider_def(prov) or {}
+        lst = model_routing.accounts(mcfg, prov, d.get("key_field") or "")
+        i = next((n for n, a in enumerate(lst) if key and a.get("key") == key), None)
+        return (i + 1, lst[i].get("label") or "") if i is not None else (0, "")
+    except Exception:  # noqa: BLE001 - a missing number only shortens the status line
+        return 0, ""
+
+
+def _chat_next_route(mcfg, failed: str, failed_key: str = "", tried=(), failed_account: str = None) -> dict:
+    """Where a chat turn that ran out of quota goes next (0.354.0), or {} when nothing is left.
+
+    The failing account is already resting (`_note_pin_limit`, `_note_api_limit`), so `_route_ready` and the
+    account pickers skip it. Same card first while it still has an account that can run, then the usage order,
+    skipping cards already tried in this turn. Returns {'route': (prov, kind, key, model), 'status': str,
+    'tried': [...]}; nothing saved changes."""
+    tried = list(tried or ()) + ([failed] if failed and failed not in (tried or ()) else [])
+    d = _provider_def(failed) or {}
+    same = None
+    try:
+        if plan_accounts.in_use(failed) and plan_accounts.has_extra(mcfg, failed) and _route_ready(mcfg, failed):
+            acc = plan_accounts.pick(mcfg, failed)
+            ran = failed_account or _PLAN_ACCOUNT_LAST.get(failed, plan_accounts.MAIN)
+            if acc and acc["id"] != ran:
+                same = (failed, d.get("kind", "cli"), "", acc["id"])
+        elif failed in adv_keys.PROVIDERS:
+            m2 = cfgmod.read_settings().get("model") or {}   # _note_api_limit just switched the gateway on disk
+            key = _provider_key(m2, d) if _route_ready(m2, failed) else ""
+            if key and key != failed_key:
+                mcfg = m2
+                same = (failed, "api", key, key)
+        elif d.get("kind") == "api" and failed not in _ROUTING_SINGLE_KEY and _route_ready(mcfg, failed):
+            key = _provider_key(mcfg, d)
+            if key and key != failed_key:
+                same = (failed, "api", key, key)
+    except Exception as e:  # noqa: BLE001
+        print(f"[routing] next account {failed}: {type(e).__name__}: {e}", file=sys.stderr)
+    if same:
+        prov, kind, key, ref = same
+        model = model_routing.profile(mcfg, prov).get("model") or ""
+        if prov == model_routing.main_provider(mcfg):
+            model = _effective_main({"model": mcfg}).get("model") or model
+        if prov == "openrouter":
+            model = model or mcfg.get("openrouter_model")
+        old_no, old_lab = _route_account_no(mcfg, prov, failed_key if kind == "api" else
+                                            (failed_account or _PLAN_ACCOUNT_LAST.get(prov, plan_accounts.MAIN)))
+        new_no, new_lab = _route_account_no(mcfg, prov, ref)
+        if kind == "api":
+            new_s, old_s = (new_lab or f"key {new_no}"), (old_lab or f"key {old_no}")
+            vi = f"Đang dùng {_route_name(prov)} ({new_s}) vì {old_s} hết lượt."
+            en = f"Using {_route_name(prov)} ({new_s}) because {old_s} is out of quota."
+        else:
+            vi = (f"Đang dùng {_route_name(prov)} ({new_lab or f'tài khoản {new_no}'}) vì "
+                  f"{old_lab or f'tài khoản {old_no}'} hết lượt.")
+            en = (f"Using {_route_name(prov)} ({new_lab or f'account {new_no}'}) because "
+                  f"{old_lab or f'account {old_no}'} is out of quota.")
+        return {"route": (prov, kind, key, model), "status": localefmt.chu(vi, en), "tried": tried}
+    try:
+        signed_in = set(_routing_connected_ids(cfgmod.read_settings()))
+    except Exception:  # noqa: BLE001
+        signed_in = None
+    for cand in model_routing.order(mcfg):
+        if cand in tried or (signed_in is not None and cand not in signed_in) or not _route_ready(mcfg, cand):
+            continue
+        cd = _provider_def(cand) or {}
+        model = model_routing.profile(mcfg, cand).get("model") or ""
+        if cand == model_routing.main_provider(mcfg):
+            model = _effective_main({"model": mcfg}).get("model") or model
+        if cand == "openrouter":
+            model = model or mcfg.get("openrouter_model")
+        vi = f"Đang dùng {_route_name(cand)} vì {_route_name(failed)} hết lượt."
+        en = f"Using {_route_name(cand)} because {_route_name(failed)} is out of quota."
+        return {"route": (cand, cd.get("kind", "cli"), _provider_key(mcfg, cd), model),
+                "status": localefmt.chu(vi, en), "tried": tried}
+    return {}
+
+
+def _pin_limited_until(provider: str, now: float = None) -> float:
+    """Epoch until which `provider` is out of quota for pinned chats, 0 when it is usable.
+
+    0.420.1: the mark is set when no account of a plan could run. An account signed in or switched on since then
+    (the owner adds one right after account 1 runs out) lifts it at once instead of at account 1's reset time;
+    before, every chat kept skipping the plan card and landed on a backup card that was not signed in."""
+    prov = str(provider or "")
+    now = time.time() if now is None else now
+    until = float(_PIN_LIMITED.get(prov, 0) or 0)
+    if until <= now:
+        return 0.0
+    try:
+        if plan_accounts.in_use(prov):
+            m = cfgmod.read_settings().get("model") or {}
+            if plan_accounts.has_extra(m, prov) and plan_accounts.usable(m, prov, now):
+                _PIN_LIMITED.pop(prov, None)
+                return 0.0
+    except Exception as e:  # noqa: BLE001 - keep the mark when the account list cannot be read
+        print(f"[plan accounts] pin {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+    return until
+
+
 def _chat_provider_for_session(mcfg, row):
     """Provider cho MỘT phiên chat: phiên đã GHIM model riêng (user đổi model ngay trong
     phiên) thì theo ghim; chưa ghim thì rơi về _chat_provider (mặc định chung).
@@ -2638,13 +3128,26 @@ def _chat_provider_for_session(mcfg, row):
     Vì sao có hàm này (16/08): đổi model ở tab/phiên khác kéo model của MỌI phiên đổi
     theo, vì tất cả đọc chung settings.json. Chủ muốn phiên nhớ model cuối user đã chọn
     TRONG phiên đó. Ghim hỏng (provider không còn cấu hình) thì rơi về mặc định chung
-    thay vì chết lượt chat."""
+    thay vì chết lượt chat.
+
+    0.402.0 (owner, 29/10/2026): every Javis Core chat runs on Javis Core's own pin (`_core_pin`), or on the main
+    model while it has none; the pin of the single chat is ignored."""
+    if javis_core.is_core_channel((row or {}).get("channel")):
+        _cp = _core_pin(mcfg)
+        row = {"pinned_provider": _cp.get("provider") or "", "pinned_model": _cp.get("model") or ""}
     pprov = ((row or {}).get("pinned_provider") or "").strip()
     if not pprov:
         return _chat_provider(mcfg)
     d = _provider_def(pprov)
     if not d:
         return _chat_provider(mcfg)
+    if pprov == "antigravity-cli" and antigravity_cli.javis_off():
+        return _chat_provider(mcfg)   # 05/11/2026: the owner disconnected that card; a pin to it must not keep using it
+    if _pin_limited_until(pprov):
+        # The pinned model's plan is out of quota: run on the main chat's model until it resets (0.285.0).
+        main_route = _chat_provider(mcfg)
+        if main_route[0] != pprov:
+            return main_route
     kind = d.get("kind", "cli")
     key = _provider_key(mcfg, d)
     if kind == "api" and not key:
@@ -2655,8 +3158,142 @@ def _chat_provider_for_session(mcfg, row):
     return pprov, kind, key, model
 
 
-def _tg_ghim(mcfg) -> dict:
-    """{'provider','model'} đang GHIM cho kênh Telegram, hoặc {} nếu đang theo model chính."""
+def _chat_selected(mcfg, row) -> dict:
+    """{'provider','model'} the owner CHOSE for one chat, before any fallback: the chat's own pin (Javis Core's pin in
+    a Core chat), else MAIN. `_chat_provider_for_session` says where the turn really runs; the two differ while the
+    chosen card is out of quota or cannot run (owner, 05/11/2026: the composer chip shows both)."""
+    row = row or {}
+    if javis_core.is_core_channel(row.get("channel")):
+        pin = _core_pin(mcfg)
+    else:
+        pp = str(row.get("pinned_provider") or "").strip()
+        pin = {"provider": pp, "model": str(row.get("pinned_model") or "").strip()} if pp else {}
+    if pin.get("provider"):
+        return {"provider": pin["provider"], "model": pin.get("model") or ""}
+    em = _effective_main({"model": mcfg or {}})
+    return {"provider": em["provider"], "model": em.get("model") or ""}
+
+
+def _route_rest_until(mcfg, prov: str, now: float = None) -> float:
+    """Epoch at which an out-of-quota card can run again, 0 when nothing is resting or the time is unknown. A plan
+    marked out of quota gives its reset time; otherwise the earliest account or key of the card to come back."""
+    now = time.time() if now is None else now
+    try:
+        until = _pin_limited_until(prov, now)
+        if until:
+            return float(until)
+        d = _provider_def(prov) or {}
+        if d.get("kind") == "api":
+            if prov in adv_keys.PROVIDERS:
+                return 0.0
+            ids = [a.get("id") for a in model_routing.accounts(mcfg or {}, prov, d.get("key_field") or "")]
+        elif plan_accounts.supported(prov):
+            ids = [a.get("id") for a in plan_accounts.accounts(mcfg or {}, prov)]
+        else:
+            ids = []
+        times = [t for t in (model_routing.resting_until(prov, i, now) for i in ids if i) if t > now]
+        return float(min(times)) if times else 0.0
+    except Exception:  # noqa: BLE001 - an unknown reset time only shortens the chip's tooltip
+        return 0.0
+
+
+def _route_view(mcfg, row, run=None, now: float = None) -> dict:
+    """What the composer's model chip needs (owner, 05/11/2026): the model the owner chose, the one the next (or this) turn
+    really runs on, whether that is a fallback and why, plus every card of the usage order resting out of quota.
+    Read only: nothing saved changes, so the chosen model comes back by itself once its quota returns.
+
+    `run` is the (prov, kind, key, model) a turn already picked; without it the next turn's route is worked out."""
+    now = time.time() if now is None else now
+    sel = _chat_selected(mcfg, row)
+    run = run or _chat_provider_for_session(mcfg, row)
+    prov, model = str(run[0] or ""), str(run[3] or "")
+    out = {"provider": prov, "model": model, "name": _route_name(prov),
+           "selected_provider": sel["provider"], "selected_model": sel["model"],
+           "selected_name": _route_name(sel["provider"]), "fallback": prov != sel["provider"],
+           # Effort of the card running (owner, 05/11/2026: the Effort chip follows a fallback card too). An assistant's
+           # or Javis Core's chat thinks at its own level whatever the card; the composer shows that level there.
+           "reasoning": _chat_reasoning(mcfg or {}, prov) if prov else "off"}
+    limited = {}
+    for p in _uniq_ids([sel["provider"], *model_routing.order(mcfg or {})]):
+        until = _route_rest_until(mcfg, p, now)
+        if until and not _route_ready(mcfg, p):
+            limited[p] = until
+    out["limited"] = limited
+    if out["fallback"]:
+        until = limited.get(sel["provider"]) or _pin_limited_until(sel["provider"], now)
+        out["reason"] = "quota" if until else "unavailable"
+        out["until"] = float(until or 0)
+        if until:
+            vi = f"{out['selected_name']} hết lượt → đang dùng {out['name']}."
+            en = f"{out['selected_name']} is out of quota → using {out['name']}."
+        else:
+            vi = f"{out['selected_name']} chưa chạy được → đang dùng {out['name']}."
+            en = f"{out['selected_name']} cannot run right now → using {out['name']}."
+        out["content"] = localefmt.chu(vi, en)
+    return out
+
+
+def _uniq_ids(ids) -> list:
+    out = []
+    for x in ids:
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def _core_pin(mcfg) -> dict:
+    """{'provider','model'} Javis Core is pinned to, or {} when it follows the main model (0.402.0). Set from the model
+    bar of any Javis Core chat (`POST /sessions/{id}/model`); "Follow the main model" clears it."""
+    prov = str((mcfg or {}).get("core_provider") or "").strip()
+    return {"provider": prov, "model": str((mcfg or {}).get("core_model") or "").strip()} if prov else {}
+
+
+def _pin_health(mcfg, prov: str) -> tuple:
+    """(usable, limited_until) of a model pin on `prov`, judged the way `_chat_provider_for_session` routes it: the
+    provider must exist, an API provider needs its key, and a plan out of quota runs the main model for now (0.285.0).
+    Shared by the chat model bar (`/sessions/{id}/meta`) and the Javis Core card (`/javis-core/model`, 0.461.0)."""
+    d = _provider_def(prov)
+    # Same key reading as routing (`_provider_key`): a home Ollama with no key must not read as a broken pin.
+    ok = bool(d) and (d.get("kind") != "api" or bool(_provider_key(mcfg, d)))
+    if ok and prov == "antigravity-cli" and antigravity_cli.javis_off():
+        ok = False   # disconnected on the Models page: the chat runs on the main model (_chat_provider_for_session)
+    lim_until = _pin_limited_until(prov) if ok else 0
+    if lim_until and _chat_provider(mcfg)[0] != prov:
+        return False, lim_until
+    return ok, 0
+
+
+async def _set_core_pin(provider: str, model: str) -> dict:
+    """Pin Javis Core as a whole (empty provider = follow the main model). The one writer of `model.core_provider` /
+    `core_model`, used by the model bar of a Core chat and by the Javis Core card on the Agents page (0.461.0)."""
+    prov = (provider or "").strip()
+    mdl = (model or "").strip() if prov else ""
+    await asyncio.to_thread(cfgmod.update_settings, {"model": {"core_provider": prov, "core_model": mdl}})
+    return {"provider": prov, "model": mdl}
+
+
+def _core_model_view(mcfg) -> dict:
+    """What the Javis Core card shows (0.461.0): the pin (or none), whether it can run, the main model it otherwise
+    follows, and the provider/model the next Core turn really runs on (`run_*`, after every fallback)."""
+    pin = _core_pin(mcfg)
+    em = _effective_main({"model": mcfg})
+    run = _chat_provider_for_session(mcfg, {"channel": javis_core.CHANNEL})
+    out = {"pinned": bool(pin), "pinned_provider": pin.get("provider") or None, "pinned_model": pin.get("model") or None,
+           "pin_ok": True, "main_provider": em["provider"], "main_model": em["model"] or "",
+           "run_provider": run[0], "run_model": run[3] or ""}
+    if pin:
+        out["pin_ok"], lim = _pin_health(mcfg, pin["provider"])
+        if lim:
+            out["pin_limited_until"] = lim
+    return out
+
+
+def _tg_ghim(mcfg, chat_key="") -> dict:
+    """{'provider','model'} pinned for ONE Telegram chat (0.350.0), or {} when it follows MAIN. Settings not yet moved
+    to 0.350.0 still carry the old shared Telegram pin, which then applies to every chat."""
+    pin = model_routing.telegram_pin(mcfg, chat_key) if chat_key else {}
+    if pin:
+        return pin
     tg = (mcfg or {}).get("telegram") or {}
     return {"provider": tg["provider"], "model": tg.get("model") or ""} if tg.get("provider") else {}
 
@@ -2702,13 +3339,13 @@ def _chat_provider_bot(mcfg, bot):
                                              "pinned_model": g["model"]})
 
 
-def _chat_provider_kenh(mcfg, channel):
-    """Provider cho một lượt theo KÊNH: Telegram có ghim riêng thì theo ghim, còn lại theo
-    model chính. Dùng lại đúng luật rơi-về của ghim phiên web (`_chat_provider_for_session`):
+def _chat_provider_kenh(mcfg, channel, chat_key=""):
+    """Provider cho một lượt theo KÊNH: a Telegram chat with its own pin (set by /model inside it) runs that pin, every
+    other turn follows MAIN. Dùng lại đúng luật rơi-về của ghim phiên web (`_chat_provider_for_session`):
     provider đã gỡ hay key đã bị xoá thì lui về model chính chứ không chết lượt chat."""
     if channel != "telegram":
         return _chat_provider(mcfg)
-    g = _tg_ghim(mcfg)
+    g = _tg_ghim(mcfg, chat_key)
     if not g:
         return _chat_provider(mcfg)
     return _chat_provider_for_session(mcfg, {"pinned_provider": g["provider"],
@@ -2822,6 +3459,42 @@ async def _claude_sub_doc(cli, prompt, model):
             yield {"type": "error", "content": str(ev.get("content") or localefmt.chu("lỗi không rõ", "unknown error"))}
 
 
+def _sdk_has_system_prompt_file() -> bool:
+    """Whether the installed claude-agent-sdk maps `{"type": "file"}` to --system-prompt-file."""
+    try:
+        from claude_agent_sdk import types as _sdk_types
+        return hasattr(_sdk_types, "SystemPromptFile")
+    except Exception:  # noqa: BLE001 - no SDK: the caller keeps the inline prompt
+        return False
+
+
+def _raw_prompt_through_file(cli):
+    """Send a raw (no preset) system prompt as --system-prompt-file instead of one argv entry (#871, 0.378.0).
+
+    The raw branch of `ClaudeSDK._options` hands the prompt to the SDK as a string, which becomes
+    `--system-prompt <text>`: ONE argument, and Linux caps one argument at MAX_ARG_STRLEN = 131,072
+    bytes whatever ARG_MAX says. A dedicated bot with a long agent file plus per-turn context crossed
+    it and every turn died with "[Errno 7] Argument list too long". The file keeps the raw semantics
+    (no claude_code preset, so the token savings stay).
+
+    Wraps this instance's `_options` instead of editing claude_sdk_engine.py: that file is pinned by
+    the native qualification evidence (plan_limits.py wraps it from outside for the same reason). The file is written with
+    the engine's own helper, so its usual cleanup after the turn removes it.
+    """
+    if not _sdk_has_system_prompt_file():
+        return cli
+    base = cli._options
+
+    def _options():
+        opts = base()
+        sp = getattr(opts, "system_prompt", None)
+        if isinstance(sp, str) and sp:
+            opts.system_prompt = {"type": "file", "path": cli._write_sysprompt_file(sp)}
+        return opts
+    cli._options = _options
+    return cli
+
+
 def _claude_sub_stream(model, messages, reasoning="off", *, brain=None, tag="chat",
                        tiet_kiem=False):
     """Gói Claude Code, KHÔNG tool - thay cho đường gọi thẳng /v1/messages bằng token OAuth.
@@ -2839,6 +3512,13 @@ def _claude_sub_stream(model, messages, reasoning="off", *, brain=None, tag="cha
                         tag=tag, allowed_tools=CLAUDE_SUB_KHONG_TOOL,
                         model=_claude_api_model(model) or None)
     cli.system_prompt_raw = bool(tiet_kiem)
+    if cli.system_prompt_raw:
+        _raw_prompt_through_file(cli)
+    # 0.345.0: no tool may run here (CLAUDE_SUB_KHONG_TOOL), yet Claude Code still sent every tool
+    # schema and the skill list: measured 27,665 input tokens for "chào em" on the fast path. "*"
+    # takes them all out of the request, tools added by future Claude Code versions included
+    # (measured: 183 input tokens). This path is chat only, so nothing is lost.
+    cli.disallowed_tools = ["*"]
     return _claude_sub_doc(cli, _claude_kem_anh(messages, _cli_do_sau(cli, reasoning, prompt)), model)
 
 
@@ -3046,7 +3726,7 @@ def _coding_ctx_luot(row, brain=None, sid="", chat_id=""):
             if cwd:
                 goc.append(str(Path(cwd).resolve()))
             for r in (coding_store.thu_muc_cua_phien(sid) or []):
-                d = str((r or {}).get("duong_dan") or "")
+                d = str((r or {}).get("lam_viec") or (r or {}).get("duong_dan") or "")
                 if d and Path(d).is_dir() and str(Path(d).resolve()) not in goc:
                     goc.append(str(Path(d).resolve()))
         except Exception:
@@ -3101,7 +3781,9 @@ async def _api_stream_mcp(prov, key, model, messages, reasoning="off", brain=Non
                     coding_ctx_cua_phien=_cctx,
                 )
                 inventory_tools, inventory_route = mcp_hub.registry_inventory(
-                    mode, vault_root=vault_root, force_lazy=force_lazy, staging=True)
+                    mode, vault_root=vault_root, force_lazy=force_lazy, staging=True,
+                    workspace_root=list(_cctx.workspace_roots) if _cctx is not None else None,
+                    coding_ctx_cua_phien=_cctx)
             else:
                 servers = mcp_store.servers_for_client()
                 if servers:
@@ -3210,6 +3892,9 @@ def _get_adaptive_context():
             cfgmod.STATE_DIR, _CAPABILITY_REGISTRY, _CONTEXT_COMPILER,
             _CONTEXT_RUNTIME, cfgmod.read_settings,
         )
+        import improvement_routing
+        # M4: owner-applied routing descriptions for the brain's main chat; the canary skips them for CLI engines.
+        _ADAPTIVE_CONTEXT.routing_descriptions = improvement_routing.main_chat_descriptions
     return _ADAPTIVE_CONTEXT
 
 
@@ -3491,6 +4176,12 @@ def _schedule_registry_shadow(trace, brain, tools, route, query, provider, model
     đúng cái filter mà Phase 9 dựa vào - không bao giờ quan sát được.
     """
     if not trace:
+        return
+
+    from improvement_task_skill_scope import has_binding
+    if has_binding():
+        # Frozen task descriptors belong to the private owner, never the global
+        # derived source. Shadow publication is optional observational work.
         return
 
     async def _job():
@@ -3967,7 +4658,7 @@ def _api_label(prov):
     return {"openrouter": "OpenRouter", "openai": "OpenAI", "anthropic-api": "Anthropic API",
             "openai-oauth": "ChatGPT (OAuth)", "gemini": "Google Gemini",
             "groq": "Groq", "deepseek": "DeepSeek", "ollama": "Ollama",
-            "openai-compat": "OpenAI Compatible", "anthropic-compat": "Anthropic Compatible"}.get(prov, prov)
+            "openai-compat": "OpenAI Compatible", "anthropic-compat": "Claude Compatible"}.get(prov, prov)
 
 def _reasoning_level(mcfg):
     r = (mcfg or {}).get("reasoning", "off")
@@ -3983,6 +4674,13 @@ AGENT_REASONING_DEFAULT = "medium"
 def _agent_reasoning(meta) -> str:
     r = str((meta or {}).get("reasoning") or "").strip()
     return r if r in engine.REASONING_LEVELS else AGENT_REASONING_DEFAULT
+
+
+def _core_reasoning(mcfg) -> str:
+    """Javis Core's reasoning level, `model.core_reasoning` in settings. Owner rule (22/10/2026, 0.285.0): Javis Core
+    follows the main chat until the owner picks a level for it in its own chat; from then on that level sticks."""
+    r = str((mcfg or {}).get("core_reasoning") or "").strip()
+    return r if r in engine.REASONING_LEVELS else _reasoning_level(mcfg)
 
 # Từ khoá kích hoạt extended thinking của Claude Code (engine cli không có flag chuẩn).
 # Bộ từ khoá suy nghĩ của Claude Code. ĐƯỜNG DỰ PHÒNG từ 0.55.40: bản CLI có cờ `--effort`
@@ -4002,6 +4700,21 @@ def _cli_think(reasoning, message):
     if not kw:
         return message
     return f"{message}\n\n(Suy nghĩ kỹ trước khi trả lời - {kw})"
+
+
+def _gio_luot_noi_mach(cli, prompt, lang: str = ""):
+    """Gắn giờ gửi tin vào đầu prompt khi lượt này NỐI LẠI phiên Claude Code (`cli.session_id` có giá trị).
+
+    Claude Code giữ system prompt của lượt đầu phiên khi --resume, nên câu đồng hồ trong system prompt đông cứng
+    (xem context_compiler.dong_ho_ngan). Phiên MỚI không gắn: system prompt của nó vừa dựng, giờ trong đó đúng.
+    Lỗi gì cũng trả nguyên prompt: thiếu dòng giờ không được làm hỏng lượt chat.
+    """
+    if not getattr(cli, "session_id", None) or not isinstance(prompt, str):
+        return prompt
+    try:
+        return context_compiler.dong_ho_ngan(lang=lang or lang_mod.detect(prompt)[0]) + "\n" + prompt
+    except Exception:  # noqa: BLE001
+        return prompt
 
 
 def _cli_do_sau(cli, reasoning, message):
@@ -4097,9 +4810,11 @@ def _cli_do_sau_khac(cli, mod, reasoning, message):
 
 def _cli_fast(cli):
     """Fast mode for Claude Code (0.164.0): `settings='{"fastMode": true}'` on the SDK options
-    when this turn has the bolt on and the model supports it (Opus 5.5, Opus 5, Opus 4.8)."""
+    when this turn has the bolt on and the model supports it (Opus 5.5, Opus 5, Opus 4.8).
+    0.345.0: keeps the repo CLAUDE.md excluded (claude_cli.javis_claude_settings)."""
     try:
-        cli.fast_settings = fast_mode.claude_sdk_settings(getattr(cli, "model", "") or "", fast_mode.current())
+        cli.fast_settings = claude_cli.javis_claude_settings(
+            fast_mode.claude_sdk_settings(getattr(cli, "model", "") or "", fast_mode.current()))
     except Exception:  # noqa: BLE001 - an engine without this attribute just runs at the normal tier
         pass
 
@@ -4314,6 +5029,7 @@ def oauth_openai_poll():
     if d.get("status") == "connected":
         # Vừa đăng nhập ChatGPT xong: đèn báo não phải xanh NGAY, không chờ vòng probe.
         connect_health.engine_reconnected("codex")
+        _plan_main_signed_in("openai-oauth")
     return d
 
 
@@ -4336,16 +5052,22 @@ async def oauth_openai_browser_finish(request: Request):
     d = openai_oauth.finish_browser(callback)
     if d.get("status") == "connected":
         connect_health.engine_reconnected("codex")   # đăng nhập xong đèn xanh ngay
+        _plan_main_signed_in("openai-oauth")
     return d
 
 
 @app.post("/oauth/openai/disconnect")
 def oauth_openai_disconnect():
     cfg = cfgmod.read_settings()
-    if _effective_main(cfg).get("provider") == "openai-oauth":   # đang là MAIN → về Claude Code CLI
+    # 0.350.0: the card leaves the usage order; the next card becomes MAIN when it was MAIN.
+    model_routing.drop_from_order(cfg["model"], "openai-oauth")
+    if _effective_main(cfg).get("provider") == "openai-oauth":   # đang là MAIN (thẻ duy nhất) → về Claude Code CLI
         _set_main_model(cfg, "anthropic-cli", cfg["model"].get("claude_model") or "opus")
-        cfgmod.write_settings(cfg)
+    else:
+        _sync_legacy_engine(cfg["model"])
+    cfgmod.write_settings(cfg)
     openai_oauth.disconnect()
+    warm_pool.POOL.drop_kind("codex")   # 0.387.0: a warm app-server keeps the login it started with
     try:
         connect_health.probe_engines()   # ngắt chủ động → đèn đổi ngay theo Main Model mới
     except Exception:
@@ -4376,6 +5098,9 @@ def claude_status(refresh: bool = False):
     d = dict(d)
     d["cap_nhat"] = claude_update.doc_trang_thai()
     d["cap_nhat_docker"] = deploy_info.deploy_mode() == "docker"
+    # The daily-update switch on the card: its state, and whether the env var forces it off.
+    d["auto_update"] = claude_update.bat()
+    d["auto_update_env_off"] = claude_update.env_off()
     return d
 
 
@@ -4404,6 +5129,38 @@ async def claude_update_now():
 
 
 @app.on_event("startup")
+async def _widen_io_pool():
+    """Performance (2026-11-05): a bigger pool for `asyncio.to_thread` / `io_offload.run_io`.
+
+    Python's default pool is min(32, CPUs + 4) threads: 5 or 6 on a small VPS. Team reads, the team scheduler,
+    agent turns and page reads all borrow from it, so one busy agent left a page click waiting for a free
+    thread, which is the "sometimes instant, sometimes 1-2 seconds" the owner saw. The work is I/O (SQLite,
+    files), not CPU, so more threads cost little memory and no speed. Must be the FIRST startup hook."""
+    import concurrent.futures
+    n = max(32, (os.cpu_count() or 1) * 4)
+    try:
+        asyncio.get_running_loop().set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=n, thread_name_prefix="javis-io"))
+    except Exception as e:  # noqa: BLE001 - the stock pool still works, only smaller
+        print(f"[io pool] kept the default pool: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+@app.on_event("startup")
+async def _routing_migrate_on_start():
+    """0.350.0: move the settings to the usage-order layout once (docs/dev/2026-10-model-routing-spec.md, part 4)."""
+    def _run():
+        with cfgmod._SETTINGS_LOCK:
+            cfg = cfgmod.read_settings()
+            if _routing_migrate(cfg):
+                cfgmod.write_settings(cfg)
+                print("[routing] settings moved to the 0.350.0 usage order", file=sys.stderr)
+    try:
+        await asyncio.to_thread(_run)
+    except Exception as e:  # noqa: BLE001 - routing still works on the old fields until the next start
+        print(f"[routing] migration failed: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+@app.on_event("startup")
 async def _tu_cap_nhat_claude():
     """Mỗi giờ xem đã tới hạn chưa; tới hạn (24 giờ) thì chạy `claude update` một lần.
 
@@ -4411,14 +5168,17 @@ async def _tu_cap_nhat_claude():
     (Sonnet 5.5, 29/09/2026) không bao giờ hiện trong trình chọn. Chờ 2 phút sau khi khởi
     động cho server nhẹ tay đã.
     """
-    if not claude_update.bat() or deploy_info.deploy_mode() == "docker":
+    # The on/off switch (settings model.claude_auto_update, env override) is read on every pass
+    # below, not here: turning it off on the Models page must stop the next run without a restart,
+    # and turning it back on must not need one either.
+    if deploy_info.deploy_mode() == "docker":
         return
 
     async def _vong():
         await asyncio.sleep(120)
         while True:
             try:
-                if claude_update.den_han() and claude_cli.find_claude_cli():
+                if claude_update.bat() and claude_update.den_han() and claude_cli.find_claude_cli():
                     await _cap_nhat_claude("tu_dong")
             except Exception as e:
                 print(f"[claude update] vòng tự cập nhật lỗi: {type(e).__name__}: {e}",
@@ -4519,6 +5279,170 @@ def grok_status():
     return d
 
 
+# ---- Extra accounts on a subscription plan card (plan_accounts, 0.353.0) ----
+# Account 1 keeps its own card controls above. An extra account signs in into its own folder: ChatGPT through
+# Javis's device-code flow (tokens written to that folder's auth.json), Grok through `grok login --device-auth`,
+# Claude Code through `claude auth login` (a link, then a code pasted back). One sign-in runs at a time.
+_PLAN_LOGIN: dict = {}
+
+
+def _plan_login_ok(provider: str, account_id: str) -> dict:
+    """Finish an extra account's sign-in: remember it, put it at the end of the card's list."""
+    p = _PLAN_LOGIN.pop(account_id, None) or {}
+    folder = plan_accounts.home(provider, account_id)
+    plan_accounts.mark_signed_in(provider, folder)
+    with cfgmod._SETTINGS_LOCK:
+        cfg = cfgmod.read_settings()
+        plan_accounts.add(cfg["model"], provider, account_id, p.get("label", ""))
+        model_routing.clear_rest(provider, account_id)
+        cfgmod.write_settings(cfg)
+    return {"ok": True, "connected": True, "account_id": account_id}
+
+
+def _plan_login_fresh(provider: str, account_id: str, folder) -> bool:
+    """A sign-in counts only when its login file was written after the sign-in started. "Sign in again" keeps the old
+    (expired) file in the folder, and seeing it must not finish the new sign-in at once (0.355.0)."""
+    since = float((_PLAN_LOGIN.get(account_id) or {}).get("ts") or 0) - 2
+    try:
+        kind = plan_accounts.KIND[provider]
+        if kind == "grok":
+            f = grok_cli._doc_phien(folder)[0]
+        elif kind == "agy":
+            f = plan_accounts.agy_token_file(folder)
+        else:
+            f = Path(folder) / ".credentials.json"
+            if not f.exists():
+                return sys.platform == "darwin"   # macOS keeps Claude's token in the Keychain: no file to date
+        return bool(f) and Path(f).stat().st_mtime >= since
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@app.post("/plan-accounts/login-start")
+async def plan_account_login_start(request: Request):
+    """Start signing in an extra account. Body {provider, label, account_id?}; account_id re-signs an account."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    prov = str(body.get("provider") or "")
+    if not plan_accounts.supported(prov):
+        return JSONResponse({"ok": False, "error": localefmt.chu("Thẻ này không thêm được tài khoản.",
+                                                                 "This card cannot hold another account.")}, 400)
+    aid = str(body.get("account_id") or "") or model_routing.new_account_id()
+    if aid == plan_accounts.MAIN:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Tài khoản 1 đăng nhập ở phần trên của thẻ.",
+                                                                 "Account 1 signs in at the top of the card.")}, 400)
+    folder = plan_accounts.home(prov, aid)
+    if not folder:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không tạo được thư mục cho tài khoản.",
+                                                                 "Could not create the account's folder.")}, 500)
+    plan_accounts.prepare(prov, folder)
+    _PLAN_LOGIN[aid] = {"provider": prov, "label": str(body.get("label") or "")[:60], "ts": time.time()}
+    kind = plan_accounts.KIND[prov]
+    if kind == "agy":
+        # agy signs in on a keyboard screen in a terminal, so the page gives the command to paste into Javis's
+        # Terminal page (same user as Javis): agy with this account's HOME and file storage.
+        import shlex
+        cli = antigravity_cli.find_antigravity_cli() or "agy"
+        cmd = " ".join(f"{k}={shlex.quote(v)}" for k, v in plan_accounts.env_for(prov, folder).items()) + " " + shlex.quote(cli)
+        return {"ok": True, "account_id": aid, "url": "", "code": "", "needs_code": False, "terminal": cmd}
+    if kind == "codex":
+        try:
+            d = await asyncio.to_thread(openai_oauth.start_device_for, aid)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "account_id": aid, "url": d.get("verification_uri", ""), "code": d.get("user_code", ""),
+                "needs_code": False}
+    if kind == "grok":
+        d = await asyncio.to_thread(grok_cli.login_start, 30.0, folder)
+        if not d.get("ok"):
+            return d
+        if d.get("xong") and _plan_login_fresh(prov, aid, folder):
+            return _plan_login_ok(prov, aid)
+        return {"ok": True, "account_id": aid, "url": d.get("url", ""), "code": d.get("code", ""), "needs_code": False}
+    d = await asyncio.to_thread(claude_cli.auth_login_ui_start, plan_accounts.env_for(prov, folder))
+    if not d.get("ok"):
+        return d
+    for _ in range(40):          # the login link shows within a few seconds
+        u = claude_cli._LOGIN.get("url")
+        if u:
+            break
+        await asyncio.sleep(0.25)
+    return {"ok": True, "account_id": aid, "url": claude_cli._LOGIN.get("url", ""), "code": "", "needs_code": True}
+
+
+@app.post("/plan-accounts/login-code")
+async def plan_account_login_code(request: Request):
+    """Claude Code only: the code shown after signing in on the web. Body {provider, account_id, code}."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    prov, aid = str(body.get("provider") or ""), str(body.get("account_id") or "")
+    if prov != "anthropic-cli" or aid not in _PLAN_LOGIN:
+        return {"ok": False, "error": localefmt.chu("Chưa bắt đầu đăng nhập.", "Sign-in has not started.")}
+    d = await asyncio.to_thread(claude_cli.auth_login_ui_code, str(body.get("code") or ""))
+    folder = plan_accounts.home(prov, aid)
+    if d.get("ok") or ((await asyncio.to_thread(claude_cli.auth_status_folder, folder)).get("connected")
+                       and _plan_login_fresh(prov, aid, folder)):
+        return _plan_login_ok(prov, aid)
+    return {"ok": False, "error": d.get("error") or localefmt.chu("Đăng nhập chưa xong.", "Sign-in not finished.")}
+
+
+@app.get("/plan-accounts/login-poll")
+async def plan_account_login_poll(provider: str = "", account_id: str = ""):
+    """Has the extra account finished signing in? ChatGPT and Grok finish on the web, without a code."""
+    if not plan_accounts.supported(provider) or account_id not in _PLAN_LOGIN:
+        return {"ok": False, "connected": False,
+                "error": localefmt.chu("Chưa bắt đầu đăng nhập.", "Sign-in has not started.")}
+    folder = plan_accounts.home(provider, account_id)
+    kind = plan_accounts.KIND[provider]
+    if kind == "codex":
+        d = await asyncio.to_thread(openai_oauth.poll_for, account_id, folder)
+        if d.get("status") == "connected":
+            return _plan_login_ok(provider, account_id)
+        return {"ok": d.get("status") != "error", "connected": False, "error": d.get("error", "")}
+    if kind == "grok":
+        d = await asyncio.to_thread(grok_cli.login_trang_thai, folder)
+        if d.get("connected") and _plan_login_fresh(provider, account_id, folder):
+            return _plan_login_ok(provider, account_id)
+        return {"ok": True, "connected": False, "error": "" if d.get("dang_cho") else d.get("error", "")}
+    if kind == "agy":
+        if plan_accounts.agy_token_file(folder) and _plan_login_fresh(provider, account_id, folder):
+            return _plan_login_ok(provider, account_id)
+        return {"ok": True, "connected": False}
+    d = await asyncio.to_thread(claude_cli.auth_status_folder, folder)
+    if d.get("connected") and _plan_login_fresh(provider, account_id, folder):
+        return _plan_login_ok(provider, account_id)
+    return {"ok": True, "connected": False}
+
+
+@app.post("/plan-accounts/login-cancel")
+async def plan_account_login_cancel(request: Request):
+    """Stop a sign-in that was started and not finished; a never-finished account's empty folder goes too."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    prov, aid = str(body.get("provider") or ""), str(body.get("account_id") or "")
+    p = _PLAN_LOGIN.pop(aid, None)
+    if p and plan_accounts.supported(prov):
+        m = cfgmod.read_settings().get("model") or {}
+        if not any(a["id"] == aid for a in plan_accounts.accounts(m, prov)):
+            plan_accounts.remove_folder(prov, aid)
+        if plan_accounts.KIND[prov] == "grok":
+            grok_cli.logout_huy_tien_trinh()
+        elif plan_accounts.KIND[prov] == "claude":
+            try:
+                proc = claude_cli._LOGIN.get("proc")
+                if proc and proc.poll() is None:
+                    claude_cli._kill_tree(proc)
+            except Exception:  # noqa: BLE001
+                pass
+    return {"ok": True}
+
+
 @app.post("/grok/login-start")
 async def grok_login_start():
     """Bước 1: mở vòng device code, trả link + mã để người dùng mở trên máy của họ.
@@ -4527,13 +5451,24 @@ async def grok_login_start():
     đứng hỏi máy chủ tới khi người dùng bấm xong trên web, nên Javis không nhận lại mã nào cả.
     Giao diện gọi tiếp `/grok/login-poll` để biết đã xong chưa.
     """
+    global _GROK_MAIN_LOGIN_PENDING
+    _GROK_MAIN_LOGIN_PENDING = True
     return await asyncio.to_thread(grok_cli.login_start)
+
+
+# 0.420.2: set by login-start, so only a sign-in started here (not a page merely asking) lifts the quota mark.
+_GROK_MAIN_LOGIN_PENDING = False
 
 
 @app.get("/grok/login-poll")
 def grok_login_poll():
     """Bước 2: vòng đăng nhập tới đâu rồi. Giao diện hỏi lặp lại cái này sau login-start."""
-    return grok_cli.login_trang_thai()
+    global _GROK_MAIN_LOGIN_PENDING
+    d = grok_cli.login_trang_thai()
+    if d.get("connected") and _GROK_MAIN_LOGIN_PENDING:
+        _GROK_MAIN_LOGIN_PENDING = False
+        _plan_main_signed_in("grok-cli")
+    return d
 
 
 @app.post("/grok/logout")
@@ -4543,7 +5478,77 @@ async def grok_logout():
     Khác thẻ `agy` - ở đó không có nút Ngắt vì token nằm trong keyring không đụng tới được.
     Grok có lệnh đăng xuất chính chủ nên nút này làm đúng việc nó hứa.
     """
-    return await asyncio.to_thread(grok_cli.logout)
+    out = await asyncio.to_thread(grok_cli.logout)
+    # 0.350.0: the card leaves the usage order (the next card becomes MAIN when it was MAIN).
+    try:
+        def _drop():
+            with cfgmod._SETTINGS_LOCK:
+                cfg = cfgmod.read_settings()
+                if "grok-cli" in model_routing.stored_order(cfg["model"]):
+                    model_routing.drop_from_order(cfg["model"], "grok-cli")
+                    _sync_legacy_engine(cfg["model"])
+                    cfgmod.write_settings(cfg)
+        await asyncio.to_thread(_drop)
+    except Exception as e:  # noqa: BLE001 - the logout itself already happened
+        print(f"[routing] grok logout: {type(e).__name__}: {e}", file=sys.stderr)
+    return out
+
+
+def _drop_card(provider: str) -> None:
+    """A card the owner disconnected leaves the usage order; MAIN moves on, or back to Claude Code when it was alone."""
+    with cfgmod._SETTINGS_LOCK:
+        cfg = cfgmod.read_settings()
+        m = cfg["model"]
+        model_routing.drop_from_order(m, provider)
+        if _effective_main(cfg).get("provider") == provider:
+            _set_main_model(cfg, "anthropic-cli", m.get("claude_model") or "opus")
+        else:
+            _sync_legacy_engine(m)
+        cfgmod.write_settings(cfg)
+
+
+@app.post("/antigravity/logout")
+async def antigravity_logout():
+    """Disconnect the Antigravity card (owner 05/11/2026: "the Antigravity card has no Disconnect button").
+
+    The Google session sits in the OS keyring, out of Javis's reach, so this does what it honestly can: run the CLI's
+    own sign-out when the binary lists one, and in any case switch the card off in Javis, so no chat, background job
+    or fallback runs on it until the owner taps "Connect again"."""
+    out = await asyncio.to_thread(antigravity_cli.logout)
+    try:
+        def _save():
+            _drop_card("antigravity-cli")
+            cfgmod.update_settings({"model": {antigravity_cli._OFF_KEY: True}})
+        await asyncio.to_thread(_save)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    antigravity_cli.forget_status()
+    _PROV_MODELS_CACHE.pop("antigravity-cli", None)
+    _PIN_LIMITED.pop("antigravity-cli", None)
+    try:
+        connect_health.probe_engines()
+    except Exception:
+        pass
+    return {"ok": True, "cli_logout": bool(out.get("cli_logout")), "error": out.get("error", "")}
+
+
+@app.post("/antigravity/reconnect")
+async def antigravity_reconnect():
+    """Switch the Antigravity card back on and ask `agy` again whether it is signed in."""
+    await asyncio.to_thread(cfgmod.update_settings, {"model": {antigravity_cli._OFF_KEY: False}})
+    antigravity_cli.forget_status()
+    _PROV_MODELS_CACHE.pop("antigravity-cli", None)
+    d = await asyncio.to_thread(antigravity_cli.auth_status, True)
+    return {"ok": True, "connected": bool(d.get("connected")), "error": d.get("error", "")}
+
+
+@app.post("/routing/retry")
+async def routing_retry(provider: str = Form(...)):
+    """"Use again now" on a card the page shows as out of quota: its mark goes and the next turn tries it."""
+    if not _provider_def(provider):
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có nhà này", "No such provider")},
+                            status_code=400)
+    return {"ok": True, "lifted": await asyncio.to_thread(_clear_pin_limit, provider)}
 
 
 @app.post("/grok/check")
@@ -4589,6 +5594,7 @@ async def grok_check(brain: str = "brain"):
 
 @app.post("/claude/login")
 def claude_login():
+    warm_pool.POOL.drop_kind("claude")   # 0.387.0: a warm `claude` keeps the login it started with
     return claude_auth_login()
 
 
@@ -4603,15 +5609,37 @@ def claude_login_code(code: str = Form("")):
     """Nhận code user dán sau khi mở link đăng nhập."""
     d = auth_login_ui_code(code)
     if d.get("ok"):
-        # Vừa đăng nhập xong: đèn báo não phải xanh NGAY, không chờ vòng probe 10 phút
-        # (banner 'chưa kết nối Model AI' treo sau khi đã kết nối là lỗi khách báo 27/08).
-        connect_health.engine_reconnected("claude")
+        _claude_main_signed_in()
+    return d
+
+
+def _claude_main_signed_in():
+    """The main Claude account just signed in, by a pasted code or in the browser on its own."""
+    claude_cli._LOGIN["finalized"] = True
+    warm_pool.POOL.drop_kind("claude")   # 0.387.0: a warm `claude` keeps the login it started with
+    # Vừa đăng nhập xong: đèn báo não phải xanh NGAY, không chờ vòng probe 10 phút
+    # (banner 'chưa kết nối Model AI' treo sau khi đã kết nối là lỗi khách báo 27/08).
+    connect_health.engine_reconnected("claude")
+    _plan_main_signed_in("anthropic-cli")
+
+
+@app.get("/claude/login-poll")
+def claude_login_poll():
+    """Has the sign-in from /claude/login-start finished without a code? On a machine with a browser the CLI opens
+    the sign-in itself and gets the answer over localhost; the web page then only says "You're all set up" and shows
+    no code to paste (owner report 02/11/2026). The card asks here every few seconds while it shows the code box."""
+    if (claude_cli._LOGIN.get("env") or {}).get("CLAUDE_CONFIG_DIR"):
+        return {"ok": True, "waiting": False, "connected": False}   # an extra account's sign-in, polled elsewhere
+    d = claude_cli.auth_login_ui_poll()
+    if d.get("connected") and not claude_cli._LOGIN.get("finalized"):
+        _claude_main_signed_in()
     return d
 
 
 @app.post("/claude/logout")
 def claude_logout():
     d = claude_auth_logout()
+    warm_pool.POOL.drop_kind("claude")   # 0.387.0: a warm `claude` keeps the login it started with
     try:
         connect_health.probe_engines()   # ngắt chủ động → đèn phải đổi ngay, khỏi chờ vòng quét
     except Exception:
@@ -4784,7 +5812,7 @@ tools_routes.register(app, tools_routes.ToolsDeps(
 # ---- Đường HTTP của plugin (0.64.26) ----
 #
 # Lõi chỉ CHUYỂN request; luật nằm ở plugins_host (ai được mở đường, đường nào công khai, đường
-# nào không cookie). Sinh ra để "Javis trong ChatGPT" rời lõi thành một gói trong kho, nhưng cố
+# nào không cookie). Sinh ra để "Javis trong ChatGPT" (nay là Javis Gate) rời lõi thành một gói trong kho, nhưng cố
 # ý làm chung: webhook của dịch vụ ngoài là cùng một nhu cầu.
 _EXT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
@@ -4902,6 +5930,19 @@ async def connect_add(request: Request):
                     "VPS, use the separate Calendar and Gmail cards (those two sign in right inside "
                     "the dashboard). If the machine running Javis has a screen and you will click "
                     "Allow there, click Connect again.")}
+        if _deploy_mode() == "docker":
+            # Issue #855: Javis in Docker on the same computer. Google sends the browser back to localhost:8000 on that
+            # computer, which reaches the sign-in listener only when the container publishes port 8000
+            # (docker-compose.google.yml). Javis cannot see the host's port mapping from inside, so it says it once.
+            return {"ok": False, "can_force": True, "error": localefmt.chu(
+                    "Javis đang chạy trong Docker. Sau khi bấm đồng ý, Google chuyển trình duyệt về "
+                    "localhost:8000 trên máy bạn, nên container phải mở cổng 8000 (chỉ cho chính máy này). "
+                    "Làm một lần trong thư mục Javis: docker compose -f docker-compose.yml -f "
+                    "docker-compose.google.yml up -d. Đã làm rồi thì bấm Kết nối lần nữa.",
+                    "Javis is running in Docker. After you click Allow, Google sends the browser back to "
+                    "localhost:8000 on your computer, so the container must publish port 8000 (to this "
+                    "computer only). Do it once in the Javis folder: docker compose -f docker-compose.yml -f "
+                    "docker-compose.google.yml up -d. If you already did, click Connect again.")}
     # Dùng lại key OAuth client của connection khác (vd Gmail dùng lại key đã tạo cho
     # Calendar) - copy server-side, secrets không bao giờ về browser.
     fields_in = mcp_store.reuse_client_fields(
@@ -5245,6 +6286,23 @@ def settings_get():
         k = cfg["model"].get(kf, "")
         safe["model"][kf] = ("••••" + k[-4:]) if k else ""
         safe["model"][kf + "_set"] = bool(k)
+    # 0.350.0: account keys never leave the server. The Models page gets each card's accounts with the last 4 characters.
+    safe["model"].pop("account_keys", None)
+    safe["model"]["accounts"] = {
+        pid: [{"id": a["id"], "label": a["label"], "enabled": a["enabled"],
+               "key": ("••••" + a["key"][-4:]) if a["key"] else "",
+               "resting_until": model_routing.resting_until(pid, a["id"])}
+              for a in model_routing.accounts(cfg["model"], pid, kf)]
+        for pid, kf in _routing_key_fields().items() if model_routing.accounts(cfg["model"], pid, kf)}
+    for _gp in adv_keys.PROVIDERS:   # Advanced API key / Claude Compatible: gateways, key cut to the last 4 characters
+        if adv_keys.gateways(cfg["model"], _gp):
+            safe["model"]["accounts"][_gp] = adv_keys.view(cfg["model"], _gp)
+        safe["model"].pop(adv_keys.field(_gp), None)
+    for pid in plan_accounts.KIND:   # plan cards: account 1 plus any extra account (0.353.0)
+        try:
+            safe["model"]["accounts"][pid] = plan_accounts.view(cfg["model"], pid)
+        except Exception as e:  # noqa: BLE001 - one unreadable folder must not take the settings page down
+            print(f"[plan accounts] view {pid}: {type(e).__name__}: {e}", file=sys.stderr)
     o = cfg["model"].get("openai_oauth") or {}
     safe["model"]["openai_oauth"] = {   # che token, chỉ lộ trạng thái
         "connected": bool(o.get("access_token") or o.get("refresh_token")),
@@ -5272,7 +6330,62 @@ def settings_get():
     safe["backup"]["token_set"] = bool(bt)
     safe["model"]["providers"] = _providers_view(cfg)   # danh sách provider + trạng thái + model
     safe["model"]["main"] = _effective_main(cfg)         # model chính hiệu lực (suy từ legacy nếu cần)
+    safe["model"]["routing"] = _routing_view(cfg["model"], safe["model"]["providers"])
     return safe
+
+
+def _default_model_name(mcfg, prov: str) -> str:
+    """The model a card runs when its model is left on "default" (0.355.0, owner 27/10: "default" alone tells nothing).
+    "" when only the CLI itself knows (it picks by plan and we cannot read it): the page then says "default" alone."""
+    try:
+        if prov == "openrouter" and (mcfg.get("openrouter_model") or "").strip():
+            return mcfg["openrouter_model"].strip()
+        if prov in engine.DEFAULT_MODELS:
+            return engine.DEFAULT_MODELS[prov]
+        if prov == "openai-oauth":
+            m = _codex_safe_model("")
+            if m:
+                return m
+            cfg = grok_cli._doc_toml(plan_accounts.default_home(prov) / "config.toml")
+            return str(cfg.get("model") or "").strip()
+        if prov == "anthropic-cli":
+            m = (mcfg.get("claude_model") or "").strip()
+            if m:
+                return m
+            f = plan_accounts.default_home(prov) / "settings.json"
+            return str((json.loads(f.read_text(encoding="utf-8")) or {}).get("model") or "").strip() if f.is_file() else ""
+        if prov == "grok-cli":
+            cfg = grok_cli._doc_toml(plan_accounts.default_home(prov) / "config.toml")
+            return str(((cfg.get("models") or {}) or {}).get("default") or "").strip()
+    except Exception:  # noqa: BLE001 - an unreadable config only means the plain "default" label
+        pass
+    return ""
+
+
+def _routing_view(mcfg, providers) -> dict:
+    """What the Models page draws (spec 2.1-2.4): the usage order of signed-in cards, each card's model and effort,
+    the background model, and which card chat and background work run on right now. Built from the provider list
+    already computed for this response, so the page costs no second round of CLI checks."""
+    conn = [p["id"] for p in providers if p.get("configured") and p.get("cli_found") is not False]
+    o = model_routing.order(mcfg, conn)
+    chat = next((p for p in o if _route_ready(mcfg, p)), "")
+    bg = None
+    try:
+        for st in model_routing.background_chain(mcfg, conn, once=_ROUTING_PLAN_PROVIDERS):
+            if st["provider"] in conn and _route_ready(mcfg, st["provider"]):
+                bg = {"provider": st["provider"], "model": st["model"], "step": st["step"]}
+                break
+    except Exception as e:  # noqa: BLE001 - a broken view must not take the whole settings page down
+        print(f"[routing] view: {type(e).__name__}: {e}", file=sys.stderr)
+    limited = {}
+    for p in o:
+        until = _pin_limited_until(p)
+        if until:
+            limited[p] = int(until)
+    return {"order": o, "profiles": {p: model_routing.profile(mcfg, p) for p in o}, "limited": limited,
+            "background": model_routing.background_spec(mcfg), "chat_in_use": chat, "bg_in_use": bg,
+            "multi_key": list(_routing_key_fields()), "multi_plan": [p for p in plan_accounts.KIND if plan_accounts.available(p)],
+            "defaults": {p["id"]: d for p in providers if (d := _default_model_name(mcfg, p["id"]))}}
 
 
 @app.post("/settings")
@@ -5302,7 +6415,15 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
             lc["ui_lang_nguon"] = "tu_dong" if patch.get("tu_dong") else "chon"
             _doi_ngon_ngu_hat_giong(lc["ui_lang"])
         if "tz" in patch:
-            lc["tz"] = str(patch["tz"] or "").strip() or "Asia/Ho_Chi_Minh"
+            raw = str(patch["tz"] or "").strip()
+            name = localefmt.valid_tz(raw) if raw else "Asia/Ho_Chi_Minh"
+            if not name:
+                # Refuse instead of storing it: localefmt would fall back to UTC+7 without a word, and the picker would
+                # keep showing a timezone Javis is not using.
+                return JSONResponse({"ok": False, "error": localefmt.chu(
+                    "Máy chủ không nhận ra múi giờ \"{tz}\"", "The server does not recognise the timezone \"{tz}\"",
+                    tz=raw[:64])}, status_code=400)
+            lc["tz"] = name
         if "currency" in patch:
             lc["currency"] = str(patch["currency"] or "").strip().upper() or "VND"
     elif section == "general":
@@ -5317,12 +6438,14 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
             prov = patch["main"].get("provider"); mod = patch["main"].get("model")
             if _provider_def(prov) and mod:
                 _set_main_model(cfg, prov, mod)
+                _clear_pin_limit(prov)
         # Nhập credential provider (chỉ ghi khi có giá trị mới - tránh xoá bằng giá trị che ••••)
         # Lấy từ PROVIDER_DEFS: danh sách tay cũ sót ollama_key, dán key Ollama Cloud rồi bấm
         # Kết nối là báo đã lưu mà không lưu gì.
         for kf in _PROVIDER_KEY_FIELDS:
             if patch.get(kf) and not str(patch[kf]).startswith("••••"):
                 m[kf] = str(patch[kf]).strip()
+                _routing_key_saved(m, kf)
         if "openai_compat_base" in patch:
             new_base = str(patch["openai_compat_base"] or "").strip().rstrip("/")
             if new_base != (m.get("openai_compat_base") or "") and not (
@@ -5345,13 +6468,15 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
             d = _provider_def(patch["clear_key"])
             if d and d.get("key_field"):
                 m[d["key_field"]] = ""
-                if patch["clear_key"] == "openai-compat":
-                    m["openai_compat_base"] = ""
-                    _PROV_MODELS_CACHE.pop("openai-compat", None)
-                if patch["clear_key"] == "anthropic-compat":
-                    m["anthropic_compat_base"] = ""
-                    m["anthropic_compat_models"] = []
-                    _PROV_MODELS_CACHE.pop("anthropic-compat", None)
+                # 0.350.0: every key of the card goes, and the card leaves the usage order (the next card becomes MAIN).
+                if d["id"] not in _ROUTING_SINGLE_KEY:
+                    model_routing.save_accounts(m, d["id"], [], d["key_field"])
+                model_routing.drop_from_order(m, d["id"])
+                if patch["clear_key"] in adv_keys.PROVIDERS:   # every gateway of the card goes
+                    adv_keys.forget(m, patch["clear_key"])
+                    if patch["clear_key"] == "openai-compat":
+                        m.setdefault("catalog", {}).pop("openai-compat", None)
+                    _PROV_MODELS_CACHE.pop(patch["clear_key"], None)
                 if _effective_main(cfg).get("provider") == patch["clear_key"]:
                     _set_main_model(cfg, "anthropic-cli", m.get("claude_model") or "opus")
         # Gói Claude Code xác thực bằng gì: phiên subscription sẵn có, hay API key riêng.
@@ -5364,10 +6489,14 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
         if "auxiliary" in patch:   # model phụ cho việc nền (provider + model)
             aux_patch = patch["auxiliary"] or {}
             aux = m.setdefault("auxiliary", {})
-            aux["model"] = aux_patch.get("model", "")
-            # Thiếu provider (client cũ) = Claude, đúng hành vi trước khi mở nhiều provider.
-            prov = aux_patch.get("provider") or aux_engine.CLAUDE
-            aux["provider"] = prov if _provider_def(prov) else aux_engine.CLAUDE
+            if "model" in aux_patch or "provider" in aux_patch:
+                aux["model"] = aux_patch.get("model", "")
+                # Thiếu provider (client cũ) = Claude, đúng hành vi trước khi mở nhiều provider.
+                prov = aux_patch.get("provider") or aux_engine.CLAUDE
+                aux["provider"] = prov if _provider_def(prov) else aux_engine.CLAUDE
+            if "reasoning" in aux_patch:   # 0.350.0: the background model keeps its own effort
+                r = aux_patch["reasoning"]
+                aux["reasoning"] = r if r in engine.REASONING_LEVELS else "off"
         if "telegram" in patch:   # model riêng cho kênh Telegram; provider rỗng = theo model chính
             tg_patch = patch["telegram"] or {}
             tg = m.setdefault("telegram", {})
@@ -5380,9 +6509,68 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
         if "reasoning" in patch:
             r = patch["reasoning"]
             m["reasoning"] = r if r in engine.REASONING_LEVELS else "off"
+            # 0.350.0: the composer's effort chip is MAIN's card effort.
+            model_routing.set_profile(m, model_routing.main_provider(m), reasoning=m["reasoning"])
+        # 0.350.0 Models page: usage order, one card's model/effort, one card's accounts or keys.
+        if isinstance(patch.get("order"), list):
+            ids = [p for p in patch["order"] if _provider_def(str(p or ""))]
+            if ids:
+                _was_main = model_routing.main_provider(m)
+                model_routing.set_order(m, ids)
+                _sync_legacy_engine(m)
+                if ids[0] != _was_main:
+                    _clear_pin_limit(ids[0])   # a card moved to the top on purpose is tried, not skipped
+        if isinstance(patch.get("adv_keys"), dict):   # gateway list of a card: order, on/off, names, removal
+            ak = patch["adv_keys"]
+            gp = str(ak.get("provider") or adv_keys.ANTHROPIC)   # a page from 0.477.0 sends no provider
+            if gp in adv_keys.PROVIDERS:
+                adv_keys.save_list(m, gp, ak.get("items") or [], removed=ak.get("removed") or [])
+                _PROV_MODELS_CACHE.pop(gp, None)
+        if isinstance(patch.get("profile"), dict):
+            pp = patch["profile"]
+            pid = str(pp.get("provider") or "")
+            if _provider_def(pid):
+                r = pp.get("reasoning")
+                model_routing.set_profile(m, pid, model=pp.get("model") if "model" in pp else None,
+                                          reasoning=(r if r in engine.REASONING_LEVELS else "off") if "reasoning" in pp else None)
+                if model_routing.main_provider(m) == pid:
+                    _sync_legacy_engine(m)
+        if isinstance(patch.get("accounts"), dict):
+            pa = patch["accounts"]
+            pid = str(pa.get("provider") or "")
+            kf = _routing_key_fields().get(pid)
+            if plan_accounts.supported(pid) and isinstance(pa.get("items"), list):
+                # A plan card's accounts carry no key: order, label and on/off only. Removing one deletes its login
+                # folder; account 1 (the machine's own login) stays (0.353.0).
+                plan_accounts.save(m, pid, pa["items"], removed=pa.get("removed"))
+            if kf and isinstance(pa.get("items"), list):
+                items = []
+                cur = {a["id"]: a for a in model_routing.accounts(m, pid, kf)}
+                for it in pa["items"]:
+                    if not isinstance(it, dict):
+                        continue
+                    aid = str(it.get("id") or "") or model_routing.new_account_id()
+                    key = str(it.get("key") or "").strip()
+                    if key.startswith("••••"):
+                        key = ""
+                    if not key and aid not in cur:
+                        continue                      # a new account needs its key
+                    items.append({"id": aid, "label": str(it.get("label") or ""),
+                                  "enabled": it.get("enabled") is not False, "key": key or cur.get(aid, {}).get("key", "")})
+                if pa["items"] and not items:
+                    items = None                      # nothing valid in a non-empty list: never wipe the card for that
+                if items is not None:
+                    model_routing.save_accounts(m, pid, items, kf)
+                if items:
+                    model_routing.add_to_order(m, pid)
+                elif items is not None:
+                    model_routing.drop_from_order(m, pid)
         # Fast mode (composer bolt, 0.153.0). This POST drops unknown keys, so it needs its own branch.
         if "fast" in patch:
             m["fast"] = patch["fast"] is True
+        # Daily Claude Code update switch (Models page). Same reason for its own branch as above.
+        if claude_update.SETTING_KEY in patch:
+            m[claude_update.SETTING_KEY] = patch[claude_update.SETTING_KEY] is True
         # Legacy trực tiếp (tương thích ngược)
         for k in ("engine", "claude_model", "openrouter_model"):
             if k in patch:
@@ -5490,6 +6678,10 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
         for k in ("openai_tts_voice", "openai_tts_model", "elevenlabs_voice"):
             if patch.get(k):
                 v[k] = str(patch[k]).strip()
+        # 0.298.0: the Edge voice is kept here too, not only in one browser's localStorage. Before, a voice
+        # picked on the laptop never reached the phone (it kept its old voice) nor the voice notes.
+        if "edge_voice" in patch and voice_note.valid_edge_voice(patch.get("edge_voice")):
+            v["edge_voice"] = str(patch["edge_voice"]).strip()
         import tts_eleven   # 0.255.0: only a model the settings page offers
         if str(patch.get("elevenlabs_model") or "").strip() in tts_eleven.MODELS:
             v["elevenlabs_model"] = str(patch["elevenlabs_model"]).strip()
@@ -5549,7 +6741,7 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
         # Từ hay nghe nhầm (hotwords): chuỗi tự do, chuẩn hoá qua nghe_sua để lưu gọn; rỗng là
         # xoá hết từ người dùng khai (tên trợ lý vẫn luôn có, không cần lưu).
         if "hotwords" in patch:
-            v["hotwords"] = ", ".join(nghe_sua.tach_tu_vung(patch.get("hotwords")))
+            v["hotwords"] = ", ".join(nghe_sua.split_vocabulary(patch.get("hotwords")))
     elif section == "password":
         # Đổi mật khẩu KHÔNG đi qua đây nữa - xem /auth/password. Đường này không đòi mật khẩu
         # hiện tại VÀ nhận cả token API scope `full`, nghĩa là một token rò ra là đổi được mật
@@ -5574,6 +6766,8 @@ async def settings_set(section: str = Form(...), data: str = Form("{}")):
         try:
             if "claude_auth" in patch:
                 connect_health.engine_reconnected("claude")
+            elif set(patch) == {claude_update.SETTING_KEY}:
+                pass   # the update switch changes no engine, so there is nothing to re-probe
             else:
                 connect_health.probe_engines()
         except Exception as e:
@@ -6265,8 +7459,15 @@ def _khoi_coding(row, brain: str = "") -> str:
         if not sid:
             return ""
         if str((row or {}).get("channel") or "").startswith("coding:"):
-            return coding_store.khoi_prompt(sid)
-        return coding_store.pinned_folder_prompt(sid, _brain_root(brain) if brain else "")
+            block = coding_store.khoi_prompt(sid)
+        else:
+            block = coding_store.pinned_folder_prompt(sid, _brain_root(brain) if brain else "")
+        try:
+            import github_repos
+            block += github_repos.prompt_block(sid, brain)
+        except Exception as _e:  # noqa: BLE001 - a GitHub hiccup must never break the turn
+            print(f"[github prompt] {type(_e).__name__}: {_e}", file=sys.stderr)
+        return block
     except Exception:
         return ""
 
@@ -6449,7 +7650,7 @@ async def upload_raw(name: str = Query(...), dl: int = Query(0)):
     resp = FileResponse(str(f), media_type=mt or "application/octet-stream")
     resp.headers["Content-Disposition"] = "inline"
     resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
+    return _csp_neu_chay_script(resp, mt)
 
 @app.post("/ingest-upload")
 async def ingest_upload(
@@ -6816,7 +8017,12 @@ def _list_brains_sync() -> dict:
                         "is_default": is_default})
     except Exception as e:
         return {"dir": str(base), "brains": [], "error": str(e)}
-    return {"dir": str(base), "brains": out}
+    # 0.431.0: the owner's order first (brain picker, Reorder), then by display label read like a person does.
+    try:
+        order = (cfgmod.read_settings() or {}).get(brain_order.SETTINGS_KEY) or []
+    except Exception:
+        order = []
+    return {"dir": str(base), "brains": brain_order.sort(out, order)}
 
 
 @app.get("/brains")
@@ -6824,6 +8030,115 @@ async def list_brains():
     """Liệt kê mọi brain trong BRAINS_DIR (mỗi folder con = 1 brain) + số note .md.
     Dropdown chọn brain đổ từ đây (server-side) thay vì localStorage."""
     return await asyncio.to_thread(_list_brains_sync)
+
+
+@app.post("/brains/order")
+async def brain_set_order(order: str = Form("[]")):
+    """Save the order of the brain list (0.431.0, the brain picker's Reorder mode). `order` is a JSON list of brain
+    FOLDER names, first on top. Stored in settings.json, so every device shows the same order; a brain left out is
+    listed after the ordered ones, by its display label."""
+    try:
+        raw = json.loads(order or "[]")
+    except json.JSONDecodeError:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Thứ tự không hợp lệ", "Invalid order")}, status_code=400)
+    ten = brain_order.clean(raw)
+    await asyncio.to_thread(cfgmod.update_settings, {brain_order.SETTINGS_KEY: ten})
+    return {"ok": True, "order": ten}
+
+
+def _order_list(order: str):
+    """A JSON list from a form field, or None when it is not one."""
+    try:
+        raw = json.loads(order or "[]")
+    except json.JSONDecodeError:
+        return None
+    return raw if isinstance(raw, list) else None
+
+
+def _bad_order():
+    return JSONResponse({"ok": False, "error": localefmt.chu("Thứ tự không hợp lệ", "Invalid order")}, status_code=400)
+
+
+@app.get("/ui/order")
+async def ui_order_get():
+    """0.454.0: the owner's order of the tag lists (ui_order.py), one list of tag keys per page."""
+    import ui_order
+    return {"ok": True, "orders": ui_order.read(cfgmod.read_settings() or {})}
+
+
+@app.post("/ui/order")
+async def ui_order_set(scope: str = Form(...), order: str = Form("[]")):
+    """0.454.0: save the order of one tag list (`scope` tags_agents or tags_teams), first on top."""
+    import ui_order
+    raw = _order_list(order)
+    if raw is None or scope not in ui_order.SCOPES:
+        return _bad_order()
+    val = ui_order.updated(cfgmod.read_settings() or {}, scope, raw)
+    await asyncio.to_thread(cfgmod.update_settings, {ui_order.SETTINGS_KEY: val})
+    return {"ok": True, "order": val[scope]}
+
+
+@app.get("/pet/menu")
+async def pet_menu_get():
+    """The mascot menu the owner arranged (pet_menu.py): {state, rev, items}. Never customised = the default six."""
+    import pet_menu
+    return {"ok": True, "menu": pet_menu.read(cfgmod.read_settings() or {})}
+
+
+def _pet_menu_save(items, base_rev, hidden=None):
+    """Check and write under the settings lock, so two windows saving at once cannot both pass the revision check."""
+    import pet_menu
+    with cfgmod._SETTINGS_LOCK:
+        cfg = cfgmod.read_settings()
+        code, value = pet_menu.check_save(cfg, items, base_rev, hidden)
+        if not code:
+            cfg[pet_menu.SETTINGS_KEY] = value
+            cfgmod.write_settings(cfg)
+        return code, pet_menu.read(cfg)
+
+
+@app.post("/pet/menu")
+async def pet_menu_set(items: str = Form("[]"), base_rev: int = Form(-1), hidden: str = Form("[]")):
+    """Save the mascot menu: `items` is a JSON list of action ids, first on top; `hidden` (older dashboards) is left out;
+    `base_rev` the revision it was edited from. Adding, reordering and removing any item pass, down to an empty menu
+    (owner, 2026-11-05); a stale revision is a 409 so no window overwrites another one's newer menu."""
+    raw = _order_list(items)
+    if raw is None:
+        raw = "bad"
+    hid = _order_list(hidden)
+    if hid is None:
+        hid = "bad"
+    code, menu = await asyncio.to_thread(_pet_menu_save, raw, base_rev, hid)
+    if not code:
+        return {"ok": True, "menu": menu}
+    msg = {
+        "conflict": localefmt.chu("Menu linh vật vừa được đổi ở cửa sổ khác. Tải lại để xem bản mới.",
+                                  "The mascot menu was just changed in another window. Reload to see it."),
+        "invalid_saved": localefmt.chu("Cấu hình menu đã lưu bị lỗi nên chưa lưu đè được.",
+                                       "The saved menu settings are damaged, so they cannot be saved over yet."),
+    }.get(code) or localefmt.chu("Danh sách chức năng không hợp lệ.", "Invalid list of features.")
+    return JSONResponse({"ok": False, "code": code, "error": msg, "menu": menu},
+                        status_code=409 if code in ("conflict", "invalid_saved") else 400)
+
+
+@app.post("/projects/order")
+async def projects_set_order(brain: str = Form(...), order: str = Form("[]")):
+    """0.454.0: the owner's order of the projects of one brain (JSON list of project ids, first on top)."""
+    raw = _order_list(order)
+    if raw is None:
+        return _bad_order()
+    n = await asyncio.to_thread(get_store().set_project_order, brain, [str(x) for x in raw][:500])
+    return {"ok": True, "ordered": n}
+
+
+@app.post("/sessions/pin-order")
+async def sessions_set_pin_order(order: str = Form("[]")):
+    """0.454.0: the owner's order of the pinned chats (JSON list of session ids, first on top)."""
+    raw = _order_list(order)
+    if raw is None:
+        return _bad_order()
+    n = await asyncio.to_thread(get_store().set_pin_order, [str(x) for x in raw][:500])
+    return {"ok": True, "ordered": n}
 
 
 @app.post("/brains/new")
@@ -7052,6 +8367,7 @@ def _agents_dir(brain):
     return _brain_sub(_brain_root(brain), "agents", "Javis/agents")
 def _workflows_dir(brain):
     return _brain_sub(_brain_root(brain), "workflows", "Javis/workflows")
+javis_core.AGENTS_DIR = _agents_dir   # Javis Core's own agent file lives where the brain keeps its agents
 
 def _agent_memory(brain, slug):
     f = _brain_memory_dir(brain) / "agents" / slug / "MEMORY.md"
@@ -7115,7 +8431,27 @@ def _ghi_luat_chu(brain, slug, rules):
     dòng sau 15 bài học khác."""
     _ghi_muc_bo_nho_agent(brain, slug, agent_rules.OWNER_RULES_HEADER, rules, None)
 
+def _agent_run_task_text(task) -> str:
+    """The owner's own request, without the blocks Javis put in front of it (#934).
+
+    A chat turn reaches the agent with a recall block ([NHỚ LẠI TỪ CÁC CUỘC TRÒ CHUYỆN TRƯỚC: ...]) and the dashboard's
+    context blocks ([NGỮ CẢNH GIAO DIỆN: ...], open file, attachments) in front. Logged as they were, old chat excerpts
+    landed in agents/<slug>/runs/ and came back as fresh memories. Nothing left after stripping keeps the original."""
+    raw = str(task or "")
+    try:
+        clean = raw
+        for _ in range(4):   # the recall block sits in front of the dashboard's blocks, but take either order
+            nxt = share_render.chu_nguoi_go(chat_recall.strip_block(clean.lstrip()))
+            if nxt == clean:
+                break
+            clean = nxt
+    except Exception:
+        clean = raw
+    return clean or raw
+
+
 def _log_agent_run(brain, slug, task, out):
+    task = _agent_run_task_text(task)
     try:
         d = _brain_memory_dir(brain) / "agents" / slug / "runs"
         d.mkdir(parents=True, exist_ok=True)
@@ -7194,18 +8530,50 @@ def _javis_core_entry(brain: str) -> dict:
         moc = get_store().moc_cap_nhat_theo_kenh(_brain_keys(brain), "agent:")
     except Exception:
         moc = {}
-    e = javis_core.list_entry(moc.get(javis_core.CHANNEL, 0))
-    e["role"] = localefmt.chu(javis_core.definition()["role"], javis_core.definition()["role_en"])
-    e["avatar"] = agent_avatar.for_agent({}, javis_core.SLUG)   # the same stable face in every brain
+    root = _brain_root(brain)
+    e = javis_core.list_entry(moc.get(javis_core.CHANNEL, 0), root=root)
+    meta = javis_core.read_core(root)[0]
+    e["role"] = javis_core.role_text(meta, localefmt.chu)
+    e["avatar"] = agent_avatar.for_agent(meta, javis_core.SLUG)   # the face picked on its card, else the stable one
+    # 2026-11-05: the agent editor shows Javis Core's model (its pin, empty = the main model) and its own level.
+    mcfg = cfgmod.read_settings().get("model", {})
+    pin = _core_pin(mcfg)
+    e["model"], e["model_provider"] = pin.get("model") or "", pin.get("provider") or ""
+    e["reasoning"] = _core_reasoning(mcfg)
+    _core_auto_on(brain)
     return e
 
 
+_CORE_AUTO_DONE: set = set()
+
+
+def _core_auto_on(brain: str) -> None:
+    """Auto (Resonance) is always on for Javis Core (owner, 05/11/2026): register it and switch it on, once per brain
+    per process. A missing entry needs nothing from the owner: the brain's Javis Core file is made right here."""
+    try:
+        bkey = _brain_key(brain)
+        if not bkey or bkey in _CORE_AUTO_DONE:
+            return
+        javis_core.ensure_file(_brain_root(brain))
+        rs = _resonance_store()
+        owner = resonance_store.Principal("owner", "owner", bkey)
+        live = rs.agent(bkey, javis_core.SLUG)
+        if live is None or not live.get("enabled"):
+            if live is not None and live.get("status") == "missing":
+                rs.agent_confirm(owner, live["agent_key"], True)
+            rs.agent_set_enabled(owner, javis_core.SLUG, True)
+        _CORE_AUTO_DONE.add(bkey)
+    except Exception as e:  # noqa: BLE001 - never fail the Partners page over this
+        print(f"[javis core auto] {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def _core_refusal() -> JSONResponse:
-    """The one answer to every attempt to delete, rename, unpin, edit or reuse Javis Core."""
+    """The one answer to deleting, unpinning or re-tagging Javis Core, or creating a new agent on its slug. Everything
+    else (picture, name, role, instructions, documents, skills, model) is edited like any agent (owner, 05/11/2026)."""
     return JSONResponse({"ok": False, "code": "system_assistant", "error": localefmt.chu(
-        "Javis Core là trợ lý hệ thống: không xoá, đổi tên, bỏ ghim hay sửa được. Chọn model vẫn được.",
-        "Javis Core is the system assistant: it cannot be deleted, renamed, unpinned or edited. "
-        "Choosing its model still works.")}, status_code=403)
+        "Javis Core là trợ lý hệ thống: không xoá hay bỏ ghim được. Mọi thứ khác sửa như một trợ lý thường.",
+        "Javis Core is the system assistant: it cannot be deleted or unpinned. Everything else is edited like any "
+        "other assistant.")}, status_code=403)
 
 
 @app.post("/javis-core/session")
@@ -7213,6 +8581,24 @@ def javis_core_session(brain: str = Form("brain")):
     """This brain's default Javis Core chat, made when missing (deleted or archived ones are not revived)."""
     sid = javis_core.default_session(get_store(), _brain_key(brain), same_brain=_cung_brain)
     return {"id": sid, "channel": javis_core.CHANNEL}
+
+
+@app.get("/javis-core/model")
+def javis_core_model_get():
+    """The Javis Core card's model row (0.461.0): its pin, or the main model it follows, and what really runs."""
+    return _core_model_view(cfgmod.read_settings().get("model", {}))
+
+
+@app.post("/javis-core/model")
+async def javis_core_model_set(provider: str = Form(""), model: str = Form("")):
+    """Pin Javis Core to a model from the Agents page (empty provider = follow the main model). Same pin as the model
+    bar of a Core chat, so the two places can never disagree."""
+    prov = (provider or "").strip()
+    if prov and not _provider_def(prov):
+        return JSONResponse({"ok": False, "error": localefmt.chu(f"provider không tồn tại: {prov}",
+                                                                 f"provider does not exist: {prov}")}, status_code=400)
+    await _set_core_pin(prov, model)
+    return {"ok": True, **_core_model_view(cfgmod.read_settings().get("model", {}))}
 
 
 def _brain_ui_value(brain_key: str) -> str:
@@ -7244,7 +8630,10 @@ def agent_get(slug: str = Query(...), brain: str = Query("brain")):
     vào đường dẫn là đọc được file ngoài thư mục agents.
     """
     if javis_core.is_core_slug(slug):
-        return {**_javis_core_entry(brain), "prompt": javis_core.definition()["body"]}
+        _cm, _cb = javis_core.read_core(_brain_root(brain))
+        e = _javis_core_entry(brain)
+        # The editor gets the role as stored (saving it unchanged must not swap in the translated line).
+        return {**e, "role": str(_cm.get("role") or e["role"]), "prompt": _cb}
     path = _agent_md_path(brain, slug)
     if not path:
         return JSONResponse({"error": localefmt.chu("Không tìm thấy trợ lý", "Assistant not found")}, status_code=404)
@@ -7271,8 +8660,18 @@ async def save_agent(name: str = Form(...), role: str = Form(""), skills: str = 
     # KHÔNG ghi đè agent cũ (trước đây ghi đè âm thầm tên, vai, lời nhắc của người khác); trả 409 kèm gợi ý slug trống.
     creating = not (slug or "").strip()
     slug = slug or _ascii_slug(name)
-    if javis_core.is_core_slug(slug):
-        return _core_refusal()
+    core = javis_core.is_core_slug(slug)
+    if core and creating:
+        return _core_refusal()   # a new agent can never take the system assistant's slug
+    if core:
+        # 2026-11-05 (owner): Javis Core is edited with the same form as any agent. Its file is made first, its model
+        # is Javis Core's pin (the same one as the model chip of its chat) and its level is its own, both in settings.
+        javis_core.ensure_file(_brain_root(brain))
+        mp_core = (model_provider or "").strip()
+        await _set_core_pin(mp_core if (mp_core and (model or "").strip() and _provider_def(mp_core)) else "", model)
+        if isinstance(reasoning, str) and reasoning in engine.REASONING_LEVELS:
+            await asyncio.to_thread(cfgmod.update_settings, {"model": {"core_reasoning": reasoning}})
+        model, model_provider, reasoning = "", "", None
     skills_list = [s.strip() for s in re.split(r"[,\n]", skills) if s.strip()]
     # `model_provider` nói RÕ model thuộc nhà nào - cùng một tên model có thể có ở hai nhà
     # (gemini-2.5-pro: Gemini CLI lẫn Gemini API; claude-*: Claude Code lẫn Anthropic API).
@@ -7330,6 +8729,8 @@ async def save_agent(name: str = Form(...), role: str = Form(""), skills: str = 
                          "skills": skills_list, "model": model, "avatar": avatar,
                          "model_provider": mp if mp in AGENT_PROVIDERS else "",
                          "updated": _today()})  # "" = mặc định theo CLI
+            if core:
+                meta["system"] = True   # still the system assistant after any edit
             agent_tags.write_tags(meta, hien)
             _write_md(path, meta, (prompt.strip() or role))
             return {"ok": True, "slug": slug, "tags": hien}
@@ -7401,10 +8802,9 @@ def _agent_file(brain: str, slug: str):
     dạng tách dấu (NFD), còn slug tới từ trình duyệt là dạng dựng sẵn (NFC), hai chuỗi trông y hệt mà
     so khác nhau."""
     import unicodedata
-    # Javis Core's slug is reserved for the platform definition: a stray `agents/javis-core.md` in a brain
-    # (hand-written, imported, written by a model) is never read, edited or deleted as a brain agent.
+    # Javis Core (2026-11-05): a real file in every brain, made from the platform definition when missing.
     if javis_core.is_core_slug(slug):
-        return None
+        return javis_core.ensure_file(_brain_root(brain))
     d = _agents_dir(brain)
     for dang in dict.fromkeys((slug, unicodedata.normalize("NFC", slug), unicodedata.normalize("NFD", slug))):
         f = d / f"{dang}.md"
@@ -7589,6 +8989,7 @@ async def skill_toggle(slug: str = Form(...), enabled: str = Form(...), brain: s
         else:
             if mirror_slug.is_dir():
                 shutil.rmtree(mirror_slug)       # tắt → gỡ mirror để native không còn nạp
+            await asyncio.to_thread(_improvement_suspend_skill, brain, slug)
             # Gọi lại mirror_skills NGAY ở đây, không chỉ chờ lượt gọi tự nhiên kế tiếp (CRITICAL 1
             # đã vá): rename ở trên vừa đổi cây <root>/skills nên chữ ký của nó đã đổi, và lệnh này
             # ép cache ghi nhận đúng chữ ký-đã-tắt NGAY LẬP TỨC. Thiếu dòng này: `rename` giữ nguyên
@@ -7688,6 +9089,8 @@ async def delete_skill(slug: str = Form(...), brain: str = Form("brain")):
                 found = True
             except Exception as e:
                 return JSONResponse({"error": str(e)}, status_code=500)
+    if found:
+        await asyncio.to_thread(_improvement_suspend_skill, brain, slug)
     return {"ok": True} if found else JSONResponse({"error": localefmt.chu("Không tìm thấy skill", "Skill not found")}, status_code=404)
 
 
@@ -8171,7 +9574,13 @@ async def files_rename(brain: str = Form("brain"), path: str = Form(...), newnam
 _THU_MUC_LOGIC = {
     "sources": (r"^(\d+\s*[-_.]\s*)?sources$", "Sources"),
     "attachments": (r"^(\d+\s*[-_.]\s*)?attachments$", "Attachments"),
+    # Images inserted into a note (dashboard/note-images.js). NOT shared with attachments/: media_gc
+    # treats attachments/ as a cache and deletes files older than 30 days, while a note points here.
+    "images": (r"^(\d+\s*[-_.]\s*)?images$", "images"),
 }
+# Note images are embedded and shown inline, so the "images" folder takes raster formats only.
+# SVG can carry script and is never stored there.
+_NOTE_IMAGE_EXTS = {".webp", ".jpg", ".jpeg", ".png", ".gif", ".avif", ".bmp"}
 
 
 @app.post("/files/upload")
@@ -8183,11 +9592,23 @@ async def files_upload(file: UploadFile = File(...), brain: str = Form("brain"),
         mau = _THU_MUC_LOGIC.get(folder.strip().lower())
         if not mau:
             return JSONResponse({"error": localefmt.chu("Thư mục không hợp lệ", "Invalid folder")}, status_code=400)
+        if folder.strip().lower() == "images" and \
+                os.path.splitext(_sanitize_filename(file.filename))[1].lower() not in _NOTE_IMAGE_EXTS:
+            return JSONResponse({"error": localefmt.chu(
+                "Ảnh trong note chỉ nhận WebP, JPG, PNG, GIF, AVIF hoặc BMP",
+                "Note images accept only WebP, JPG, PNG, GIF, AVIF or BMP")}, status_code=400)
         d = Path(_resolve_subfolder(_brain_root(brain), *mau))
         try:
             # Client lưu và mở file bằng đường dẫn tương đối TRẦN duyệt, nên phải quy về đó -
             # trả đường tuyệt đối là đẩy một đường dẫn máy chủ vào cơ sở dữ liệu project.
-            rel_dir = d.relative_to(_files_root(brain)).as_posix()
+            # Note images are the exception: the path is EMBEDDED in the note (![[images/a.webp]])
+            # and the renderer resolves it from the BRAIN ROOT, so it must be brain-root relative.
+            # Locally the browse ceiling can be a whole drive; relative to that, the note would get
+            # "Users/.../images/a.webp" and break as soon as the brain moves or changes machine.
+            if folder.strip().lower() == "images":
+                rel_dir = d.resolve().relative_to(Path(_brain_root(brain)).resolve()).as_posix()
+            else:
+                rel_dir = d.relative_to(_files_root(brain)).as_posix()
         except ValueError:
             return JSONResponse({"error": localefmt.chu("Thư mục nằm ngoài phạm vi duyệt", "The folder is outside the browsable area")}, status_code=400)
     else:
@@ -8330,6 +9751,22 @@ async def files_zip(brain: str = Query("brain"), path: str = Query(""), probe: i
     return await zip_dir_response(brain, path, probe=bool(probe))
 
 
+# Types a browser runs script in when opened as a page (security fix, 2026-11-05 audit). A customer can send the shop's
+# bot a file named x.html that lands in inbox/khach/, and /files/raw served it inline on the dashboard's own origin with
+# no sandbox: opened by the owner (or by a link that carries their cookie), its script ran with the owner's session and
+# could reach /chat, /files/write and the terminal. These types now get the same CSP sandbox as a /s/ share link, an
+# opaque origin. PDF and images stay as before: Chrome refuses to draw a PDF in a sandboxed document.
+_LOAI_CHAY_SCRIPT = ("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml")
+
+
+def _csp_neu_chay_script(resp, media_type: str):
+    """Add the share sandbox to an inline response whose type can run script. Returns the response."""
+    mt = str(media_type or "").split(";")[0].strip().lower()
+    if mt in _LOAI_CHAY_SCRIPT or mt.endswith("+xml"):
+        resp.headers["Content-Security-Policy"] = share_render.CSP_HTML
+    return resp
+
+
 def raw_file_response(brain: str, path: str, dl: bool = False):
     """Lõi thuần của /files/raw (route handler KHÔNG được gọi nhau như hàm thường, xem
     test_handler_khong_goi_truc_tiep). Trả file inline, hoặc ép tải khi dl=True."""
@@ -8342,10 +9779,13 @@ def raw_file_response(brain: str, path: str, dl: bool = False):
     if dl:
         return FileResponse(str(f), filename=f.name)   # ép tải (giữ tên, kể cả tên tiếng Việt)
     mt, _ = mimetypes.guess_type(f.name)
-    resp = FileResponse(str(f), media_type=mt or "application/octet-stream")
-    resp.headers["Content-Disposition"] = "inline"      # hiển thị trong trình duyệt, không ép tải
+    # inline WITH the file name (#898): a browser that cannot show the type (.xlsx) saves it, and with a bare "inline"
+    # it named the file after the last URL segment ("raw", no extension). Starlette writes a non-ASCII name as
+    # RFC 5987 filename*=utf-8''..., so an accented name stays a valid header.
+    resp = FileResponse(str(f), media_type=mt or "application/octet-stream", filename=f.name,
+                        content_disposition_type="inline")   # hiển thị trong trình duyệt, không ép tải
     resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
+    return _csp_neu_chay_script(resp, mt)
 
 
 @app.get("/files/raw")
@@ -8367,7 +9807,7 @@ async def files_raw(brain: str = Query("brain"), path: str = Query(...), dl: int
 
 def _share_chan(ban) -> str:
     """Dòng chân trang: nói rõ đây là file được chia sẻ, để người xem biết mình đang xem gì."""
-    if share_store.la_hoi_thoai(ban):
+    if share_store.is_conversation(ban):
         return localefmt.chu("Đoạn hội thoại được chia sẻ từ Javis OS", "A conversation shared from Javis OS")
     ten = os.path.basename(str(ban.get("path") or "")) or "file"
     return share_render.esc(ten) + localefmt.chu(" · được chia sẻ từ Javis OS", " · shared from Javis OS")
@@ -8375,7 +9815,7 @@ def _share_chan(ban) -> str:
 
 def _share_file(ban):
     """File THẬT mà token trỏ tới. None nếu nó đã bị xoá hoặc đổi tên. Link hội thoại không có file."""
-    if share_store.la_hoi_thoai(ban):
+    if share_store.is_conversation(ban):
         return None
     try:
         f = _safe_serve_path(ban.get("brain") or "brain", ban.get("path") or "")
@@ -8439,9 +9879,24 @@ def _share_asset(ban, p: str):
     thu_muc = goc.parent
     dinh_kem = (Path(_brain_root(brain)).resolve() / "attachments")
 
+    goc_brain = Path(_brain_root(brain)).resolve()
+
+    def _vung_rieng(x) -> bool:
+        """inbox/ (files customers and the owner's Telegram send), memory/, or any dot folder, relative to the brain.
+
+        Vá bảo mật 2026-11-05: a note shared from the brain root made "its folder" the whole brain, so the token served
+        every image or audio file in it, inbox photos named by sequential message id included."""
+        try:
+            parts = x.resolve().relative_to(goc_brain).parts
+        except (ValueError, OSError):
+            return False
+        return bool(parts) and (parts[0].lower() in ("inbox", "memory") or any(s.startswith(".") for s in parts[:-1]))
+
     def _qua_cong(f) -> bool:
-        """Đúng hai hàng rào ở trên, hỏi cho MỘT ứng viên."""
+        """Đúng hai hàng rào ở trên, hỏi cho MỘT ứng viên (cộng vùng riêng của brain, trừ khi chính file chia sẻ nằm ở đó)."""
         if not f.is_file() or f.suffix.lower() not in share_render.DUOI_TAI_NGUYEN:
+            return False
+        if _vung_rieng(f) and not _vung_rieng(goc):
             return False
         if thu_muc in f.parents or f.parent == thu_muc:
             return True
@@ -8471,8 +9926,8 @@ def _share_tin_toi_moc(ban) -> list:
     return tin
 
 
-def _share_trang_hoi_thoai(ban):
-    """Trang xem công khai của một hội thoại (0.171.0)."""
+def _share_trang_hoi_thoai(ban, addr: str = ""):
+    """Trang xem công khai của một hội thoại (0.171.0). `addr`: the address the reader used (slug or token)."""
     sid = str(ban.get("session_id") or "")
     sess = get_store().get_session(sid)
     if not sess:
@@ -8482,7 +9937,7 @@ def _share_trang_hoi_thoai(ban):
     ten = _share_ten(ban)
     meta = localefmt.chu(f"{len(tin)} tin nhắn", f"{len(tin)} messages")
     trang = share_render.trang_hoi_thoai(
-        ten, tin, "/s/" + ban["token"] + "/asset", meta, _share_chan(ban),
+        ten, tin, "/s/" + (addr or ban["token"]) + "/asset", meta, _share_chan(ban),
         nhan_nguoi=localefmt.chu("Người hỏi", "Question"), nhan_javis="Javis")
     return HTMLResponse(trang, headers={"Content-Security-Policy": share_render.CSP_TINH,
                                         "X-Content-Type-Options": "nosniff",
@@ -8506,6 +9961,46 @@ def _share_anh_hoi_thoai(ban, p: str):
     return None
 
 
+def _share_visitor_ip(request: Request) -> str:
+    """The reader's address, for the visitor hash only (never stored raw). Behind a tunnel or a reverse proxy on this
+    machine or the private network every request comes from the proxy, so its forwarding header names the reader."""
+    host = request.client.host if request.client else ""
+    try:
+        behind = ipaddress.ip_address(host).is_loopback or ipaddress.ip_address(host).is_private
+    except ValueError:
+        behind = False
+    if behind:
+        cf = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf:
+            return cf
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[-1].strip()
+    return host
+
+
+def _share_count_view(request: Request, ban) -> None:
+    """One view of a public share page. What counts and what does not: share_stats."""
+    try:
+        if request.method != "GET":
+            return
+        ua = request.headers.get("user-agent", "")
+        purpose = (request.headers.get("sec-purpose") or request.headers.get("purpose") or "").lower()
+        if "prefetch" in purpose or share_stats.is_bot(ua):
+            return
+        if cfgmod.gate_active() and cfgmod.valid_session(request.cookies.get("javis_session", "")):
+            return          # the owner checking their own link
+        share_stats.record_view(ban["token"], share_stats.visitor_key(_share_visitor_ip(request), ua))
+    except Exception as e:  # noqa: BLE001 - a counter must never break the page
+        print(f"[share] view count: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def _share_addr(token: str, ban) -> str:
+    """The address the reader used (slug or random token), so redirects and asset links keep it."""
+    t = str(token or "").strip()
+    return t if t and (t == ban.get("token") or t.lower() == ban.get("slug")) else str(ban.get("token") or "")
+
+
 @app.post("/share/create")
 async def share_create(body: dict = Body(...)):
     """Bật chia sẻ cho một file. Gọi lại trên cùng file thì trả đúng link cũ, không đẻ link mới."""
@@ -8515,32 +10010,36 @@ async def share_create(body: dict = Body(...)):
         # thư mục của index.html hoặc tên file. Sửa lại được ở trang Chia sẻ (/share/rename).
         nhan = _share_ten_tu_dong({"brain": body.get("brain") or "brain", "path": body.get("path") or ""})
     try:
-        ban = share_store.tao(body.get("brain") or "brain", body.get("path") or "", nhan)
+        ban = share_store.create(body.get("brain") or "brain", body.get("path") or "", nhan)
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
     # Trả ĐƯỜNG DẪN TƯƠNG ĐỐI, để trình duyệt tự ghép với location.origin. Dựng URL tuyệt đối ở
     # đây nghĩa là tin vào header Host, thứ mà chính repo này đã ghi chú là không được tin.
-    return {"ok": True, "token": ban["token"], "path": "/s/" + ban["token"]}
+    return {"ok": True, "token": ban["token"], "path": share_store.public_path(ban)}
 
 
 @app.post("/share/revoke")
 async def share_revoke(body: dict = Body(...)):
-    """Thu hồi. Sau lệnh này link cũ trả 404 cho tất cả mọi người."""
-    return {"ok": share_store.xoa(body.get("token") or "")}
+    """Thu hồi. Sau lệnh này link cũ trả 404 cho tất cả mọi người (custom address included)."""
+    token = str(body.get("token") or "")
+    ok = share_store.remove(token)
+    if ok:
+        share_stats.forget(token)
+    return {"ok": ok}
 
 
 @app.get("/share/of")
 async def share_of(brain: str = Query("brain"), path: str = Query(...)):
     """File này đã có link chưa? Nút Chia sẻ hỏi câu này để biết mình đang bật hay tắt."""
-    ban = share_store.cua_file(brain, path)
-    return {"ok": True, "share": ({"token": ban["token"], "path": "/s/" + ban["token"]}
+    ban = share_store.for_file(brain, path)
+    return {"ok": True, "share": ({"token": ban["token"], "path": share_store.public_path(ban)}
                                   if ban else None)}
 
 
 def _share_ten_tu_dong(ban) -> str:
     """Tên tự đặt của một link: tiêu đề file, không có thì tên dự phòng (share_render).
     Link hội thoại: tiêu đề của hội thoại."""
-    if share_store.la_hoi_thoai(ban):
+    if share_store.is_conversation(ban):
         sess = get_store().get_session(str(ban.get("session_id") or "")) or {}
         return str(sess.get("title") or "").strip()[:120] or localefmt.chu("Hội thoại", "Conversation")
     f = _share_file(ban)
@@ -8554,30 +10053,37 @@ def _share_ten(ban) -> str:
 
 @app.get("/share/list")
 async def share_list(brain: str = Query("")):
-    ds = share_store.danh_sach(brain)
+    ds = share_store.list_links(brain)
     # Link tạo trước 0.65.30 chưa có tên: đọc đầu file lấy tiêu đề. Luồng phụ vì có thể là vài
     # trăm file; kho không bị ghi đè (tên vẫn theo file cho tới khi người dùng đặt tên).
     ten = await asyncio.to_thread(lambda: [_share_ten(b) for b in ds])
+    # `stats` (2026-11-06): views, unique visitors, last view, the last 7 days and a 14-day chart (share_stats).
     return {"ok": True, "items": [{"token": b["token"], "brain": b.get("brain"),
                                    "path": b.get("path"), "tao_luc": b.get("tao_luc"),
                                    "loai": b.get("loai") or "file", "session_id": b.get("session_id") or "",
-                                   "ten": t, "url": "/s/" + b["token"]} for b, t in zip(ds, ten)]}
+                                   "ten": t, "slug": b.get("slug") or "", "url": share_store.public_path(b),
+                                   "token_url": "/s/" + b["token"], "stats": share_stats.summary(b["token"])}
+                                  for b, t in zip(ds, ten)]}
 
 
 @app.get("/s/{token}")
-async def share_xem(token: str):
-    """TRANG XEM công khai. Không cần đăng nhập - xem chú thích đầu khối."""
-    ban = share_store.doc(token)
+async def share_xem(token: str, request: Request):
+    """TRANG XEM công khai. Không cần đăng nhập - xem chú thích đầu khối. `token` may be the link's custom address."""
+    ban = share_store.get(token)
     if not ban:
         return HTMLResponse(share_render.trang_loi(localefmt.chu("Link không tồn tại hoặc đã bị thu hồi.", "This link does not exist or has been revoked.")),
                             status_code=404)
-    if share_store.la_hoi_thoai(ban):
-        return await asyncio.to_thread(_share_trang_hoi_thoai, ban)
+    addr = _share_addr(token, ban)
+    if share_store.is_conversation(ban):
+        resp = await asyncio.to_thread(_share_trang_hoi_thoai, ban, addr)
+        if resp.status_code == 200:
+            _share_count_view(request, ban)
+        return resp
     f = _share_file(ban)
     if f is None:
         return HTMLResponse(share_render.trang_loi(localefmt.chu("File đã bị xoá hoặc đổi tên.", "The file was deleted or renamed.")), status_code=404)
     duoi = f.suffix.lower()
-    goc_asset = "/s/" + ban["token"] + "/asset"
+    goc_asset = "/s/" + addr + "/asset"
     chan = _share_chan(ban)
     if duoi in share_render.DUOI_HTML:
         # Trang .html sống ở `/s/<token>/` (CÓ dấu gạch cuối) chứ không phải `/s/<token>`.
@@ -8585,8 +10091,9 @@ async def share_xem(token: str):
         # gọi fetch("data.json") thì trình duyệt xin `/s/data.json`, không có gì ở đó; mở ở
         # `/s/abc/` thì xin `/s/abc/data.json`, đúng route `_share_sibling` phục vụ file cạnh
         # trang. Link đã gửi đi vẫn là `/s/<token>` nên chuyển hướng thay vì bắt gửi lại.
-        return RedirectResponse(url="/s/" + ban["token"] + "/", status_code=307)
+        return RedirectResponse(url="/s/" + addr + "/", status_code=307)
     if duoi in share_render.DUOI_XEM_THANG:
+        _share_count_view(request, ban)
         resp = FileResponse(str(f), media_type=mimetypes.guess_type(f.name)[0]
                             or "application/octet-stream")
         resp.headers["Content-Disposition"] = "inline"
@@ -8601,6 +10108,7 @@ async def share_xem(token: str):
         trang = share_render.trang_markdown(f.stem, noi, goc_asset, chan)
     else:
         trang = share_render.trang_van_ban(f.name, noi, chan)
+    _share_count_view(request, ban)
     # Trang này do CHÍNH server dựng và không có một dòng script nào, nên cách ly chặt hơn.
     return HTMLResponse(trang, headers={"Content-Security-Policy": share_render.CSP_TINH,
                                         "X-Content-Type-Options": "nosniff",
@@ -8610,7 +10118,7 @@ async def share_xem(token: str):
 @app.get("/s/{token}/raw")
 async def share_raw(token: str, dl: int = Query(0)):
     """File gốc, để tải về hoặc để trang .html nhúng thẳng."""
-    ban = share_store.doc(token)
+    ban = share_store.get(token)
     if not ban:
         return JSONResponse({"error": "not found"}, status_code=404)
     f = _share_file(ban)
@@ -8628,10 +10136,10 @@ async def share_raw(token: str, dl: int = Query(0)):
 @app.get("/s/{token}/asset")
 async def share_asset(token: str, p: str = Query(...)):
     """Ảnh và tài nguyên kèm theo. Phạm vi bó hẹp, xem _share_asset."""
-    ban = share_store.doc(token)
+    ban = share_store.get(token)
     if not ban:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = _share_anh_hoi_thoai(ban, p) if share_store.la_hoi_thoai(ban) else _share_asset(ban, p)
+    f = _share_anh_hoi_thoai(ban, p) if share_store.is_conversation(ban) else _share_asset(ban, p)
     if f is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     resp = FileResponse(str(f), media_type=mimetypes.guess_type(f.name)[0]
@@ -8694,19 +10202,20 @@ def _share_sibling(ban, p: str):
 
 
 @app.get("/s/{token}/")
-async def share_xem_html(token: str):
+async def share_xem_html(token: str, request: Request):
     """Trang .html chia sẻ, ở địa chỉ có dấu gạch cuối (xem share_xem vì sao)."""
-    ban = share_store.doc(token)
+    ban = share_store.get(token)
     if not ban:
         return HTMLResponse(share_render.trang_loi(localefmt.chu("Link không tồn tại hoặc đã bị thu hồi.", "This link does not exist or has been revoked.")),
                             status_code=404)
-    if share_store.la_hoi_thoai(ban):
-        return RedirectResponse(url="/s/" + ban["token"], status_code=307)
+    addr = _share_addr(token, ban)
+    if share_store.is_conversation(ban):
+        return RedirectResponse(url="/s/" + addr, status_code=307)
     f = _share_file(ban)
     if f is None:
         return HTMLResponse(share_render.trang_loi(localefmt.chu("File đã bị xoá hoặc đổi tên.", "The file was deleted or renamed.")), status_code=404)
     if f.suffix.lower() not in share_render.DUOI_HTML:
-        return RedirectResponse(url="/s/" + ban["token"], status_code=307)
+        return RedirectResponse(url="/s/" + addr, status_code=307)
     # Nội dung của NGƯỜI DÙNG, có script: phục vụ nguyên văn nhưng trong hộp cách ly.
     try:
         noi = f.read_text(encoding="utf-8", errors="replace")
@@ -8716,6 +10225,7 @@ async def share_xem_html(token: str):
     # trang gốc "null", mà gốc null thì localStorage ném SecurityError ngay dòng đầu chạm vào
     # nó và giết cả script - trang trắng dù dữ liệu đã tải xong. Xem share_render.
     noi = share_render.chen_polyfill_luu_tru(noi)
+    _share_count_view(request, ban)
     return HTMLResponse(noi, headers={"Content-Security-Policy": share_render.CSP_HTML,
                                       "X-Content-Type-Options": "nosniff",
                                       "Referrer-Policy": "no-referrer",
@@ -8732,7 +10242,7 @@ async def share_sibling(token: str, p: str):
     nhưng trình duyệt chặn không cho script đọc, app hiện trống trơn mà Network tab lại xanh.
     Không có gì để lộ thêm: cùng file đó ai có link cũng xin được bằng cách gõ thẳng URL.
     """
-    ban = share_store.doc(token)
+    ban = share_store.get(token)
     if not ban:
         return JSONResponse({"error": "not found"}, status_code=404)
     f = _share_sibling(ban, p)
@@ -9337,6 +10847,10 @@ async def agent_tag_delete(brain: str = Form("brain"), tag: str = Form(...)):
 
 @app.post("/workflows/delete")
 async def delete_workflow(slug: str = Form(...), brain: str = Form("brain")):
+    # The slug goes straight into a file name: without this check `../x` deleted any .md outside the
+    # workflows folder (found while auditing the Store uninstall path, 2026-11-04).
+    if not skill_router.valid_file_slug(slug):
+        return JSONResponse({"ok": False, "error": localefmt.chu("slug không hợp lệ", "invalid slug")}, status_code=400)
     f = _workflows_dir(brain) / f"{slug}.md"
     if f.exists():
         f.unlink()
@@ -9453,7 +10967,8 @@ async def _usage_refresh_once() -> dict:
     try:
         async with _USAGE_REFRESH_LOCK:
             return await asyncio.to_thread(usage_index.refresh)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        print(f"[usage refresh] {type(e).__name__}: {e}", file=sys.stderr)   # swallowed, never silent
         return {}
 
 
@@ -9846,7 +11361,8 @@ async def _kiem_ngan_sach(nhac: bool = True) -> dict:
                 # kind="system": Javis TỰ nói, không phải trả lời câu ai hỏi. Đúng nhãn mà
                 # inbox.py đặt tên sẵn cho ca này ("cảnh báo hết hạn mức"), và nhãn đó là thứ
                 # người dùng đọc trên thẻ thư để biết tin này từ đâu ra.
-                await _notify_owner("", tin, kind="system")
+                await _notify_owner("", tin, kind="system", source="cost",
+                                    level="urgent" if ns["muc_do"] == "het" else "important")
             except Exception:  # noqa: BLE001 - không gửi được thì thôi, đừng làm hỏng vòng lặp
                 pass
     return ns
@@ -9879,7 +11395,8 @@ async def _bao_cao_tuan_neu_toi_gio() -> bool:
     usage_saving.ghi_moc("ngan_sach", tuan, "", "Đã gửi báo cáo token tuần")
     try:
         # An account-level report with no brain: kind system (the bell and the owner's own Telegram, 0.186.0).
-        await _notify_owner("" if dich == "auto" else dich, await _bao_cao_token("last_week"), kind="system")
+        await _notify_owner("" if dich == "auto" else dich, await _bao_cao_token("last_week"), kind="system",
+                            source="cost", level="info")
     except Exception as e:  # noqa: BLE001 - gửi hỏng thì thôi, đừng giết vòng lặp nền
         print(f"[bao cao tuan] {type(e).__name__}: {e}", file=sys.stderr)
     return True
@@ -10003,7 +11520,9 @@ _VERDICT_YES_RE = re.compile(r"(\bĐẠT\b|\bPASS(ED)?\b)", re.IGNORECASE)
 
 def _workflow_verdict(v_out: str, v_error: str = "") -> tuple[bool, str, str]:
     """(passed, reason, fixes) from a verify agent's answer. Anything unclear is a FAIL."""
-    if v_error and not (v_out or "").strip():
+    # Error first: a verify agent that errored cannot certify anything, even when the engine
+    # streamed a readable "pass" before failing (partial output + error used to be accepted).
+    if v_error:
         return False, f"Agent kiểm chứng lỗi, không kết luận được: {v_error[:200]}", ""
     text = v_out or ""
     vm = re.search(r"\{.*\}", text, re.DOTALL)
@@ -10042,7 +11561,7 @@ async def _run_workflow_step(node, prompt, mk, agent_sysprompt, sink, router=Non
     `log_run(slug, task, out)`: ghi nhật ký lượt chạy vào memory/agents/<slug>/runs/.
     Trước 0.35.3 chỉ runner cũ ghi - bật canary graph là nhật ký lặng lẽ biến mất.
     """
-    agent_name, sysprompt, agent_model, agent_prov = agent_sysprompt(node.agent)
+    agent_name, sysprompt, agent_model, agent_prov = agent_sysprompt(node.agent, "workflow")
     # Studio định vị chỗ đổ chữ bằng CHỈ SỐ bước, không phải id node. Thiếu `i` thì
     # event vẫn phát ra nhưng giao diện lặng lẽ vứt đi - người xem thấy bước chạy và
     # bước xong mà không thấy chữ nào.
@@ -10093,7 +11612,7 @@ async def _run_workflow_step(node, prompt, mk, agent_sysprompt, sink, router=Non
             return {"output": "", "error": loi_het_luot, "agent_name": agent_name}
         if not node.verify_agent:
             break
-        v_name, v_body, v_model, v_prov = agent_sysprompt(node.verify_agent)
+        v_name, v_body, v_model, v_prov = agent_sysprompt(node.verify_agent, "workflow")
         await sink({"type": "step_verify", "i": index, "node": node.id,
                     "agent": v_name, "attempt": attempt})
         v_sys = (
@@ -10234,7 +11753,10 @@ def _workflow_agent_helpers(brain, tools, mode=None):
                 print(f"[agent engine] {prov}: {type(e).__name__}: {e}", file=__import__('sys').stderr)
         return c
 
-    def _agent_sysprompt(aslug):
+    def _agent_sysprompt(aslug, surface=None, agent_key=None, session_created_at=None, skill_served=False):
+        """`surface` (dm, team, kanban, workflow): where this prompt runs, known by the host. Only with it can an
+        owner-applied procedure overlay (M5) be added; `agent_key`/`session_created_at` narrow it (see
+        _agent_procedure_block)."""
         ameta, abody = _read_md(_agents_dir(brain) / f"{aslug}.md")
         amem = _agent_memory(brain, aslug)
         # Khối bộ nhớ + luật tự bồi đắp chèn VÔ ĐIỀU KIỆN (kể cả khi amem rỗng): điều
@@ -10262,6 +11784,7 @@ def _workflow_agent_helpers(brain, tools, mode=None):
               "bị tự xoá. CHỈ dùng cho lời chủ dặn; bài học bạn tự rút ra thì vẫn là JAVIS_LESSON. "
               "Luật đã có trong mục đó thì đừng phát lại.\n"
             + _AGENT_TOOLKIT_BLOCK
+            + (_agent_procedure_block(brain, aslug, surface, agent_key, session_created_at, skill_served) if surface else "")
             + "\nLàm việc trong vault. Tập trung hoàn thành nhiệm vụ, trả kết quả rõ ràng, ngắn gọn."
         )
         return (ameta.get("name", aslug), sysprompt,
@@ -10327,27 +11850,194 @@ _AGENT_BA_LOI = ("Ba lối đúng: làm xong ngay trong lượt và trả kết 
                  "làm được lối nào thì nói thẳng là chưa làm.")
 
 
-def _agent_chat_prompt(brain, slug) -> str:
+def _agent_chat_prompt(brain, slug, channel="dashboard", conv_sid="", skill_served=False) -> str:
     """System prompt khi CHỦ chat trực tiếp với một trợ lý ở trang Cộng sự.
 
     Là ĐÚNG prompt mà workflow dùng cho trợ lý đó (vai, thân file, kỹ năng, bộ nhớ riêng, luật
     JAVIS_LESSON), cộng một câu nói rõ đây là trò chuyện chứ không phải một bước quy trình.
     Cố ý KHÔNG nối CLAUDE.md, bộ nhớ của chủ hay khối kênh: người dùng đang muốn nói chuyện với
     "Người viết", không phải với Javis đội mũ Người viết.
+
+    `channel`: "dashboard" (the Partners page), "cli" (POST /chat with `agent`), "telegram" (the
+    owner's bot, `@<agent>` or /agent) or "voice" (a voice call from the partner's chat,
+    `_voice_ask_javis`). Only the closing line that tells the agent where the owner is talking from changes; the CLI and Telegram engines append their own channel block after this
+    prompt.
     """
     if not (_agents_dir(brain) / f"{slug}.md").exists():
         raise FileNotFoundError(slug)
     _mk, _agent_sysprompt, _log, _learn = _workflow_agent_helpers(brain, None)
-    _name, sysprompt, _model, _prov = _agent_sysprompt(slug)
+    pin = _dm_session_pin(conv_sid)
+    # A conversation keeps the procedure it began with (M5, I10): it dates from its pin, else its session row.
+    # `skill_served`: only the dashboard turn on an in-process API engine reads the skill overlay (M6 bundles).
+    _name, sysprompt, _model, _prov = _agent_sysprompt(slug, "dm", (pin or {}).get("agent_key"),
+                                                       _dm_session_started(conv_sid, pin), skill_served)
     # Cộng hưởng theo quyền của LƯỢT (ngữ cảnh lượt do host gắn): trợ lý đang bật thì có dòng gợi ý và câu ba lối;
     # tắt, hay không có lượt, thì prompt y như trước A1.
     if _resonance_turn_enabled(brain):
         sysprompt = (sysprompt.replace(_AGENT_HAI_LOI, _AGENT_BA_LOI)
                      + "\n# Cộng hưởng (đang bật cho bạn)\n- " + _RESONANCE_GOAL_HINT + "\n")
-    return (sysprompt + _agent_builder_block(brain)
-            + "\n\n# Kênh: bạn đang trò chuyện trực tiếp với chủ trên dashboard Javis "
-            "(trang Cộng sự). Trả lời như đang nói chuyện, theo ngôn ngữ chủ đang dùng; "
-            "không cần báo cáo dạng nhiệm vụ trừ khi được giao việc cụ thể.")
+    where = ("qua Javis CLI (terminal hoặc HTTP /chat)" if channel == "cli"
+             else "qua Telegram" if channel == "telegram"
+             else "trong một cuộc gọi thoại trên dashboard Javis (khung chat của bạn ở trang Cộng sự); câu bạn "
+                  "viết ra được đọc lại thành tiếng, nên viết gọn, không bảng" if channel == "voice"
+             else "trên dashboard Javis (trang Cộng sự)")
+    # the dashboard chat id, so a chat_id/owner_chat the model passes names this chat. An agent DM never had
+    # the channel block or the `[Phiên chat: ...]` header, so its jobs used to report to Javis Core.
+    # A voice call runs in that same dashboard chat, so its jobs report there too.
+    phien = (f" Phiên chat này là `web:{conv_sid}`: việc nền (`javis_task`) và nhắc hẹn, việc định kỳ "
+             "(`javis_schedule`) giao từ đây tự báo kết quả về đúng khung chat này; nhắc hẹn và việc định kỳ "
+             "tới giờ chạy bằng chính vai của bạn."
+             if channel in ("dashboard", "voice") and conv_sid else "")
+    return (sysprompt + _agent_builder_block(brain) + _agent_identity_block(_name)
+            + f"\n\n# Kênh: bạn đang trò chuyện trực tiếp với chủ {where}. "
+            "Trả lời như đang nói chuyện, theo ngôn ngữ chủ đang dùng; "
+            "không cần báo cáo dạng nhiệm vụ trừ khi được giao việc cụ thể." + phien)
+
+
+def _agent_identity_block(name) -> str:
+    """Who the assistant is in a chat with the owner: a partner inside Javis, not a bare model.
+
+    The assistant prompt opens with its name and role but never said where it lives. On Codex an assistant asked
+    "who are you" answered that it was ChatGPT (owner report 2026-11-05), and an API engine's own "you run on model
+    X" fact pulled the same way. Answering with the engine stays right when the owner asks which MODEL it runs on."""
+    return (
+        "\n# Bạn là ai\n"
+        f"- Bạn là {name}, một cộng sự (trợ lý chuyên trách) trong Javis OS, hệ trợ lý AI cá nhân của chủ. Javis là "
+        "hệ thống bạn chạy bên trong: cùng brain, cùng kết nối và công cụ, nhưng vai, giọng và bộ nhớ là của bạn.\n"
+        f"- Hỏi bạn là ai thì trả lời bạn là {name}, cộng sự trong Javis của chủ, kèm vai của mình. KHÔNG tự nhận là "
+        "ChatGPT, Claude, Gemini, Grok hay một trợ lý AI chung chung. Chỉ khi chủ hỏi rõ đang chạy model hay engine "
+        "nào mới nói đúng tên model đó.\n"
+    )
+
+
+def _background_agent_prompt(brain, slug) -> str:
+    """system prompt of a reminder or loop made in a partner chat, so it does its job AS that assistant (role,
+    file body, assets, memory, owner rules) instead of as plain Javis. No procedure overlay: that belongs to a surface
+    the host knows (dm, team, workflow). Raises FileNotFoundError when the assistant file is gone; the caller then
+    runs the job as Javis."""
+    if not (_agents_dir(brain) / f"{slug}.md").is_file():
+        raise FileNotFoundError(slug)
+    _mk, _agent_sysprompt, _log, _learn = _workflow_agent_helpers(brain, None)
+    return (_agent_sysprompt(slug)[1] + _agent_builder_block(brain)
+            + "\n\n# Kênh: đây là việc nền chủ đã hẹn từ khung chat với bạn, không có ai ngồi cạnh. "
+            "Kết quả bạn viết sẽ được gửi về khung chat đó.")
+
+
+def _finish_background_agent_run(brain, slug, task, out) -> str:
+    """after a background run as an assistant: JAVIS_LESSON lines go to its memory and the run to its log, like
+    a workflow step; the cleaned text is what gets posted."""
+    _mk, _agent_sysprompt, _log, _learn = _workflow_agent_helpers(brain, None)
+    clean = _learn(slug, out)
+    try:
+        _log(slug, task, clean)
+    except Exception as _e:  # noqa: BLE001 - the log is a bonus
+        print(f"[agent bg log] {slug}: {type(_e).__name__}: {_e}", file=sys.stderr)
+    return clean
+
+
+def _dm_session_pin(conv_sid):
+    """The session -> agent pin of a private chat, or None (no session yet, no identity store, any error)."""
+    if not conv_sid:
+        return None
+    try:
+        if _RESONANCE_STORE is None and not (Path(cfgmod.STATE_DIR) / "resonance.sqlite3").is_file():
+            return None
+        return _resonance_store().session_pin(conv_sid)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[dm session pin] {type(_e).__name__}: {_e}", file=sys.stderr)
+        return None
+
+
+def _dm_session_started(conv_sid, pin=None):
+    """When a private chat began: its agent pin, else its session row; None for a session not stored yet."""
+    if pin and pin.get("created_at"):
+        return pin["created_at"]
+    if not conv_sid:
+        return None
+    try:
+        row = get_store().get_session(conv_sid)
+        return float(row["created_at"]) if row and row.get("created_at") else None
+    except Exception as _e:  # noqa: BLE001
+        print(f"[dm session start] {type(_e).__name__}: {_e}", file=sys.stderr)
+        return None
+
+
+def _agent_overlay(brain, slug, surface, agent_key=None, session_created_at=None, skill_served=False) -> tuple:
+    """M5: (overlay id, prompt block) of this assistant's owner-applied procedure on this surface, or ("", "").
+
+    The key is the caller's (session pin, team member, Kanban job) or the slug's live identity; never registered here.
+    Any failure keeps the canonical prompt: an overlay is an improvement, never a reason for a turn to fail."""
+    try:
+        import improvement_agent
+        root = _brain_key(brain)
+        path = _agent_md_path(root, slug)
+        key = agent_key or (_agent_jobs_key(root, slug) if path is not None else None)
+        if path is None or not key:
+            return "", ""
+        mem = _brain_memory_dir(brain) / "agents" / slug / "MEMORY.md"
+        return improvement_agent.effective_overlay(
+            root, key, surface, agent_text=path.read_text(encoding="utf-8"),
+            memory_text=mem.read_text(encoding="utf-8") if mem.is_file() else "", session_created_at=session_created_at,
+            skill_served=skill_served, on_drift=lambda: _improvement_agents().reconcile(resonance_store.Principal(
+                "owner", "owner", str(Path(root).resolve(strict=True)))))
+    except Exception as _e:  # noqa: BLE001
+        print(f"[agent procedure] {slug}: {type(_e).__name__}: {_e}", file=sys.stderr)
+        return "", ""
+
+
+def _agent_procedure_block(brain, slug, surface, agent_key=None, session_created_at=None, skill_served=False) -> str:
+    return _agent_overlay(brain, slug, surface, agent_key, session_created_at, skill_served)[1]
+
+
+def _stage_learned_procedure(brain, slug, text, source="learn"):
+    """learn.py seam (M5, spec 8.3): procedure id when the assistant has an active overlay, else None (live write as
+    before). A store failure for an enrolled assistant refuses rather than writing live."""
+    try:
+        if _improvement_read_store() is None:
+            return None
+        principal = resonance_store.Principal("owner", "owner", str(Path(_brain_root(brain)).resolve(strict=True)))
+        service = _improvement_agents()
+        if not service.enrolled(principal, slug):
+            return None
+    except Exception as _e:  # noqa: BLE001 - enrollment unknown: the overlay cannot be served either
+        print(f"[agent procedure stage] {slug}: {type(_e).__name__}: {_e}", file=sys.stderr)
+        return None
+    try:
+        staged = service.stage_learned(principal, slug, text, source=source)
+    except ValueError:
+        raise
+    except Exception as _e:  # noqa: BLE001 - enrolled but the candidate could not be stored: never write live
+        print(f"[agent procedure stage] {slug}: {type(_e).__name__}: {_e}", file=sys.stderr)
+        raise ValueError("agent_procedure_unavailable") from None
+    return staged["procedure_id"] if staged else None
+
+
+def _improvement_agents():
+    import improvement_agent
+    return improvement_agent.AgentProcedures(_improvement_write_store(), agent_key=_improvement_agent_key,
+                                             read_agent=_improvement_read_agent)
+
+
+def _agent_review_proposals(agent_key):
+    """Open self-review ideas of one assistant (agent_review proposals): drafts for the owner's procedure text."""
+    try:
+        store = _pulse_store()
+        return agent_review.open_proposals(store, agent_key) if store is not None and agent_key else []
+    except Exception as _e:  # noqa: BLE001
+        print(f"[agent review proposals] {type(_e).__name__}: {_e}", file=sys.stderr)
+        return []
+
+
+def _improvement_agent_key(root, slug, register):
+    return (_agent_jobs_key(root, slug, register=register) or "") if _agent_md_path(root, slug) is not None else ""
+
+
+def _improvement_read_agent(root, slug):
+    path = _agent_md_path(root, slug)
+    if path is None:
+        raise FileNotFoundError("agent_unavailable")
+    mem = _brain_memory_dir(root) / "agents" / slug / "MEMORY.md"
+    return path.read_text(encoding="utf-8"), (mem.read_text(encoding="utf-8") if mem.is_file() else "")
 
 
 def _agent_builder_block(brain) -> str:
@@ -10389,10 +12079,13 @@ def _dm_feedback_prompt(brain, slug, conv_sid) -> str:
         return ""
 
 
-def _agent_turn_system_prompt(brain, slug, conv_sid) -> str:
+def _agent_turn_system_prompt(brain, slug, conv_sid, channel="dashboard") -> str:
     """System prompt của một lượt chat riêng với trợ lý (`agent:<slug>`): prompt trợ lý, khối phiên, và khối phản hồi
-    reaction gần đây của chủ cho ĐÚNG trợ lý này (T2), và bài học phạm vi chat riêng + chung (T3 phần L)."""
-    return (_agent_chat_prompt(brain, slug) + _session_block(conv_sid) + _dm_feedback_prompt(brain, slug, conv_sid)
+    reaction gần đây của chủ cho ĐÚNG trợ lý này (T2), và bài học phạm vi chat riêng + chung (T3 phần L).
+
+    `channel` as in `_agent_chat_prompt`: the CLI agent turn (`_cli_agent_prompt`) uses this same composition."""
+    return (_agent_chat_prompt(brain, slug, channel, conv_sid) + _session_block(conv_sid)
+            + _dm_feedback_prompt(brain, slug, conv_sid)
             + _dm_lessons_prompt(brain, slug, conv_sid))
 
 
@@ -10446,10 +12139,13 @@ def _ket_luot_agent(brain, slug, user_message, final_text, conv_sid="") -> str:
     if lessons:
         key = _dm_agent_key(brain, slug, conv_sid, register=True)
         if key:
+            # M5 (spec 15.2): a lesson learned while a procedure overlay shaped this conversation names it.
+            overlay_id = _agent_overlay(brain, slug, "dm", key, _dm_session_started(conv_sid, _dm_session_pin(conv_sid)))[0]
             try:
                 agent_lessons.record_self_lessons(_resonance_store(), agent_key=key, context_ref=f"dm:{key}",
                                                   lessons_=lessons,
-                                                  source_refs=[f"session:{conv_sid}"] if conv_sid else [])
+                                                  source_refs=([f"session:{conv_sid}"] if conv_sid else [])
+                                                  + ([f"overlay:{overlay_id}"] if overlay_id else []))
             except Exception as _e:  # noqa: BLE001
                 print(f"[dm lessons] {slug}: {type(_e).__name__}: {_e}", file=sys.stderr)
             memory_control.note_change(_brain_memory_dir(brain))   # 0.190.0: "em sẽ nhớ" is backed by a lesson
@@ -10673,7 +12369,7 @@ async def _execute_workflow_raw(brain, slug, input="", tools=None, session_id=""
         verify_slug = (step.get("verify_agent") or "").strip()
         max_retries = int(step.get("max_retries", 1) or 0)
         step_extra = workflow_graph.step_tools(step)
-        agent_name, sysprompt, agent_model, agent_prov = _agent_sysprompt(agent_slug)
+        agent_name, sysprompt, agent_model, agent_prov = _agent_sysprompt(agent_slug, "workflow")
         task_f = task.replace("{{input}}", input or "").replace("{{prev}}", prev or "")
         yield {"type": "step_start", "i": i, "agent": agent_name, "task": task_f}
 
@@ -10711,7 +12407,7 @@ async def _execute_workflow_raw(brain, slug, input="", tools=None, session_id=""
                 break
 
             # --- KIỂM CHỨNG bằng agent KHÁC (giả định kết quả SAI) ---
-            v_name, v_body, v_model, v_prov = _agent_sysprompt(verify_slug)
+            v_name, v_body, v_model, v_prov = _agent_sysprompt(verify_slug, "workflow")
             yield {"type": "step_verify", "i": i, "agent": v_name, "attempt": attempt}
             v_sys = (
                 v_body + "\n\nVAI TRÒ KIỂM CHỨNG: Bạn là người ĐÁNH GIÁ độc lập. "
@@ -10818,6 +12514,11 @@ async def _ghi_lich_su(gen, *, brain, slug, name, input, source, session_id, run
             elif t == "done":
                 ket = "done"
                 st.ket_thuc(rid, "done", output=str(ev.get("result") or ""))
+                try:  # 0.341.0: a finished run is a workflow episode for automatic learning
+                    await asyncio.to_thread(_auto_learner().observe_workflow, _brain_key(brain), slug, rid,
+                                            input or "", str(ev.get("result") or ""), session_id or "", source or "")
+                except Exception as _e:  # noqa: BLE001
+                    print(f"[auto-learning workflow] {type(_e).__name__}: {_e}", file=sys.stderr)
             yield ev
     finally:
         if ket is None:
@@ -11063,13 +12764,14 @@ READONLY_TOOLS = ["Read", "Glob", "Grep", "LS"]
 import self_improve
 
 
-async def _loop_notify(text: str) -> None:
+async def _loop_notify(text: str, source: str = "loop", level: str = "important") -> None:
     """A restricted system notice: a loop paused itself, the AI engine is down (0.186.0).
 
     It used to go to EVERY Telegram id on the allow-list. It is the owner's business only, so it now lands in the
-    bell (kind system) and on the owner's own Telegram when that is known (`_owner_telegram_id`)."""
+    bell (kind system) and on the owner's own Telegram when that is known (`_owner_telegram_id`).
+    0.403.0: `source` and `level` place it for Javis Core's rules (a loop pausing itself: job, important)."""
     try:
-        await _notify_owner("", text, kind="system", source="system")
+        await _notify_owner("", text, kind="system", source=source, level=level)
     except Exception as e:
         print(f"[loop notify] {e}", file=__import__('sys').stderr)
 
@@ -11312,7 +13014,8 @@ def huy_viec_nen_giong(conv_sid: str) -> int:
 
 
 async def _bo_vao_hom_thu(owner_chat, text, *, kind="answer", label="", source="",
-                          quiet=False, brain="", dedup="", routing=""):
+                          quiet=False, brain="", dedup="", routing="", level="", group="", decision=None, viec=None,
+                          push_if_away=False):
     """Để lại MỘT mẩu thư cho mọi kết quả chạy nền, rồi rung chuông đẩy nếu có đăng ký.
 
     Vì sao đặt ở đây chứ không ở từng nơi sinh việc: `_notify_owner` là CỬA DUY NHẤT mà
@@ -11323,8 +13026,17 @@ async def _bo_vao_hom_thu(owner_chat, text, *, kind="answer", label="", source="
     Hòm thư ghi BẤT KỂ tin đi bằng kênh nào: kênh (chat web / Telegram / Zalo / push) là
     chuông cửa, hụt cũng không sao; hòm thư là bản ghi bền. Đó cũng là lý do hàm này nuốt
     mọi lỗi - hòm thư hỏng thì cùng lắm mất một mẩu thư, không được phép làm hỏng việc BÁO.
+
+    0.403.0: `notify_policy.decide` (or the `decision` `_notify_owner` already took) says whether the notice rings
+    (loud), is kept quietly under "Filtered" (quiet), or is not kept at all (drop: the owner turned its group off).
     """
     try:
+        dec = decision or _notify_decide(text, kind=kind, source=source, quiet=quiet, level=level, group=group,
+                                         viec=viec, dedup=dedup)
+        if dec.get("verdict") == "drop":
+            return {"dropped": True, "id": "", "session_id": ""}
+        filtered = dec.get("verdict") != "loud"
+        quiet = filtered
         cid = str(owner_chat or "").strip()
         sid = cid[len(WEB_CHAT_PREFIX):] if cid.startswith(WEB_CHAT_PREFIX) else ""
         # KÊNH của hội thoại đích, đọc từ chính kho phiên. Dashboard cần nó để bấm vào mẩu thư
@@ -11344,7 +13056,9 @@ async def _bo_vao_hom_thu(owner_chat, text, *, kind="answer", label="", source="
                 print(f"[inbox] không đọc được kênh của phiên {sid[:8]}: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
         item = inbox.add(text, kind=kind, session_id=sid, source=source, label=label,
-                         read=bool(quiet), channel=kenh, brain=brain, dedup=dedup, routing=routing)
+                         read=bool(quiet), channel=kenh, brain=brain, dedup=dedup, routing=routing,
+                         group=dec.get("group") or "", level=dec.get("level") or "", sig=dec.get("sig") or "",
+                         filtered=filtered, why=dec.get("why") or "")
     except Exception as e:
         print(f"[inbox] bỏ thư lỗi: {type(e).__name__}: {e}", file=sys.stderr)
         return None
@@ -11376,12 +13090,25 @@ async def _bo_vao_hom_thu(owner_chat, text, *, kind="answer", label="", source="
         # không được phép giữ chân cái đã xong. Hòm thư đã ghi rồi - push chỉ là chuông cửa.
         # Giữ tham chiếu tới task, không thì bộ dọn rác có thể nuốt nó giữa chừng.
         t = asyncio.create_task(
-            webpush.gui_het(title, body, url, tag=f"javis-{item['id']}", phien_hop_le=_phien_con_hieu_luc()))
+            webpush.gui_het(title, body, url, tag=f"javis-{item['id']}", phien_hop_le=_phien_con_hieu_luc(),
+                            **({"quiet_if_visible": True} if push_if_away else {})))
         _PUSH_TASKS.add(t)
         t.add_done_callback(_PUSH_TASKS.discard)
     except Exception as e:
         print(f"[webpush] đẩy lỗi: {type(e).__name__}: {e}", file=sys.stderr)
     return item
+
+
+def _notify_decide(text, *, kind="answer", source="", quiet=False, level="", group="", viec=None, dedup="") -> dict:
+    """Javis Core's verdict on one notice (0.403.0, `notify_policy.decide`). Never raises: a broken rule store rings."""
+    try:
+        g = notify_policy.group_of(source=source, kind=kind, viec=viec, dedup=dedup, group=group)
+        lv = notify_policy.level_of(level=level, quiet=quiet, group=g)
+        return notify_policy.decide(g, lv, inbox._tieu_de(text))
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify policy] decide failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"group": group or "other", "level": level or ("info" if quiet else "important"), "sig": "",
+                "verdict": "quiet" if quiet else "loud", "why": ""}
 
 
 def _owner_telegram_id() -> str:
@@ -11399,7 +13126,7 @@ def _owner_telegram_id() -> str:
     return ids[0] if len(ids) == 1 else ""
 
 
-def _report_route(owner_chat, brain, kind, quiet=False) -> dict:
+def _report_route(owner_chat, brain, kind, quiet=False, filtered=False) -> dict:
     """Where one report goes (0.186.0, Javis Core spec section 6). Pure decision, no sending.
 
     - `web:<sid>` of a chat that still exists: that chat, nothing copied to Javis Core.
@@ -11410,6 +13137,9 @@ def _report_route(owner_chat, brain, kind, quiet=False) -> dict:
       has no brain and goes to the bell and the owner's Telegram. A report with neither target nor brain is not
       guessed: it stays in the bell marked `no_target`.
     The brain is the one the WORK belongs to, passed by the producer, never the brain open on screen.
+
+    0.403.0: a notice Javis Core filtered (`filtered`) with no chat of its own stays in the bell only: not copied into
+    Javis Core's chat, not sent to the owner's Telegram. A chat or channel that asked for the work still gets it.
     """
     cid = str(owner_chat or "").strip()
     bk = ""
@@ -11440,6 +13170,8 @@ def _report_route(owner_chat, brain, kind, quiet=False) -> dict:
     if cid:
         mine = bool(own) and cid == own
         return {"chat": core() if (mine and not quiet) else "", "external": cid, "brain": bk}
+    if filtered:
+        return {"chat": "", "external": "", "brain": bk}
     if kind == "system":
         return {"chat": "", "external": own, "brain": bk}
     if bk:
@@ -11448,7 +13180,8 @@ def _report_route(owner_chat, brain, kind, quiet=False) -> dict:
 
 
 async def _notify_owner(owner_chat, text, *, kind="answer", label="", source="",
-                        quiet=False, ngan="", viec=None, web="", card="", brain="", dedup="") -> tuple:
+                        quiet=False, ngan="", viec=None, web="", card="", brain="", dedup="",
+                        level="", group="") -> tuple:
     """Báo cáo cho NGƯỜI YÊU CẦU loop/task (mặc định của Javis). Quy tắc:
       - owner_chat dạng "web:<sid>" → đẩy thẳng vào ĐÚNG khung chat web đã giao việc.
       - owner_chat dạng "zalo:<id>" → gửi qua bot Zalo cho ĐÚNG người đó.
@@ -11480,13 +13213,18 @@ async def _notify_owner(owner_chat, text, *, kind="answer", label="", source="",
     Trả (ok, error). `ok` là ĐÃ TỚI ĐƯỢC NGƯỜI DÙNG, và hòm thư tính là tới: nó nằm ở
     server, còn sau F5, thấy được từ máy khác. Nhờ vậy một cái nhắc hẹn trên máy chưa đấu
     Telegram không còn bị ghi là "failed" trong khi nội dung đang nằm sẵn trong hòm."""
-    route = _report_route(owner_chat, brain, kind, quiet=quiet)
+    # 0.403.0: Javis Core's verdict first, so a filtered notice is neither copied to its chat nor sent to Telegram.
+    dec = _notify_decide(text, kind=kind, source=source, quiet=quiet, level=level, group=group, viec=viec, dedup=dedup)
+    filtered = dec.get("verdict") != "loud"
+    route = _report_route(owner_chat, brain, kind, quiet=quiet or filtered, filtered=filtered)
     chat = route.get("chat") or ""
     vao_hom = await _bo_vao_hom_thu(f"{WEB_CHAT_PREFIX}{chat}" if chat else "", text, kind=kind, label=label,
                                     source=source, quiet=quiet, brain=route.get("brain") or "", dedup=dedup,
-                                    routing=route.get("routing") or "")
+                                    routing=route.get("routing") or "", decision=dec)
     if vao_hom and vao_hom.get("duplicate"):
         return True, ""   # filed before: a retry must not post or ring a second time
+    if vao_hom and vao_hom.get("dropped") and not chat and not route.get("external"):
+        return True, ""   # the owner turned this group off: nothing to deliver, and that is not a failure
     if route.get("routing"):
         # No chat and no source brain: kept in the bell for the owner, sent nowhere else (spec 6.4).
         print(f"[notify] không rõ nơi nhận ({route['routing']}), chỉ giữ trong hòm thư: {str(text)[:80]!r}",
@@ -11494,7 +13232,16 @@ async def _notify_owner(owner_chat, text, *, kind="answer", label="", source="",
         return bool(vao_hom), ("" if vao_hom else "no_target")
     ok, err = False, ""
     if chat:
-        ok, err = await _gui_qua_kenh(f"{WEB_CHAT_PREFIX}{chat}", text, ngan=ngan, viec=viec, web=web, card=card)
+        # 0.403.0: in Javis Core's chat the notice carries the bell item's marker, so an emoji on it there is feedback
+        # on this notice (`_notice_feedback_from_chat`). Only the chat copy: the bell and other channels stay clean.
+        mark = ""
+        try:
+            if vao_hom and vao_hom.get("id") and javis_core.is_core_channel((get_store().get_session(chat) or {}).get("channel")):
+                mark = f"\n<!-- javis-cite:inbox:{vao_hom['id']} -->"
+        except Exception:  # noqa: BLE001
+            mark = ""
+        ok, err = await _gui_qua_kenh(f"{WEB_CHAT_PREFIX}{chat}", text + mark, ngan=ngan, viec=viec,
+                                      web=(web + mark) if web else web, card=card)
     ext = route.get("external") or ""
     if ext:
         # Each channel on its own: one that fails does not stop the other or lose the report.
@@ -11609,6 +13356,8 @@ loop_feature = self_improve.register(app, self_improve.LoopDeps(
     report=_notify_owner,               # báo NGƯỜI YÊU CẦU loop mỗi vòng (rỗng → Javis Core của brain loop)
     apply_mcp=_apply_mcp,               # loop ĐỌC được dữ liệu thật qua MCP Javis-quản-lý
     mcp_allow_patterns=_loop_mcp_allow,
+    build_agent_prompt=_background_agent_prompt,          # made in a partner chat -> runs as that assistant
+    finish_agent_run=_finish_background_agent_run,
 ))
 
 _LOOP_LOCK = loop_feature.lock   # shim: giữ tên cũ cho code phía dưới (scheduler)
@@ -11645,6 +13394,7 @@ learn_feature = learn_mod.register(app, learn_mod.LearnDeps(
     sessions_store=get_store(),
     state_dir=cfgmod.STATE_DIR,
     readonly_tools=READONLY_TOOLS,
+    stage_agent_procedure=lambda brain, slug, text: _stage_learned_procedure(brain, slug, text),
 ))
 
 
@@ -11657,8 +13407,14 @@ learn_feature = learn_mod.register(app, learn_mod.LearnDeps(
 import tasks as tasks_mod
 
 
-def _kanban_brains():
-    """Mọi brain cần dispatcher quét, gồm cả folder ngoài đã đăng ký với scheduler."""
+def _background_brains():
+    """Every brain a background scheduler must visit (Kanban dispatcher, reminders): each
+    folder in BRAINS_DIR plus the outside folders registered with the loop scheduler.
+
+    Reminders used to take `loop_feature.scheduler_brains` alone, which only knows the
+    default brain and brains where a loop was once created or toggled. A reminder in a brain
+    with no loop at all was therefore never visited and stayed "due" forever (field report
+    0.270, Code 3)."""
     values = []
     try:
         values.extend(
@@ -11674,6 +13430,20 @@ def _kanban_brains():
     return list(dict.fromkeys(values))
 
 
+def _register_outside_brain(brain: str) -> None:
+    """Remember a brain folder that lives OUTSIDE BRAINS_DIR so `_background_brains` keeps
+    visiting it after a restart. Folders inside BRAINS_DIR are listed anyway, so they are not
+    written to the loop scheduler's registry."""
+    try:
+        root = Path(_brain_root(brain)).resolve()
+        base = Path(BRAINS_DIR).resolve()
+        if root.parent == base and not root.name.startswith("."):
+            return
+        loop_feature.register_brain(str(root))
+    except Exception:
+        pass
+
+
 tasks_feature = tasks_mod.register(app, tasks_mod.TasksDeps(
     brain_root=_brain_root,
     atomic_write_text=_atomic_write_text,
@@ -11684,7 +13454,7 @@ tasks_feature = tasks_mod.register(app, tasks_mod.TasksDeps(
     aux_swap=_aux_swap,
     safe_tools=SAFE_FILE_TOOLS,
     state_dir=cfgmod.STATE_DIR,
-    scheduler_brains=_kanban_brains,
+    scheduler_brains=_background_brains,
     apply_mcp=_apply_mcp,
     mcp_allow_patterns=_loop_mcp_allow,
     report=_notify_owner,               # báo NGƯỜI YÊU CẦU task khi chạy xong (rỗng → Javis Core của brain việc)
@@ -11706,7 +13476,7 @@ tasks_feature.deps.learn_hook = learn_feature.enqueue_job
 # mode notify = nhắn lại · mode task = chạy engine (đọc MCP, ghi nháp) rồi báo. KHÔNG tiền/đơn.
 # ============================================================
 import reminders as reminders_mod
-import webhook_triggers
+import webhook_lazy  # the webhook routes; the platform itself loads at startup (keeps `import main` light)
 import incident_desk as incident_desk_mod
 import sentinel
 import change_receipt
@@ -11810,6 +13580,40 @@ async def _send_voice_file(chat_id, path, brain) -> tuple:
     return await _TG_BOT.send_file(path, chat=cid)
 
 
+import my_tasks as my_tasks_mod
+import gcal_read
+
+
+async def _habit_coach_ask(prompt: str) -> str:
+    """Habit coach (0.427.0): one text-only turn on the background model, like the page watch summary."""
+    if os.environ.get("JAVIS_NO_REAL_JUDGE_ENGINE") == "1":
+        raise RuntimeError("JAVIS_NO_REAL_JUDGE_ENGINE")
+    cli = _reply_policy_sandbox_engine("You write short, warm habit lines as Javis's star mascot. Answer with JSON only.",
+                                       "habit-coach", cwd_name="habit_coach_cwd")
+    base = cli
+    cli = aux_engine.strip_tools(_aux_swap(cli, mode="suggest", tag="habit-coach"), base)
+    if not cli.is_available():
+        raise RuntimeError("background engine not ready")
+    final = ""
+    async for ev in cli.query(prompt):
+        if ev.get("type") == "final":
+            final = ev.get("content", "") or ""
+        elif ev.get("type") == "error":
+            raise RuntimeError(str(ev.get("content") or "engine error")[:200])
+    return final
+
+
+# The owner's own tasks for the Tasks page, tab "Mine" (0.423.0): one JSON store per brain.
+my_tasks_feature = my_tasks_mod.register(app, my_tasks_mod.MyTasksDeps(
+    brain_root=_brain_root, atomic_write_text=_atomic_write_text,
+    # Habit reminders (0.424.0) go out like a reminder's report: inbox, Telegram, push.
+    scheduler_brains=_background_brains,
+    # Owner, 06/11/2026: timed tasks, appointments and the morning list of "Mine" go as source "mytask" (group Reminders).
+    notify=lambda chat_id, text, brain="", dedup="", source="habit": _notify_owner(chat_id, text, kind="report",
+                                                                                   source=source, brain=brain, dedup=dedup),
+    tz=reminders_mod.VN_TZ,
+    # 0.427.0: habit lines written by Core, and read-only Google Calendar events.
+    ask=_habit_coach_ask, calendar=gcal_read.events))
 reminders_feature = reminders_mod.register(app, reminders_mod.RemindersDeps(
     brain_root=_brain_root,
     atomic_write_text=_atomic_write_text,
@@ -11820,11 +13624,14 @@ reminders_feature = reminders_mod.register(app, reminders_mod.RemindersDeps(
     aux_swap=_aux_swap,
     safe_tools=SAFE_FILE_TOOLS,
     readonly_tools=READONLY_TOOLS,
-    scheduler_brains=loop_feature.scheduler_brains,
+    scheduler_brains=_background_brains,
+    register_brain=_register_outside_brain,
     apply_mcp=_apply_mcp,                 # nhắc mode 'task' ĐỌC được dữ liệu thật qua MCP
     mcp_allow_patterns=_loop_mcp_allow,
     make_voice=lambda brain, text: _voice_note_rel(brain, text),
     send_file=lambda chat_id, path, brain: _send_voice_file(chat_id, path, brain),
+    build_agent_prompt=_background_agent_prompt,          # made in a partner chat -> runs as that assistant
+    finish_agent_run=_finish_background_agent_run,
 ))
 
 
@@ -11846,15 +13653,28 @@ async def _webhook_run_workflow(brain, slug, prompt, level):
     return result, error, needs_input
 
 
+async def _webhook_call_tool(brain, level, name, args):
+    """M4: a webhook `tool` action through the hub dispatcher, at the webhook's level: the same permission guard,
+    connection limits, rate limit and audit as any background run. No model is involved."""
+    if brain and brain != "brain" and not os.path.isdir(brain):
+        # The hook's brain folder is gone: never fall back to the default brain's tools and files.
+        return "ERROR: the webhook's brain folder no longer exists"
+    _, route = await mcp_hub.discover_all(level, vault_root=str(_brain_root(brain)), include_plugins=True)
+    if name not in route and mcp_hub._LAZY_RUN in route:
+        # Lazy menu on: the tool is behind javis_run_tool, which calls the same guarded route.
+        return str(await mcp_client.call_route(route, mcp_hub._LAZY_RUN, {"name": name, "args": args or {}}))
+    return str(await mcp_client.call_route(route, name, args or {}))
+
+
 async def _webhook_send(chat_id, text, viec=None, web="", brain="", dedup=""):
     return await _notify_owner(chat_id, text, kind="report", source="webhook",
                                viec=viec, web=web, brain=brain, dedup=dedup)
 
 
-webhook_feature = webhook_triggers.register(app, webhook_triggers.WebhookDeps(
+webhook_feature = webhook_lazy.register(app, dict(
     state_dir=lambda: cfgmod.STATE_DIR,
     run_task=lambda brain, text, level: reminders_feature._run_task(
-        brain, text, level, intro=webhook_triggers.TASK_INTRO),
+        brain, text, level, intro=__import__("webhook_triggers").TASK_INTRO),
     run_workflow=_webhook_run_workflow,
     send=_webhook_send,
     base_url=lambda request: web_security.external_base(
@@ -11862,6 +13682,12 @@ webhook_feature = webhook_triggers.register(app, webhook_triggers.WebhookDeps(
         request.headers.get("x-forwarded-proto", ""), request.headers.get("x-forwarded-host", "")),
     workflow_exists=lambda brain, slug: (_workflows_dir(brain) / f"{slug}.md").is_file(),
     atomic_write_text=_atomic_write_text,
+    # M3: a webhook action can name a plugin's webhook handler; only plugins visible to that hook's brain are found.
+    # A brain folder that is gone gives None (bundled, pack and global plugins only), never the default brain's plugins.
+    plugin_handler=lambda brain, slug, name: plugins_host.find_webhook_handler(
+        (str(_brain_root(brain)) if (not brain or brain == "brain" or os.path.isdir(brain)) else None), slug, name),
+    call_tool=_webhook_call_tool,
+    brain_exists=lambda brain: (not brain or brain == "brain" or os.path.isdir(brain)),
 ))
 
 
@@ -11873,8 +13699,12 @@ import web_watch
 
 
 async def _watch_send(chat_id, text, viec=None, web="", brain="", dedup=""):
+    # 0.403.0: what the owner set a watch up to hear about is urgent, like a reminder; a watch that stopped working
+    # (signed out, paused) is an important connection notice.
+    failed = str((viec or {}).get("status") or "") == "blocked"
     return await _notify_owner(chat_id, text, kind="report", source="watch",
-                               viec=viec, web=web, brain=brain, dedup=dedup)
+                               viec=viec, web=web, brain=brain, dedup=dedup,
+                               group="connection" if failed else "job", level="important" if failed else "urgent")
 
 
 async def _watch_summarize(prompt: str) -> str:
@@ -11903,6 +13733,28 @@ watch_feature = web_watch.register(app, web_watch.WebWatchDeps(
     summarize=_watch_summarize,
     channels=_kenh_con_thieu,
 ))
+
+# 0.428.0: stats for both tabs of the Tasks page (task_stats.py): what Javis did next to what the owner did.
+import task_stats  # noqa: E402
+
+
+def _stats_agent_names(brain: str) -> dict:
+    try:
+        return {a.get("slug"): a.get("name") or a.get("slug") for a in agents_index(brain, kem_prompt=False) if a.get("slug")}
+    except Exception:
+        return {}
+
+
+# 0.429.0: which chatbot made a job (bot_jobs.py), so the Tasks page and its stats show a bot's jobs under it.
+import bot_jobs  # noqa: E402
+
+bot_jobs_feature = bot_jobs.register(app, bot_jobs.BotJobsDeps(
+    brain_root=_brain_root, list_bots=chatbot_store.list_bots, turns=chatbot_log._nap,
+    task_store=lambda: tasks_feature.store, loops=loop_feature.list_loops), tz=reminders_mod.VN_TZ)
+
+task_stats_feature = task_stats.register(app, task_stats.TaskStatsDeps(
+    brain_root=_brain_root, my_tasks=lambda: my_tasks_feature, task_store=lambda: tasks_feature.store,
+    tz=reminders_mod.VN_TZ, agent_names=_stats_agent_names, bot_jobs=bot_jobs_feature.map))
 
 # 0.251.0: login vault (login_vault.py). The owner's sign-in cookies, encrypted, reused by javis_login and by
 # page watches. Its routes need a real dashboard session: an API token can neither read nor add a sign-in.
@@ -11939,9 +13791,12 @@ async def _incident_ask(prompt: str) -> str:
     return final
 
 
-async def _incident_post(brain: str, text: str) -> None:
+async def _incident_post(brain: str, text: str, chat: str = "") -> None:
     # Empty chat id: the brain's Javis Core chat, the inbox and the owner's Telegram (_report_route, 0.186.0).
-    await _notify_owner("", text, kind="report", source="incident", brain=brain,
+    # `chat` is the chat the broken job came from (a partner chat, a Telegram id): the notice goes there, and a
+    # deleted chat falls back to Javis Core (_report_route, lost_origin).
+    await _notify_owner(chat, text, kind="report", source="incident", brain=brain,
+                        level="important" if text.startswith("⚠") else "info",
                         viec={"kind": "incident", "status": "failed" if text.startswith("⚠") else "done",
                               "title": text[:120], "id": ""})
 
@@ -11957,7 +13812,14 @@ async def _incident_retry_reminder(inc: dict) -> tuple:
                 if r.get("id") == inc.get("ref")), None)
     if rem is None or rem.get("mode") != "task":
         return False, "reminder not found"
-    reminders_feature._chay_nen(brain, dict(rem))
+    run = dict(rem)
+    if rem.get("last_slot") and not rem.get("retry_of"):
+        # Re-run the firing that failed, not the next one: same once-only ledger key, so an outside
+        # action that already went through is not sent twice, and a retry number past the automatic
+        # ones so it gets its own inbox entry and schedules no further retries.
+        run["retry_of"] = rem["last_slot"]
+        run["retry_count"] = len(reminders_mod.RETRY_DELAYS_S) + 1
+    reminders_feature._chay_nen(brain, run)
     return True, "reminder fired again"
 
 
@@ -12029,6 +13891,12 @@ async def cache_keepwarm_set(payload: dict = Body(None)):
 
 @app.get("/viec/all")
 async def viec_all():
+    """Performance (2026-11-05): the whole scan reads loop files of every brain, so it runs in a worker thread; on the
+    event loop it held up every other request while the Tasks page opened or polled."""
+    return await asyncio.to_thread(_viec_all_sync)
+
+
+def _viec_all_sync():
     """Gộp MỌI brain cho trang Việc: mỗi brain kèm loop + nhắc hẹn đang chờ, mỗi item gắn
     brain_name/brain_path để nút thao tác (bật/tắt/xoá/chuyển/huỷ) nhắm ĐÚNG brain của chính
     item, không phải brain đang chọn ở sidebar. Quét list_brains() (KHÔNG chỉ brain đã đăng ký)
@@ -12048,7 +13916,7 @@ async def viec_all():
             loops = []
         try:
             rems = []
-            for v in reminders_feature.pending_views(path):
+            for v in reminders_feature.live_views(path):
                 v["brain_name"], v["brain_path"] = name, path
                 rems.append(v)
         except Exception:
@@ -12289,7 +14157,7 @@ async def _khi_tien_trinh_xong(v: dict) -> None:
         print(f"[tien trinh nen] báo lỗi: {type(e).__name__}: {e}", file=sys.stderr)
     if not se_tiep:
         return
-    nhac = [f"[Việc chạy nền đã xong] {mo_ta} (chạy {tl})."]
+    nhac = [f"{turn_done_notice.FOLLOWUP_HEAD} {mo_ta} (chạy {tl})."]
     if files:
         nhac.append("File mới: " + ", ".join(v.get("file_moi") or []))
     nhac.append("Làm tiếp: " + (loi_dan or "hoàn tất phần việc đã hẹn với người dùng ở lượt trước, "
@@ -12314,6 +14182,23 @@ async def _khoi_dong_tien_trinh_nen():
         tien_trinh_nen.khoi_dong()
     except Exception as e:
         print(f"[tien trinh nen] khởi động lỗi: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+async def _bao_luot_dai_xong(conv_sid: str, brain, turn_tag: str, user_message: str, final_text,
+                             elapsed: float) -> bool:
+    """A dashboard chat turn that ran long (or a background job's follow-up) just ended: leave its answer in the bell,
+    which rings the phone. The answer is already in the chat; this only tells the owner it is there
+    (turn_done_notice.py). True when a notice was filed."""
+    text = str(final_text or "")
+    if not turn_done_notice.should_notify(elapsed, user_message, text):
+        return False
+    body = turn_done_notice.notice_text(channel_context.strip_control_blocks(text))
+    if not body:
+        return False
+    item = await _bo_vao_hom_thu(f"{WEB_CHAT_PREFIX}{conv_sid}", body, kind="answer",
+                                 label=turn_done_notice.label(elapsed, user_message), source="job",
+                                 brain=_brain_key(brain), dedup=f"turn:{turn_tag}", push_if_away=True)
+    return bool(item)
 
 
 async def _canh_bao_hua_suong(brain: str, chat_id: str, final_text: str,
@@ -12364,6 +14249,16 @@ _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 # bấm link wiki vừa ingest thì 404), nên dạng này sẽ còn về đều; gỡ giao thức rồi xử lý như
 # đường dẫn tuyệt đối bình thường.
 _FILE_URI_RE = re.compile(r"^file:(?://[^/\\]*)?(?=[/\\])", re.IGNORECASE)
+
+
+# `/C:/Users/x` (or `\C:\x`): models often write a Windows path with a leading slash, URL style. Neither
+# Windows nor POSIX pathlib reads that as drive C, so the link was reported as missing (#898, item 3).
+_GACH_TRUOC_O_DIA_RE = re.compile(r"^[/\\](?=[A-Za-z]:[/\\])")
+
+
+def _bo_gach_truoc_o_dia(t: str) -> str:
+    """`/C:/x` -> `C:/x`; anything else unchanged."""
+    return _GACH_TRUOC_O_DIA_RE.sub("", t, count=1)
 
 
 def _go_file_uri(t: str):
@@ -12427,6 +14322,7 @@ def _link_muc_tieu_moi(brain_root: str, raw: str, files_written=None):
             t = urllib.parse.unquote(t)
         except Exception:
             pass
+    t = _bo_gach_truoc_o_dia(t)
     try:
         broot = Path(brain_root).resolve()
     except Exception:
@@ -12503,9 +14399,22 @@ def _chuan_hoa_link_file(brain_root: str, text: str, files_written=None) -> str:
             return m.group(0)
         return m.group(0)[:m.start(1) - m.start(0)] + f"`{rel}`" + duoi
 
+    def _tran_gach(m):
+        # `/C:/Users/...` written bare: same as `_tran`, but the leading slash goes too (#898).
+        raw = m.group(1).rstrip(".,;:!?…")
+        duoi = m.group(1)[len(raw):]
+        try:
+            rel = Path(raw.replace("\\", "/")).resolve().relative_to(broot).as_posix()
+        except Exception:
+            return m.group(0)
+        if not (broot / rel).exists():
+            return m.group(0)
+        return f"`{rel}`" + duoi
+
     # Windows: `C:\...` và `C:/...`. Chạy TRƯỚC mẫu `/...`, và mẫu đó không nhận dấu `/` đứng
     # sau `:`, kẻo nó cắt `/Users/...` ra khỏi `C:/Users/...` rồi resolve theo ổ của thư mục
     # hiện hành (đúng ổ thì còn chèn link vào giữa, thành `C:` + `bai-1.txt`).
+    ra = re.sub(r"(?<![`\[(/\\\w:])[/\\]([A-Za-z]:[\\/][^\s`\"'()\[\]<>|*?:]+)", _tran_gach, ra)
     ra = re.sub(r"(?<![`\[(/\\\w])([A-Za-z]:[\\/][^\s`\"'()\[\]<>|*?:]+)", _tran, ra)
     ra = re.sub(r"(?<![`\[(/\w:])(/[^\s`\"'()\[\]<>|*?:]+)", _tran, ra)
 
@@ -12546,6 +14455,7 @@ def _link_file_khong_thay(brain_root: str, text: str) -> list:
                 t = urllib.parse.unquote(t)
             except Exception:
                 pass
+        t = _bo_gach_truoc_o_dia(t)
         try:
             if t.startswith("/") or t.startswith("~") or re.match(r"^[A-Za-z]:[\\/]", t):
                 cand = Path(t.replace("\\", "/")).expanduser().resolve()
@@ -12797,6 +14707,48 @@ def rebuild_javis_index(brain: str) -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def _ops_index_signature(root: str) -> str:
+    return ops_index_watch.brain_signature(root, _agents_dir(root), _workflows_dir(root),
+                                           plugins_host.vault_plugins_dir(root))
+
+
+_OPS_INDEX_WATCH = ops_index_watch.IndexWatcher(
+    signature_of=_ops_index_signature, rebuild=rebuild_javis_index,
+    shared_signature=plugins_host.shared_signature)
+
+
+def _ops_index_brains() -> list:
+    """Every brain whose Javis/index.md the scheduler keeps current, as resolved roots (one entry per brain).
+
+    The folders in BRAINS_DIR that are real brains (they have Javis/), plus the brains the loop scheduler knows,
+    which may live outside BRAINS_DIR. Before 0.389.0 only the second list was swept, so a brain with no loop kept
+    the index from the day it was created."""
+    cands = []
+    try:
+        cands += [str(p) for p in sorted(Path(BRAINS_DIR).iterdir())
+                  if p.is_dir() and not p.name.startswith(".") and (p / "Javis").is_dir()]
+    except OSError:
+        pass
+    try:
+        cands += [_brain_root(b) for b in loop_feature.scheduler_brains()]
+    except Exception:
+        pass
+    out, seen = [], set()
+    for c in cands:
+        try:
+            rp = str(Path(c).resolve())
+        except OSError:
+            continue
+        if rp not in seen and os.path.isdir(rp):
+            seen.add(rp)
+            out.append(rp)
+    return out
+
+
+def _ops_index_sweep() -> list:
+    return _OPS_INDEX_WATCH.sweep(_ops_index_brains())
+
+
 def _dong_lan_chay_gan_nhat(brain) -> str:
     """Một dòng cho system prompt: lần chạy quy trình gần nhất của brain, rỗng nếu chưa có.
     Nhờ dòng này, hỏi "quy trình chạy gần nhất ra sao" ở khung chat chính là Javis biết ngay
@@ -12820,36 +14772,18 @@ def _dong_lan_chay_gan_nhat(brain) -> str:
             "Chi tiết hay các lần khác: tool javis_workflow (op=runs, op=show).")
 
 
-def _javis_capability_summary(brain: str, skills=None) -> str:
-    """Bản LIVE gọn (capped) chèn vào system prompt: để engine nào cũng biết Javis có gì.
-    Skill nhiều -> chỉ đếm + nhóm (chi tiết ở Javis/index.md), tránh phình context.
-    skills: cây skill đã quét sẵn, xem _gather_capabilities."""
+def _javis_capability_summary(brain: str, skills=None, with_last_run: bool = True) -> str:
+    """Render the live summary from capabilities loaded by the production caller.
+
+    with_last_run=False (stable prompt, #975): the latest workflow run moves to `_turn_facts_header`."""
     try:
-        c = _gather_capabilities(brain, skills)
+        capabilities = _gather_capabilities(brain, skills)
     except Exception:
         return ""
-    if not any(c.values()):
+    if not any(capabilities.values()):
         return ""
-    parts = ["\n\n# === NĂNG LỰC JAVIS HIỆN CÓ (đọc `Javis/index.md` để biết chi tiết + trigger) ==="]
-    if c["agents"]:
-        parts.append("Agents: " + ", ".join(a["name"] for a in c["agents"][:30]))
-    if c["skills"]:
-        groups = sorted({s["group"] for s in c["skills"] if s["enabled"]})
-        parts.append(f"Skills: {sum(1 for s in c['skills'] if s['enabled'])} kỹ năng (nhóm: {', '.join(groups[:12])})")
-    if c["workflows"]:
-        parts.append("Workflows: " + ", ".join(w["name"] for w in c["workflows"][:20] if w["status"] == "active"))
-    _lc = _dong_lan_chay_gan_nhat(brain)
-    if _lc:
-        parts.append(_lc)
-    if c["loops"]:
-        parts.append("Loops: " + ", ".join(f"{l['name']}({'bật' if l['enabled'] else 'tắt'})" for l in c["loops"][:20]))
-    live_plugins = [p for p in c.get("plugins", []) if p.get("loaded")]
-    if live_plugins:
-        tool_names = [t for p in live_plugins for t in p.get("tools", [])]
-        parts.append("Plugins đang chạy: " + ", ".join(p["name"] for p in live_plugins[:12])
-                     + (f" (tool: {', '.join(tool_names[:12])})" if tool_names else ""))
-    parts.append("Trước khi tạo năng lực mới, kiểm chỉ mục này để khỏi trùng.")
-    return "\n".join(parts)
+    return main_prompt_rendering.render_capability_summary(
+        capabilities, _dong_lan_chay_gan_nhat(brain) if with_last_run else "")
 
 
 def _skill_router_block(brain: str, root: str, skills=None) -> str:
@@ -12866,27 +14800,11 @@ def _skill_router_block(brain: str, root: str, skills=None) -> str:
              else skill_router.list_enabled_meta(root))
     if not metas:
         return ""
-    sk_dir = skill_router.skills_base(root, canonical=True)
-    lines = ["\n\n# === SKILL KHẢ DỤNG (router - dùng được trên MỌI engine) ==="]
-    hien, con_lai = skill_router.cat_theo_ngan_sach(
+    skills_dir = skill_router.skills_base(root, canonical=True)
+    visible, hidden_count = skill_router.cat_theo_ngan_sach(
         skill_router.xep_theo_uu_tien(metas, root))
-    for s in hien:
-        desc = (s.get("description") or "").replace("\n", " ")[:skill_router.SKILL_DESC_MAX]
-        lines.append(f"- {s['slug']} ({s['name']}): {desc}")
-    if con_lai > 0:
-        # Nói rõ CÁCH LẤY chứ không chỉ nói còn bao nhiêu: `javis_use_skill` nạp được theo
-        # slug kể cả skill không nằm trong danh sách trên, nên một skill bị cắt vẫn dùng được
-        # nếu model biết tên. Câu cũ chỉ trỏ sang một file mà model không đọc.
-        lines.append(f"…(+{con_lai} skill nữa chưa liệt kê ở đây - xem đủ danh sách trong "
-                     f"`Javis/index.md`, và nạp thẳng bằng `javis_use_skill(name=<slug>)` "
-                     f"nếu đã biết tên)")
-    lines.append(
-        "CÁCH DÙNG: khi yêu cầu của user KHỚP mô tả 1 skill ở trên, hãy NẠP skill đó rồi LÀM THEO - "
-        "gọi tool `javis_use_skill(name=<slug>)` nếu engine có tool này; nếu không, mở file "
-        f"`{sk_dir}/<slug>/SKILL.md` bằng công cụ đọc file rồi tuân theo hướng dẫn trong đó. "
-        "Chỉ nạp khi thực sự khớp, không nạp tràn lan."
-    )
-    return "\n".join(lines)
+    return main_prompt_rendering.render_skill_router(
+        visible, skills_dir=skills_dir, hidden_count=hidden_count, description_max=skill_router.SKILL_DESC_MAX)
 
 
 @app.get("/javis/index")
@@ -12927,6 +14845,7 @@ async def plugins_list(brain: str = Query("brain")):
     root = _brain_root(brain)
     items = plugins_host.describe(root)
     return {"ok": True, "user_gate": plugins_host._env_user_enabled(),
+            "zip_max_mb": plugin_zip_routes.MAX_UPLOAD // 1024 // 1024,
             "global_dir": str(plugins_host.global_plugins_dir()),
             "vault_dir": str(plugins_host.vault_plugins_dir(root) or ""), "plugins": items}
 
@@ -13020,7 +14939,10 @@ async def _start_scheduler():
     except Exception as e:
         print(f"[web watch start] {e}", file=_sys.stderr)
     try:
-        connect_health.on_engine_down = _loop_notify   # đèn báo não → Telegram, chỉ 1 lần mỗi đợt chết
+        # Đèn báo não → chuông và Telegram của chủ, chỉ 1 lần mỗi đợt chết.
+        # 0.403.0: the AI engine down is urgent (nothing works); connections broken after a restart are important.
+        connect_health.on_engine_down = lambda text: _loop_notify(text, source="engine", level="urgent")
+        connect_health.on_connections_down = lambda text: _loop_notify(text, source="connections", level="important")
         connect_health.start()   # vòng check sức khoẻ kết nối + probe đèn báo não
     except Exception as e:
         print(f"[connect health start] {e}", file=_sys.stderr)
@@ -13060,6 +14982,7 @@ async def _start_scheduler():
                 # 3b) Nhắc hẹn từ chat: tới giờ → bắn Telegram (mode task: chạy engine rồi báo)
                 try:
                     await reminders_feature.tick()
+                    await my_tasks_feature.tick()   # habit reminders (0.424.0)
                     # 0.202.0: prompt-cache keep-warm (off unless switched on, see cache_keepwarm.py).
                     asyncio.create_task(_KEEPWARM.tick())
                 except Exception as rte:
@@ -13079,6 +15002,10 @@ async def _start_scheduler():
                 #      chạy ở tác vụ riêng sau khi giữ chỗ sổ lượt chung.
                 if not _PULSE_TICK_BUSY[0]:
                     asyncio.create_task(_pulse_tick())
+                # 3b5) Automatic learning from chat (0.341.0): judging and learning runs in a worker thread, own busy
+                #      flag; hard daily caps live in auto_learning.
+                if not _AUTO_LEARNING_BUSY[0]:
+                    asyncio.create_task(_auto_learning_tick())
                 # 3c) Ngân sách token + báo cáo tuần. Nhịp RIÊNG 10 phút chứ không theo 30s:
                 #     mỗi lượt kiểm là một truy vấn sqlite cả tháng, chạy 30 giây một lần thì
                 #     chính cái đồng hồ đo tiền lại thành thứ tốn tài nguyên nhất.
@@ -13098,10 +15025,10 @@ async def _start_scheduler():
                             await asyncio.to_thread(_do_backup)   # 1 lần: toàn bộ thư mục brains, 2 chiều
                 except Exception as be:
                     print(f"[backup tick] {type(be).__name__}: {be}", file=__import__('sys').stderr)
-                # 5) Javis index: dựng lại chỉ mục tầng vận hành (chỉ ghi khi đổi → không churn)
+                # 5) Javis index: every brain, but only the ones whose agents/skills/workflows/loops/plugins
+                #    changed on disk (stat-only signature, see ops_index_watch), a few per tick.
                 try:
-                    for _ib in loop_feature.scheduler_brains():
-                        await asyncio.to_thread(rebuild_javis_index, _ib)
+                    await asyncio.to_thread(_ops_index_sweep)
                 except Exception as ie:
                     print(f"[javis index tick] {type(ie).__name__}: {ie}", file=__import__('sys').stderr)
                 # 6) Dọn media quá hạn: attachments/ + inbox/ là VÙNG CACHE chứ không phải
@@ -13220,9 +15147,13 @@ async def _start_scheduler():
         chatbot_runtime.wire(answer=_tg_answer, brain_root=_brain_root,
                              read_agent=lambda b, slug: _read_md(_agents_dir(b) / f"{slug}.md"),
                              session_probe=_manual_session_probe, session_undo=_manual_session_undo,
+                             # 0.433.0: hear what is said in a video a customer sends (same Groq key as voice messages).
+                             transcribe=_stt_nghe,
                              # Lượt bot hỏng: khách không nhận gì, chủ nghe ở chuông thông báo (chủ repo 15/10/2026).
+                             # 0.403.0: urgent: a customer is waiting for a person, or got no answer at all.
                              notify=lambda text: _bo_vao_hom_thu("", text, kind="system", source="chatbot",
-                                                                 label=localefmt.chu("Chatbot", "Chatbot")))
+                                                                 label=localefmt.chu("Chatbot", "Chatbot"),
+                                                                 level="urgent"))
         chatbot_reply_policy.wire(ask=_reply_policy_ask)
         chatbot_reply_policy_review.wire(ask=_reply_policy_review_ask, notify=_reply_policy_notify,
                                          write_feedback=_reply_policy_write_feedback, get_bot=chatbot_store.get_bot)
@@ -13569,6 +15500,13 @@ async def _latest_remote_version(cur: str = ""):
 
 @app.get("/version")
 async def version_info():
+    # Store packs with a newer version (0.340.0): checked when the owner opens the dashboard (this call draws its
+    # version label), at most once per six hours, in the background. No timer runs it, see pack_updates.
+    try:
+        import pack_updates
+        asyncio.create_task(pack_updates.on_open())
+    except Exception as pue:
+        print(f"[pack updates] {type(pue).__name__}: {pue}", file=sys.stderr)
     cur = _read_version()
     latest, err = await _latest_remote_version(cur)
     mode = _deploy_mode()
@@ -13745,6 +15683,22 @@ async def do_update():
     latest, _err = await _latest_remote_version(cur)
 
     if mode == "docker":
+        # 0.267.0 (a user's VPS stuck on 0.206.0): an image built on a PC and loaded onto the VPS is in no registry, so
+        # Redeploy, `--pull always` and Watchtower all bring back the same old version. Say what actually updates it.
+        if not deploy_info.image_source():
+            _write_update_state({"phase": "idle"})   # nhả claim
+            return JSONResponse({"ok": False, "self_built": True, "current": cur, "latest": latest,
+                "error": localefmt.chu(
+                    f"Javis này chạy bằng image tự đóng gói, không phải image chính thức, nên kéo lại hay Redeploy "
+                    f"vẫn ra đúng bản cũ. Đổi sang image chính thức một lần (dữ liệu, brain và đăng nhập giữ nguyên): "
+                    f"trong file compose, sửa dòng image: thành {deploy_info.OFFICIAL_IMAGE}:latest rồi chạy lệnh dưới. "
+                    f"Từ đó nút cập nhật dùng được. Tự build từ mã nguồn thì cập nhật bằng ./update.sh. Hướng dẫn đầy đủ: DEPLOY.md, mục Cập nhật.",
+                    f"This Javis runs a self-built image, not the official one, so pulling or Redeploying brings back "
+                    f"the same old version. Switch to the official image once (data, brains and logins are kept): in "
+                    f"the compose file, change the image: line to {deploy_info.OFFICIAL_IMAGE}:latest, then run the "
+                    f"command below. After that the Update button works. Building from source? Update with ./update.sh. "
+                    f"Full steps: DEPLOY.md, Updating section."),
+                "manual": "docker compose up -d --pull always"}, status_code=400)
         if not await _watchtower_reachable():
             _write_update_state({"phase": "idle"})   # nhả claim, không kẹt "preparing"
             return JSONResponse({"ok": False,
@@ -13833,7 +15787,16 @@ _AUTOSTART_APPROVED_ON = bytes([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
 
 def _autostart_command() -> str:
-    """Lệnh chạy khi đăng nhập Windows: wscript chạy start-javis.vbs ẩn (kill cũ + chạy nền)."""
+    """Lệnh chạy khi đăng nhập Windows: wscript chạy start-javis.vbs ẩn (kill cũ + chạy nền).
+
+    0.306.0: thêm /open để server lên xong thì mở luôn dashboard (chủ repo 24/10/2026: "cài khởi động cùng trình
+    duyệt"). Lệnh cũ không có /open vẫn chạy được nên KHÔNG tính là đường dẫn cũ, xem _autostart_legacy_command.
+    """
+    return _autostart_legacy_command() + " /open"
+
+
+def _autostart_legacy_command() -> str:
+    """Lệnh trước 0.306.0 (chỉ chạy nền, không mở trình duyệt). Vẫn hợp lệ, bật lại là lên bản có /open."""
     vbs = str(PROJECT_ROOT / "start-javis.vbs")
     return f'wscript.exe //nologo "{vbs}"'
 
@@ -13911,7 +15874,8 @@ def _autostart_status() -> dict:
                 val, _ = winreg.QueryValueEx(k, _AUTOSTART_NAME)
             st["enabled"] = bool(val)
             st["command"] = val
-            st["stale"] = bool(val) and val.strip() != expected
+            st["stale"] = bool(val) and val.strip() not in (expected, _autostart_legacy_command())
+            st["opens_browser"] = bool(val) and val.strip() == expected
         except FileNotFoundError:
             pass
         if st["enabled"]:
@@ -14031,7 +15995,7 @@ def _parse_announcements(raw: str):
         if expires and expires[:10] < today:
             continue
         kind = text(row.get("kind"), 24).lower()
-        if kind not in ("community", "marketing"):
+        if kind not in ("community", "marketing", "security"):
             kind = "community"
         priority = text(row.get("priority"), 16).lower()
         if priority not in ("high", "normal", "low"):
@@ -14308,9 +16272,17 @@ async def _notifications_data():
 
     changelog_task = asyncio.create_task(changelog_index())
     announcements_task = asyncio.create_task(_load_community_announcements())
-    changelog, (announcements, announcement_error) = await asyncio.gather(
-        changelog_task, announcements_task
+    node_task = asyncio.create_task(asyncio.to_thread(node_security.node_version))
+    changelog, (announcements, announcement_error), node_version = await asyncio.gather(
+        changelog_task, announcements_task, node_task
     )
+    # The broadcast in ANNOUNCEMENTS.json is for installs too old to run this check; here the
+    # machine's real Node.js decides, so a patched machine is not told to patch.
+    announcements = [a for a in announcements
+                     if not str(a.get("id") or "").startswith(node_security.ADVISORY_ID)]
+    node_notice = node_security.notice(node_version, deploy_info.deploy_mode())
+    if node_notice:
+        announcements.append(node_notice)
 
     releases = []
     for rel in (changelog.get("releases") or [])[:30]:
@@ -14482,6 +16454,80 @@ async def inbox_read(payload: dict = Body(None)):
 async def inbox_delete(payload: dict = Body(None)):
     ok = inbox.xoa(str((payload or {}).get("id") or ""))
     return {"ok": ok, "unread": inbox.so_chua_doc()}
+
+
+# ── 0.403.0: Javis Core, the notification commander (docs/dev/2026-10-javis-core-chi-huy-thong-bao.md) ────────────
+async def _core_say(brain: str, text: str) -> None:
+    """One short line from Javis Core in its own chat (what its judge just changed). Never raises."""
+    try:
+        bk = _brain_key(brain or "brain")
+        sid = javis_core.default_session(get_store(), bk, same_brain=_cung_brain)
+        if sid:
+            await _gui_qua_kenh(f"{WEB_CHAT_PREFIX}{sid}", text)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify policy] Javis Core could not say it: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+@app.post("/inbox/react")
+async def inbox_react(payload: dict = Body(None)):
+    """The owner's feedback on one bell item: a Resonance emoji (`value`) and/or "needed" / "not_needed" (`axis`).
+    Javis Core's judge learns from it (`notify_policy.react`) and says in its chat what it changed."""
+    p = payload or {}
+    iid = str(p.get("id") or "")
+    value = str(p.get("value") or "").strip()
+    axis = str(p.get("axis") or "").strip()
+    if value and value not in notify_policy.EMOJI_SCORE:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Cảm xúc không hợp lệ", "Invalid reaction")}, status_code=400)
+    if axis and axis not in notify_policy.AXES:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Lựa chọn không hợp lệ", "Invalid choice")}, status_code=400)
+    item = inbox.phan_hoi(iid, value, axis)
+    if not item:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không còn thông báo này", "This notice is gone")},
+                            status_code=404)
+    changes = notify_policy.react(item, value, axis) if (value or axis) else []
+    if changes:
+        await _core_say(item.get("brain") or "", "\n".join(notify_policy.describe(c) for c in changes))
+    return {"ok": True, "reaction": item.get("reaction"), "changes": changes,
+            "messages": [notify_policy.describe(c, hint=False) for c in changes]}
+
+
+@app.get("/notify/policy")
+async def notify_policy_get():
+    return {"ok": True, **notify_policy.status()}
+
+
+@app.post("/notify/policy/group")
+async def notify_policy_group(payload: dict = Body(None)):
+    p = payload or {}
+    g, m = str(p.get("group") or ""), str(p.get("mode") or "")
+    if g not in notify_policy.GROUPS or m not in notify_policy.MODES:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Nhóm hoặc chế độ không hợp lệ", "Invalid group or mode")},
+                            status_code=400)
+    c = notify_policy.set_mode(g, m, set_by="owner", reason=localefmt.chu("Bạn chọn.", "Your choice."))
+    return {"ok": True, "change": c, **notify_policy.status()}
+
+
+@app.post("/notify/policy/rule")
+async def notify_policy_rule(payload: dict = Body(None)):
+    """Remove (rule empty) or set ("mute" / "always") the owner's rule for one kind of notice (`key` = group|signature)."""
+    p = payload or {}
+    key = str(p.get("key") or "")
+    rule = str(p.get("rule") or "") or None
+    g, _, sig = key.partition("|")
+    c = notify_policy.set_rule(g, sig, rule, set_by="owner", label=str(p.get("label") or ""),
+                               reason=localefmt.chu("Bạn chọn.", "Your choice."))
+    if c is None and rule not in (None, "mute", "always"):
+        return JSONResponse({"ok": False, "error": localefmt.chu("Luật không hợp lệ", "Invalid rule")}, status_code=400)
+    return {"ok": True, "change": c, **notify_policy.status()}
+
+
+@app.post("/notify/policy/undo")
+async def notify_policy_undo(payload: dict = Body(None)):
+    c = notify_policy.undo(str((payload or {}).get("id") or ""))
+    if c is None:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không hoàn tác được thay đổi này", "This change cannot be undone")},
+                            status_code=404)
+    return {"ok": True, "change": c, **notify_policy.status()}
 
 
 @app.get("/push/key")
@@ -14885,6 +16931,28 @@ async def stt_route(file: UploadFile = File(...), lang: str = Form(""), draft: s
                                              provider=ear["provider"])
 
 
+@app.post("/stt/fix")
+async def stt_fix_route(request: Request):
+    """Fix what the mic heard (2026-11-06), see transcript_fix.py.
+
+    Body {"text": "...", "final": true, "context": ["recent message", ...]}: the main brain rewrites the whole
+    sentence in context. Without `final` (a page from before): the older word-level fix. Never an error: any trouble
+    gives back the result of the word rules.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "text": "", "ly_do": "json_hong"}
+    text = str((body or {}).get("text") or "")[:2000]
+    cfg = cfgmod.read_settings()
+    # `final`: the recording ended, the main brain rewrites the whole sentence with the chat as context.
+    if (body or {}).get("final"):
+        ctx = (body or {}).get("context") or []
+        ctx = [str(c)[:300] for c in ctx[-6:]] if isinstance(ctx, list) else []
+        return {"ok": True, **await transcript_fix.rewrite_transcript(cfg, text, ctx)}
+    return {"ok": True, **await transcript_fix.fix_transcript(cfg, text)}
+
+
 @app.get("/voice/call")
 async def voice_call_route():
     """Đường gọi của nút mic (voice_call.select_call_engine). Nhẹ, không hỏi mạng: dashboard gọi
@@ -14999,10 +17067,10 @@ async def voice_options(brains: int = 1):
                 item["models"] = _models_items(grok_cli.list_models() or []) if item["available"] else []
             except Exception:
                 item["models"] = []
-            item["hint"] = (localefmt.chu("Mỗi câu một lượt grok headless, nối lại mạch cũ nên có ký ức. Trả lời về "
-                                          "một cục chứ không stream từng chữ.",
+            item["hint"] = (localefmt.chu("Mỗi câu một lượt grok headless, nối lại mạch cũ nên có ký ức. Chữ về "
+                                          "từng mẩu nên đọc được ngay khi Grok đang viết.",
                                           "One headless grok turn per sentence, resuming the thread so it remembers. "
-                                          "Replies arrive in one block rather than streaming word by word.")
+                                          "Text arrives piece by piece, so speech starts while Grok writes.")
                             if item["available"]
                             else localefmt.chu("Chưa cài Grok Build (grok). Xem trang Models.",
                                                "Grok Build (grok) is not installed. See the Models page."))
@@ -15030,7 +17098,7 @@ async def voice_options(brains: int = 1):
                          "available": c in ("auto", "off") or voice_ear.availability(cfg).get(c, False)}
                         for c in voice_ear.CHOICES],
         # Từ luôn có sẵn trong bộ từ vựng nghe (không cần khai): trang Cài đặt hiện cho biết.
-        "hotwords_goc": list(nghe_sua.TU_VUNG_GOC),
+        "hotwords_goc": list(nghe_sua.BASE_VOCABULARY),
         "brain_providers": brain_list,
         # Lỗi gần nhất khiến làn nhanh rơi về bộ não chính (rỗng khi chưa có hoặc đã chạy lại tốt).
         "last_error": voice_brain.loi_lan_nhanh_gan_nhat(),
@@ -15058,6 +17126,7 @@ async def voice_options(brains: int = 1):
                            "default_model": p["default_model"]}
                           for pid, p in voice_brain.BRAIN_PROVIDERS.items() if pid],
         "tts": {"provider": v.get("tts_provider") or "edge",
+                "edge_voice": v.get("edge_voice") or "",
                 "openai_voice": v.get("openai_tts_voice") or "alloy",
                 "openai_key_set": bool(m.get("openai_api_key")),
                 "elevenlabs_voice": v.get("elevenlabs_voice") or "",
@@ -15083,6 +17152,52 @@ def _ngon_ngu_cuoc_goi(meta) -> str:
     return lang_registry.chuan_hoa(str((meta or {}).get("call_lang") or ""))
 
 
+def _voice_agent(conv_sid: str, brain: str):
+    """The partner a voice call talks to: {"brain", "slug"} (the shape `_tg_answer` takes as `agent`) when the call
+    runs in a partner's chat (Partners page, session channel `agent:<slug>`), else None.
+
+    The Partners page shares the chat frame of the main chat, so a call started there carries that partner's session
+    id. Until this was fixed the call ignored it: the call model spoke as plain Javis and the work it handed off ran
+    as plain Javis too, so asked who it was, it answered that it was ChatGPT (owner report 2026-11-05). Any failure is None:
+    the call then runs as Javis, as before, instead of not starting."""
+    if not conv_sid:
+        return None
+    try:
+        persona = workflow_chat.persona_cua_phien(get_store().get_session(conv_sid) or {})
+        if not persona or persona[0] != "agent":
+            return None
+        root = _brain_root(brain)
+        f = _agent_md_path(root, persona[1])
+        return {"brain": root, "slug": f.stem} if f is not None else None
+    except Exception as e:  # noqa: BLE001 - a call must still start
+        print(f"[voice agent] {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
+def _voice_persona(conv_sid: str, brain: str):
+    """(name, identity block) of the partner a voice call talks to, for the call model's prompt
+    (voice_live.make_provider / voice_brain conf "system"), or None for a plain call."""
+    agent = _voice_agent(conv_sid, brain)
+    if not agent:
+        return None
+    try:
+        meta, body = _read_md(_agents_dir(agent["brain"]) / f"{agent['slug']}.md")
+        name = str(meta.get("name") or agent["slug"]).strip()
+        return name, voice_persona.identity_block(name, str(meta.get("role") or ""), body,
+                                                  _agent_memory(agent["brain"], agent["slug"]))
+    except Exception as e:  # noqa: BLE001
+        print(f"[voice persona] {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
+def _voice_brain_conf(conf: dict, conv_sid: str, brain: str) -> dict:
+    """The fast voice lane's settings for this chat: a partner's chat speaks with the partner's prompt."""
+    persona = _voice_persona(conv_sid, brain)
+    if not persona:
+        return conf
+    return {**conf, "system": voice_persona.apply(voice_brain.SYSTEM_PROMPT, persona[0], persona[1])}
+
+
 async def _voice_ask_javis(request: str, conv_sid: str, brain: str, key: str = "", progress=None,
                            call_lang: str = "") -> str:
     """Tool `ask_javis` của phiên Live, và việc nền của làn nhanh (V3): chạy MỘT lượt bộ não
@@ -15106,7 +17221,9 @@ async def _voice_ask_javis(request: str, conv_sid: str, brain: str, key: str = "
     """
     own_key = bool(key)   # khoá riêng dùng một lần: phiên RAM của nó phải chết theo, xem finally
     key = key or f"voice:{conv_sid}"
-    sess = _tg_session(key)
+    # A call in a partner's chat hands its work to that partner (prompt, model, memory), not to plain Javis.
+    agent = _voice_agent(conv_sid, brain)
+    sess = _tg_session(_agent_sess_key(key, agent))
     try:
         root = _brain_root(brain)
         if os.path.isdir(root):
@@ -15116,12 +17233,12 @@ async def _voice_ask_javis(request: str, conv_sid: str, brain: str, key: str = "
     try:
         out = await _tg_answer(request, meta={"chat_id": key, "call_lang": call_lang},
                                progress=progress, channel="cli",
-                               phien_kho=str(conv_sid or ""), ghi_kho=False)
+                               phien_kho=str(conv_sid or ""), ghi_kho=False, agent=agent)
     except Exception as e:
         return f"Bộ não chính lỗi: {type(e).__name__}: {e}"
     finally:
         if own_key:
-            _TG_SESS.pop(key, None)
+            _TG_SESS.pop(_agent_sess_key(key, agent), None)
     if isinstance(out, dict):
         return channel_context.strip_control_blocks(str(out.get("text") or ""))[:6000] or "(không có nội dung)"
     return str(out or "")[:6000]
@@ -15132,6 +17249,27 @@ def _live_call_lang(said: str, recognition_lang: str = "") -> str:
     empty or undetectable and the mic is on auto; the brain then followed the handoff the Live model wrote, often in
     English (owner report 2026-10-19). Fall back to the configured reply language instead of leaving it open."""
     return lang_mod.call_language(said, recognition_lang) or localefmt.ngon_ngu_tra_loi()
+
+
+def _voice_quota_frame(prov) -> dict:
+    """ChatGPT Live said the plan is out of quota (owner's report 06/11/2026). The account the call ran on rests until the
+    reset time it gave, exactly like a chat turn that runs out (`_note_pin_limit`), so the next call (or the reconnect
+    the dashboard makes at once on this frame) opens on the next ChatGPT account, or on the next path (Live with an API
+    key, then Basic, which answers with the main model) when every account is out. Returns the frame for the page."""
+    lim = getattr(prov, "quota", None)
+    reset = float(getattr(lim, "reset_epoch", 0) or 0)
+    try:
+        _note_pin_limit("codex", reset, account=getattr(prov, "account", None) or plan_accounts.MAIN)
+    except Exception as e:  # noqa: BLE001 - resting an account must never break the call
+        print(f"[chatgpt live] rest: {type(e).__name__}: {e}", file=sys.stderr)
+    when = ""
+    if reset > time.time():
+        when = time.strftime("%H:%M", time.localtime(reset))
+    vi = "ChatGPT Live đã hết lượt của gói ChatGPT" + (f" (mở lại lúc {when})" if when else "") + \
+        ". Javis chuyển sang tài khoản hoặc đường gọi kế tiếp."
+    en = "ChatGPT Live is out of quota on the ChatGPT plan" + (f" (back at {when})" if when else "") + \
+        ". Javis moves to the next account or call path."
+    return {"type": "error", "code": "quota", "message": localefmt.chu(vi, en)}
 
 
 @app.websocket("/ws/voice-live")
@@ -15157,7 +17295,19 @@ async def voice_live_ws(ws: WebSocket, session_id: str = Query(""), brain: str =
 
     # Nhà cung cấp theo ĐƯỜNG GỌI đã chọn (voice_call), không theo khoá live_provider cũ: auto
     # với ChatGPT sẵn sàng là ChatGPT Live dù live_provider còn ghi gemini mặc định.
-    cfg = voice_call.live_settings(cfgmod.read_settings())
+    _raw_cfg = cfgmod.read_settings()
+    if voice_call.select_call_engine(_raw_cfg).get("engine") == "basic":
+        # No Live path can run now (e.g. every ChatGPT account is out of quota and no Live API key): a page drawn
+        # earlier still opened Live. Tell it to switch to the Basic path instead of failing on a stale provider.
+        await _j({"type": "error", "code": "use_basic", "message": localefmt.chu(
+            "Đường gọi Live chưa dùng được lúc này, cuộc gọi chuyển sang đường Cơ bản.",
+            "No Live path is available right now, the call switches to the Basic path.")})
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        return
+    cfg = voice_call.live_settings(_raw_cfg)
     memory_index = ""
     if str(((cfg.get("voice") or {}).get("live_provider")) or "") == "chatgpt":
         # ChatGPT Live chạy qua Codex app-server: bắc cầu token đã nối ở trang Models sang
@@ -15173,8 +17323,17 @@ async def voice_live_ws(ws: WebSocket, session_id: str = Query(""), brain: str =
                 memory_index = _fit_memory_index(idx.read_text(encoding="utf-8"), cap=voice_live.MEMORY_CHARS)
         except Exception:
             memory_index = ""
+    # A call from a partner's chat speaks as that partner (name, role, file, memory), not as plain Javis.
+    # `_voice_persona` logs its own failures; anything else still starts the call, as Javis.
+    _persona_kw = {}
     try:
-        prov = voice_live.make_provider(cfg, recognition_lang=lang, memory_index=memory_index)
+        _p = _voice_persona(session_id, brain)
+        if _p:
+            _persona_kw["persona"] = _p
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        prov = voice_live.make_provider(cfg, recognition_lang=lang, memory_index=memory_index, **_persona_kw)
         await prov.connect()
     except Exception as e:
         await _j({"type": "error", "message": f"{type(e).__name__}: {e}" if not isinstance(e, RuntimeError) else str(e)})
@@ -15284,6 +17443,9 @@ async def voice_live_ws(ws: WebSocket, session_id: str = Query(""), brain: str =
         try:
             answer = await prov.start_webrtc(sdp)
         except Exception as e:
+            if getattr(prov, "quota", None) is not None:
+                await _j(_voice_quota_frame(prov))
+                return
             await _j({"type": "error", "message": str(e) if isinstance(e, RuntimeError) else f"{type(e).__name__}: {e}"})
             return
         await _j({"type": "webrtc_answer", "sdp": answer})
@@ -15571,6 +17733,8 @@ async def voice_live_ws(ws: WebSocket, session_id: str = Query(""), brain: str =
                         pass
                 asst_buf["text"] = ""
                 await _j(ev)
+            elif t == "error" and ev.get("code") == "quota":
+                await _j(_voice_quota_frame(prov))
             elif t in ("error", "ready"):
                 await _j(ev)
             return True
@@ -15696,7 +17860,7 @@ async def _luot_quy_trinh(store, conv_sid, user_message, brain, slug, emit, resu
         loi = kq["loi"] or {}
         text = workflow_chat.tin_loi(loi.get("i"), loi.get("agent", ""), loi.get("content", ""))
     await emit({"type": "stream", "content": text})
-    await _persist_turn(store, conv_sid, brain, user_message, text)
+    await _persist_turn(store, conv_sid, brain, user_message, text, turn_started=t0)
     return text
 
 
@@ -15745,6 +17909,21 @@ async def _persist_turn(store, conv_sid, brain, user_message, final_text, turn_s
         await learn_feature.enqueue(brain, conv_sid, user_message, clean)
     except Exception as _e:
         print(f"[learn enqueue hook] {_e}", file=__import__('sys').stderr)
+    # GitHub inside chat (0.363.0 gate, 0.364.0 push/PR/CI): a turn that changed an attached repo runs github_work in
+    # the background, so the reply is never held up by a test suite or a push.
+    try:
+        import github_work
+        _gt = asyncio.create_task(github_work.after_turn(str(conv_sid), brain, user_message))
+        _PUSH_TASKS.add(_gt)
+        _gt.add_done_callback(_PUSH_TASKS.discard)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[github after turn] {type(_e).__name__}: {_e}", file=sys.stderr)
+    try:  # 0.341.0: automatic learning records the turn; judging happens later, off the reply path
+        _row = store.get_session(conv_sid) or {}
+        await asyncio.to_thread(_auto_learner().observe_turn, _brain_key(brain), conv_sid, _row.get("channel") or "",
+                                user_message, clean, _answer_mid, turn_started)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[auto-learning observe] {type(_e).__name__}: {_e}", file=sys.stderr)
     return _answer_mid
 
 
@@ -15800,6 +17979,15 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=1008)
         return
     await ws.accept()
+    await _chat_socket(ws)
+
+
+async def _chat_socket(ws):
+    """Vòng nhận tin của khung chat, tách khỏi `websocket_endpoint` (0.440.0) chỉ để server
+    tự gọi được nó: Javis Gate (`chat_bridge`) đưa tin của ChatGPT/Claude vào hội thoại bằng
+    một kết nối ẢO đi đúng con đường này, nên lượt đó chạy y hệt khi chủ gõ tay (chữ chạy trên
+    mọi tab, nút Dừng, lưu kho, ghi nhật ký tự học). Cổng đăng nhập vẫn nằm ở endpoint: chỉ mã
+    trong tiến trình mới gọi thẳng được hàm này."""
     # WebSocket chỉ là subscriber. Job chat sống trong _CHAT_RUNTIME nên đóng/F5 tab
     # không huỷ job; kết nối mới nhận snapshot để xem hoặc Stop tiếp.
     conn_tag = f"chat:{uuid.uuid4().hex[:8]}"
@@ -15843,6 +18031,24 @@ async def websocket_endpoint(ws: WebSocket):
         def __init__(self, sid, runtime_trace=None):
             self._sid = sid
             self._runtime_trace = runtime_trace
+            # 0.354.0: what the turn has put out so far, to know whether it can run again on the next route.
+            self.acted = False      # the model called a tool (Javis's own housekeeping lines aside)
+            self.said = ""          # streamed text, first 2000 characters
+            self.can_hold = False   # armed by _do_turn when another route may take over
+            self._held = None       # frames held back after an error while nothing was put out yet
+
+        def untouched(self) -> bool:
+            """Nothing the owner could lose: no tool ran and no word was written (a streamed out-of-quota sentence
+            is not a word of the answer)."""
+            return not self.acted and (not self.said.strip() or _het_luot_ap_dao(self.said))
+
+        async def flush(self):
+            held, self._held = self._held, None
+            for o in held or ():
+                await _CHAT_RUNTIME.publish(voice_turn_protocol.frame(o))
+
+        def drop(self):
+            self._held = None
 
         async def send_text(self, txt):
             try:
@@ -15853,12 +18059,50 @@ async def websocket_endpoint(ws: WebSocket):
                     _CONTEXT_RUNTIME.note_error(self._runtime_trace, "engine_error_event")
             except Exception:
                 return
+            t = o.get("type")
+            real = ((t == "tool_call" and o.get("tool") not in _REROUTE_QUIET_TOOLS)
+                    or (t == "stream" and str(o.get("content") or "").strip()))
+            if t == "tool_call" and real:
+                self.acted = True
+            elif t == "stream":
+                self.said = (self.said + str(o.get("content") or ""))[:2000]
+            if self._held is not None:
+                if not real and t in ("error", "response", "status", "system"):
+                    self._held.append(o)
+                    return
+                await self.flush()      # the engine went on after all: show everything, in order
+            elif self.can_hold and t == "error" and self.untouched():
+                self._held = [o]
+                return
             await _CHAT_RUNTIME.publish(voice_turn_protocol.frame(o))
 
     try:
         async def _do_turn(conv_sid, user_message, brain, turn_tag, runtime_trace=None,
-                           has_attachments=False, resume_attempt=0, user_mid=0, user_text=None):
+                           has_attachments=False, resume_attempt=0, user_mid=0, user_text=None,
+                           _task_skills=None, _turn_token=None, _route=None, _tried=(), _hops_left=0):
+            # `_route`, `_tried`, `_hops_left` (0.354.0): run_turn reruns the turn on the next route after a quota error
+            # that came before any output (_chat_next_route); `_hops_left` 0 means this run may not hand over.
             ws = _SendProxy(conv_sid, runtime_trace)  # các nhánh engine bên dưới dùng ws proxy này
+            _t_turn0 = time.monotonic()
+            _first_out = {}
+
+            def _note_first_output(engine_name, warm=None):
+                """0.382.0: how long the owner waited for the engine's first sign of life (text, tool or error), and
+                whether a warm process served it. Once per turn; the numbers behind the speed work."""
+                if "ms" in _first_out:
+                    if warm is not None:
+                        _first_out["warm"] = warm
+                    return
+                _first_out["ms"] = int((time.monotonic() - _t_turn0) * 1000)
+                _first_out.setdefault("warm", bool(warm))
+                try:
+                    _CONTEXT_RUNTIME.record_runtime_event(
+                        runtime_trace, "engine.first_output",
+                        {"engine": engine_name, "ms": _first_out["ms"], "warm": _first_out["warm"]})
+                except Exception:  # noqa: BLE001 - a timing note must never break a turn
+                    pass
+                print(f"[turn timing] {conv_sid[:12]} engine={engine_name} first_output_ms={_first_out['ms']} "
+                      f"warm={_first_out['warm']}", file=sys.stderr)
             # 0.190.0: what the brain's memory looks like before the turn, for the "Đã nhớ · Hoàn tác" line and the
             # empty-claim check after it (memory_receipt).
             try:
@@ -15875,6 +18119,7 @@ async def websocket_endpoint(ws: WebSocket):
             # Lượt này vấp "hết lượt gói thuê bao"? Bốn nhánh engine thuê bao ghi vào đây qua
             # `_limit_frame`; cuối lượt đọc ra để lưu câu báo và hẹn tự chạy lại.
             _limit_state = {}
+            _turn_acc = {}     # 0.355.0: provider -> plan account THIS turn runs on (the one that rests on a quota error)
 
             def _limit_frame(raw, engine_hint, model=""):
                 """Khung `error` (đã json) cho một lỗi engine. Là lỗi hết lượt gói thuê bao thì
@@ -15885,9 +18130,25 @@ async def websocket_endpoint(ws: WebSocket):
                     _CONTEXT_RUNTIME.record_runtime_event(
                         runtime_trace, "subscription.limit_reached",
                         {"engine": engine_hint, "model": model or ""})
-                    _limit_state.update(notice=noi, limit=lim)
+                    _limit_state.update(notice=noi, limit=lim, quota=True)
+                    # A chat pinned to this plan runs on the main model until it resets (0.285.0).
+                    _note_pin_limit(lim.engine or engine_hint, float(lim.reset_epoch or 0),
+                                    account=_turn_acc.get(_LIMIT_ENGINE_PROVIDER.get(lim.engine or engine_hint, "")))
                     frame["limit"] = {"engine": lim.engine, "scope": lim.scope,
                                       "reset_epoch": float(lim.reset_epoch or 0)}
+                # 0.329.0: the plan usage ring turns red. Grok and Antigravity print no fixed sentence for
+                # it, so plain quota words in their error count too (only for those two engines).
+                try:
+                    import plan_limits
+                    if noi:
+                        plan_limits.ghi_het(engine_hint, float(lim.reset_epoch or 0))
+                    elif engine_hint in ("grok-cli", "antigravity-cli") and plan_limits.la_het_han_muc(raw):
+                        plan_limits.ghi_het(engine_hint)
+                        _limit_state["quota"] = True   # 0.354.0: the next route may take over
+                        if engine_hint == "grok-cli":
+                            _note_pin_limit("grok-cli", account=_turn_acc.get("grok-cli"))   # 0.353.0: that account rests
+                except Exception:  # noqa: BLE001 - a meter must never break a turn
+                    pass
                 return json.dumps(frame)
             # NGÔN NGỮ chốt MỘT LẦN cho cả lượt, ngay đây. Chốt sớm và chốt một chỗ là để câu
             # trả lời, giọng đọc và các cổng chặn không bao giờ hiểu khác nhau trong cùng một
@@ -15915,14 +18176,23 @@ async def websocket_endpoint(ws: WebSocket):
                         f"Trợ lý '{_persona[1]}' không còn trong brain này. Mở trang Cộng sự để chọn trợ lý khác.",
                         f"Assistant '{_persona[1]}' is no longer in this brain. Open the Partners page to pick another one.")}))
                 return ""
-            prov, kind, api_key, api_model = _chat_provider_for_session(mcfg, _row0)
-            reasoning = _reasoning_level(mcfg)
+            prov, kind, api_key, api_model = _route or _chat_provider_for_session(mcfg, _row0)
+            # Owner, 05/11/2026: tell the composer which model really answers, so its chip stops showing the chosen
+            # model with a green dot while a fallback card does the work. `rerouted`: run_turn already wrote the line.
+            try:
+                await ws.send_text(json.dumps({"type": "route", "rerouted": bool(_route),
+                                               **_route_view(mcfg, _row0, (prov, kind, api_key, api_model))}))
+            except Exception as _e:  # noqa: BLE001 - a missing chip update never stops a turn
+                print(f"[route frame] {type(_e).__name__}: {_e}", file=sys.stderr)
+            reasoning = _chat_reasoning(mcfg, prov)   # 0.350.0: effort of the card this turn runs on
             if _persona and _persona[0] == "agent":
                 # 0.193.0: an assistant's chat thinks at the assistant's own level (default medium).
                 try:
                     reasoning = _agent_reasoning(_read_md(_agents_dir(brain) / f"{_persona[1]}.md")[0])
                 except Exception:  # noqa: BLE001 - an unreadable file keeps the main level
                     pass
+            elif javis_core.is_core_channel((_row0 or {}).get("channel")):
+                reasoning = _core_reasoning(mcfg)       # 0.283.0: Javis Core's own level, not the main chat's
             fast_mode.use(mcfg.get("fast") is True)
             _CONTEXT_RUNTIME.set_route(
                 runtime_trace,
@@ -15936,6 +18206,7 @@ async def websocket_endpoint(ws: WebSocket):
                     api_model or mcfg.get("claude_model") or "mặc định", kind,
                 )
             _ctx_in = 0        # token VÀO của lượt này, để khung chat nói được nó tốn bao nhiêu
+            _ctx_cache = 0     # phần của _ctx_in chỉ đọc lại từ cache (0.345.0, Claude Code + Codex)
             # cwd = THƯ MỤC BRAIN, không phải gốc project (0.55.58). Trước đó nhánh này là chỗ
             # DUY NHẤT trong bốn engine chat còn chạy cwd=CLAUDE_CWD (/app trong Docker) - Codex,
             # Antigravity, Grok và mọi workflow/loop/lint đều đã cwd=brain. Hậu quả chủ repo báo
@@ -15954,6 +18225,7 @@ async def websocket_endpoint(ws: WebSocket):
             cli = claude_engine(system_prompt=SYSTEM_PROMPT, cwd=_cwd_luot_chat(_row0, brain), tag=turn_tag)
             cli.session_id = _row0.get("cli_session_id") or None    # --resume đúng mạch phiên này
             final_text = ""
+            ws.can_hold = _hops_left > 0      # 0.354.0: hold a quota error back while another route may take over
             used_fast_path = False
 
             await ws.send_text(json.dumps({
@@ -15966,27 +18238,32 @@ async def websocket_endpoint(ws: WebSocket):
                 _judge_dm_owner_message(brain, _persona[1], conv_sid)
             # Dựng prompt cũ theo nhu cầu. Fast Path không đọc/nạp memory hoặc lịch sử cũ.
             sysprompt = None
+            _legacy_prompts = {}
 
-            def _legacy_system_prompt():
-                nonlocal sysprompt
-                if sysprompt is None:
+            def _legacy_system_prompt(skill_served=False, stable=False):
+                # `skill_served`: the in-process API branch passes True; subscription engines read native skills.
+                # `stable` (0.445.0, #975): Claude Code lane only; per-turn facts go in _turn_facts_header.
+                _key = (skill_served, stable)
+                if _key not in _legacy_prompts:
                     if _persona and _persona[0] == "agent":
                         # T2/T3: cùng cách ghép với _agent_turn_system_prompt (prompt trợ lý, khối phiên, khối phản
                         # hồi, bài học phạm vi chat riêng + chung).
-                        sysprompt = (_agent_chat_prompt(brain, _persona[1]) + _session_block(conv_sid)
-                                     + _dm_feedback_prompt(brain, _persona[1], conv_sid)
-                                     + _dm_lessons_prompt(brain, _persona[1], conv_sid))
+                        _legacy_prompts[_key] = (
+                            _agent_chat_prompt(brain, _persona[1], conv_sid=conv_sid, skill_served=skill_served)
+                            + _session_block(conv_sid)
+                            + _dm_feedback_prompt(brain, _persona[1], conv_sid)
+                            + _dm_lessons_prompt(brain, _persona[1], conv_sid))
                     else:
-                        sysprompt = build_system_prompt(
+                        _legacy_prompts[_key] = build_system_prompt(
                             brain, lang=_lang_qd, project_id=_row0.get("project_id") or "",
-                            session_id=conv_sid or ""
+                            session_id=conv_sid or "", stable=stable,
                         ) + channel_context.build_channel_block(
                             "dashboard", {"session_id": conv_sid}, telegram_running=bool(_TG_BOT),
-                            port=_javis_port(), brain_root=_brain_root(brain),
+                            port=_javis_port(), brain_root=_brain_root(brain), session_in_turn=stable,
                         ) + _khoi_coding(_row0, brain)
-                return sysprompt
+                return _legacy_prompts[_key]
 
-            async def _subscription_system_prompt(route_provider, route_model, route_kind):
+            async def _subscription_system_prompt(route_provider, route_model, route_kind, stable=False):
                 """System prompt cho engine chạy bằng GÓI THUÊ BAO (Claude Code, Codex).
 
                 Cùng bộ máy Phase 8 với engine API, nhưng khác một điểm CỐ Ý: nền vẫn là
@@ -16008,10 +18285,10 @@ async def websocket_endpoint(ws: WebSocket):
                     return build_system_prompt(
                         brain, include_memory=include_memory, include_skills=include_skills,
                         lang=_lang_qd, project_id=_row0.get("project_id") or "",
-                        session_id=conv_sid or "",
+                        session_id=conv_sid or "", stable=stable,
                     ) + channel_context.build_channel_block(
                         "dashboard", {"session_id": conv_sid}, telegram_running=bool(_TG_BOT),
-                        port=_javis_port(), brain_root=_brain_root(brain),
+                        port=_javis_port(), brain_root=_brain_root(brain), session_in_turn=stable,
                     ) + _khoi_coding(_row0, brain)
 
                 try:
@@ -16025,13 +18302,13 @@ async def websocket_endpoint(ws: WebSocket):
                     _CONTEXT_RUNTIME.record_runtime_event(
                         runtime_trace, "context_sources.subscription_error",
                         {"error_type": type(_exc).__name__, "provider_kind": route_kind})
-                    return _legacy_system_prompt(), None
+                    return _legacy_system_prompt(stable=stable), None
                 # "reject" không tới được đây: với engine thuê bao, prepare() đã đổi nhánh
                 # vượt ngân sách thành legacy (subscription_soft_over_budget) vì con số đó là
                 # trần ta tự khai, không phải hạn mức nhà cung cấp nói ra.
                 if plan.action == "use" and plan.system_prompt:
                     return plan.system_prompt, plan
-                return _legacy_system_prompt(), plan
+                return _legacy_system_prompt(stable=stable), plan
 
             final_text = ""
             _schedule_action = await _schedule_cancel_action(user_message, brain)
@@ -16041,7 +18318,9 @@ async def websocket_endpoint(ws: WebSocket):
             _codex_fast_plan = None
             # Phiên cộng sự: Fast Path bỏ memory và lịch sử, dùng prompt riêng - không hợp
             # với trợ lý (trợ lý cần ĐÚNG sysprompt của mình, không phải capsule rút gọn).
-            if kind in ("oauth", "cli") and not _schedule_action and not _persona:
+            # Neither for a conversation in a project with rules: the capsule has no project block.
+            if (kind in ("oauth", "cli") and not _schedule_action and not _persona
+                    and not _project_has_rules(_row0.get("project_id") or "")):
                 try:
                     _plan = await asyncio.to_thread(
                         _FAST_PATH.prepare, runtime_trace, user_message, _brain_root(brain),
@@ -16071,7 +18350,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "type": "response", "content": final_text,
                     "engine": "javis_schedule", "model": "gateway",
                     "session_id": conv_sid,
-                    **_ctx_frame(runtime_trace, _ctx_in),
+                    **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                 }))
             elif _codex_fast_plan is not None and kind in ("oauth", "cli"):
                 steer_inbox.INBOX.set_live(conv_sid, False)   # 0.206.0: one model call, no step to read at
@@ -16138,6 +18417,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # Hub trỏ BRAIN kể cả khi cwd là repo: MCP, cron và nhắc hẹn thuộc bộ não của
                 # người dùng, không thuộc cây mã nguồn đang mở.
                 _apply_grok_hub(kcli, _brain_root(brain))
+                _turn_acc["grok-cli"] = _plan_account_apply(kcli, "grok-cli", mcfg)   # 0.353.0: the Grok account to run
                 if not kcli.is_available():
                     final_text = ("⚠ Chưa cài Grok Build CLI trên máy này. Cài một lần:\n\n"
                                   f"`{grok_cli.lenh_cai()}`\n\n"
@@ -16146,7 +18426,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "engine": "grok-cli",
                         "model": actual_model or "", "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in)}))
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
                 else:
                     _k_mach = (_row0.get("grok_session_id") or "").strip()
                     if _k_mach and compaction.nen_mach_thue_bao(
@@ -16187,6 +18467,11 @@ async def websocket_endpoint(ws: WebSocket):
                                 "detail": tool_label.chi_tiet(ev),
                                 "content": localefmt.chu(f"⚙ Đang gọi: {ev.get('name', '')}",
                                                          f"⚙ Calling: {ev.get('name', '')}")}))
+                        elif et == "delta":
+                            # 0.438.6: chữ xem trước, hiện ngay từng mẩu; `final` mới là câu trả lời.
+                            if ev.get("content"):
+                                await ws.send_text(json.dumps({
+                                    "type": "stream", "content": ev["content"], "tts": False}))
                         elif et == "final":
                             final_text = ev.get("content") or ""
                         elif et == "usage":
@@ -16212,7 +18497,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "engine": "grok-cli",
                         "model": actual_model or "", "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in)}))
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
             elif prov == "antigravity-cli":
                 steer_inbox.INBOX.set_live(conv_sid, False)   # 0.206.0: one-shot CLI, messages wait for the end
                 # ===== Gói Google qua ANTIGRAVITY CLI (`agy`) - tool native + MCP hub =====
@@ -16230,6 +18515,9 @@ async def websocket_endpoint(ws: WebSocket):
                 acli.mode = _muc_quyen_luot_chat(_row0, user_message)
                 # Hub trỏ BRAIN kể cả khi cwd là repo - xem chú thích ở nhánh Grok.
                 _apply_antigravity_hub(acli, _brain_root(brain))
+                # The Google account to run (extra accounts: Linux only, plan_accounts). After the hub, so an extra
+                # account's HOME gets the hub config just written.
+                _turn_acc["antigravity-cli"] = _plan_account_apply(acli, "antigravity-cli", mcfg)
                 if not acli.is_available():
                     final_text = ("⚠ Chưa cài Antigravity CLI trên máy này. Cài một lần:\n\n"
                                   f"`{antigravity_cli.lenh_cai()}`\n\n"
@@ -16238,7 +18526,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "engine": "antigravity-cli",
                         "model": actual_model or "", "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in)}))
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
                 else:
                     _a_cur = _cli_do_sau_khac(acli, antigravity_cli, reasoning, user_message)
                     _a_raw = [{"role": _m["role"], "content": _m["content"]}
@@ -16263,6 +18551,11 @@ async def websocket_endpoint(ws: WebSocket):
                                 "detail": tool_label.chi_tiet(ev),
                                 "content": localefmt.chu(f"⚙ Đang gọi: {ev.get('name', '')}",
                                                          f"⚙ Calling: {ev.get('name', '')}")}))
+                        elif et == "delta":
+                            # 0.438.6: chữ xem trước, hiện ngay từng mẩu; `final` mới là câu trả lời.
+                            if ev.get("content"):
+                                await ws.send_text(json.dumps({
+                                    "type": "stream", "content": ev["content"], "tts": False}))
                         elif et == "final":
                             final_text = ev.get("content") or ""
                         elif et == "usage":
@@ -16275,7 +18568,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "engine": "antigravity-cli",
                         "model": actual_model or "", "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in)}))
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
             elif prov == "openai-oauth":
                 if not codex_steer.enabled():
                     # 0.206.0: `codex exec` is one-shot, messages wait for the end. Since 0.213.0 the chat engine runs
@@ -16287,11 +18580,14 @@ async def websocket_endpoint(ws: WebSocket):
                 if api_model and actual_model != api_model:
                     # Tự chữa: model đã lưu không hợp lệ cho Codex → ghi lại model đúng (converge sau 1 lượt)
                     try:
-                        _fix = cfgmod.read_settings(); _set_main_model(_fix, "openai-oauth", actual_model); cfgmod.write_settings(_fix)
                         if (_row0.get("pinned_model") or "").strip():
                             # Phiên ghim một model đã bị gỡ khỏi catalog: sửa luôn cái ghim, nếu
                             # không lượt nào cũng đọc lại ghim cũ và nhắc câu này lần nữa.
+                            # The stale model came from this session's pin (an agent chat pins its agent's model),
+                            # so only the pin is fixed: rewriting the owner's main model here changed every other chat.
                             store.set_pinned_model(conv_sid, "openai-oauth", actual_model)
+                        else:
+                            _fix = cfgmod.read_settings(); _set_main_model(_fix, "openai-oauth", actual_model); cfgmod.write_settings(_fix)
                         await ws.send_text(json.dumps({"type": "system", "content": localefmt.chu(
                             f"⚠ Model '{api_model}' không chạy được qua Codex (tài khoản ChatGPT) - đã tự đổi sang '{actual_model}'. Đổi model khác ở trang Models nếu muốn.",
                             f"⚠ Model '{api_model}' does not run through Codex (ChatGPT account) - switched to "
@@ -16304,16 +18600,25 @@ async def websocket_endpoint(ws: WebSocket):
                 # dùng được skill. Mỗi hội thoại dashboard giữ riêng codex_thread_id để resume.
                 ccli = CodexCLI(cwd=_cwd_luot_chat(_row0, brain), model=actual_model, tag=turn_tag, instructions=sysprompt)
                 ccli.steer = True   # 0.213.0: the chat engine takes messages mid-way (codex_steer.py)
+                ccli.warm_key = conv_sid   # 0.382.0: keep app-server and the thread for the next turn (warm_pool)
                 # Hub vẫn trỏ BRAIN kể cả khi cwd là repo: MCP, cron và nhắc hẹn thuộc về bộ
                 # não của người dùng, không thuộc về cây mã nguồn đang mở.
                 _apply_codex_hub(ccli, _brain_root(brain))   # MCP + đúng brain cho cron/nhắc hẹn
+                _turn_acc["openai-oauth"] = _plan_account_apply(ccli, "openai-oauth", mcfg)   # after the hub profile
                 stored_codex_thread = (_row0.get("codex_thread_id") or "").strip()
                 # Mạch Codex đã phình quá ngưỡng thì THÔI resume: mở mạch mới rồi mồi lại
                 # bằng transcript trong SQLite. Không làm bước này thì mỗi lượt tiếp theo
                 # đều đắt hơn lượt trước mà không thêm giá trị gì, và đó là phần TO NHẤT của
                 # hoá đơn token - to hơn hẳn thứ Phase 8 gọt được. Xem compaction.
+                # Thread size = input of the LAST request of the previous turn, measured by the
+                # app-server (#999). A turn total sums every request of a tool loop, so a turn
+                # that searched the web for a while looked like a huge thread. Without a
+                # measurement (exec fallback, older data) the turn total is used, as before.
+                _codex_do = _row0.get("last_context_provider") == "codex"
+                _codex_ctx = int((_row0.get("last_context_input_tokens") if _codex_do
+                                  else _row0.get("last_input_tokens")) or 0)
                 if stored_codex_thread and compaction.nen_mach_thue_bao(
-                        _row0.get("last_input_tokens"), msg_count=_row0.get("msg_count"),
+                        _codex_ctx, msg_count=_row0.get("msg_count"),
                         rotated_at=_row0.get("thread_rotated_msg")):
                     stored_codex_thread = ""
                     store.clear_codex_thread_id(conv_sid)
@@ -16321,16 +18626,17 @@ async def websocket_endpoint(ws: WebSocket):
                     _CONTEXT_RUNTIME.record_runtime_event(
                         runtime_trace, "thread.rotated",
                         {"engine": "codex",
-                         "last_input_tokens": int(_row0.get("last_input_tokens") or 0),
+                         "last_input_tokens": _codex_ctx,
+                         "basis": "last_request" if _codex_do else "turn_total",
                          "threshold": compaction.SUBSCRIPTION_THREAD_MAX_TOKENS})
                     await ws.send_text(json.dumps({
                         "type": "tool_call", "tool": "javis_nen_mach",
                         "content": localefmt.chu(
                             "⚙ Mạch hội thoại đã dài "
-                            f"({int(_row0.get('last_input_tokens') or 0):,} token mỗi lượt), "
+                            f"({_codex_ctx:,} token mỗi lượt), "
                             "Javis mở mạch mới và mang theo tóm tắt.",
                             "⚙ The conversation thread got long "
-                            f"({int(_row0.get('last_input_tokens') or 0):,} tokens per turn), "
+                            f"({_codex_ctx:,} tokens per turn), "
                             "Javis started a new one and carried a summary over."),
                     }))
                 ccli.session_id = stored_codex_thread or None
@@ -16359,7 +18665,7 @@ async def websocket_endpoint(ws: WebSocket):
                         # được lưu, người dùng chỉ thấy "Lỗi xử lý". Đây là hàm con DUY NHẤT
                         # đụng vào _ctx_in; hai nhánh engine kia cộng thẳng trong _do_turn nên
                         # không dính.
-                        nonlocal final_text, _ctx_in
+                        nonlocal final_text, _ctx_in, _ctx_cache
                         resume_failed = False
                         # Đo theo từng invocation thật: nhánh khôi phục thread có thể gọi lần hai.
                         _CONTEXT_RUNTIME.observe_payload(
@@ -16371,6 +18677,10 @@ async def websocket_endpoint(ws: WebSocket):
                         dang_chay = set()   # id các bước Codex đã báo bắt đầu, chưa báo xong
                         async for ev in ccli.query(prompt):
                             et = ev["type"]
+                            if et == "session":
+                                _first_out["warm"] = bool(ev.get("warm"))
+                            else:
+                                _note_first_output("codex", _first_out.get("warm"))
                             if et == "session":
                                 if ev.get("session_id"):
                                     store.set_codex_thread_id(conv_sid, ev["session_id"])
@@ -16394,7 +18704,20 @@ async def websocket_endpoint(ws: WebSocket):
                                 final_text = ev.get("content") or final_text
                                 if ev.get("session_id"):
                                     store.set_codex_thread_id(conv_sid, ev["session_id"])
+                                _telemetry = ev.get("usage_telemetry") or {}
+                                if _telemetry:
+                                    _CONTEXT_RUNTIME.record_runtime_event(
+                                        runtime_trace, "subscription.usage",
+                                        {**_telemetry, "requests": ev.get("request_usage") or []})
+                                # Only a real per-request measurement is stored; without one the
+                                # old number is dropped so it cannot describe a different thread.
+                                if int(_telemetry.get("last_request_input") or 0) > 0:
+                                    store.set_last_context_input_tokens(
+                                        conv_sid, _telemetry["last_request_input"])
+                                else:
+                                    store.clear_last_context_input_tokens(conv_sid)
                                 _ctx_in += int(ev.get("tokens_in", 0) or 0)
+                                _ctx_cache += int(ev.get("tokens_cache_read", 0) or 0)
                                 usage_store.record("codex", actual_model, ev.get("tokens_in", 0), ev.get("tokens_out", 0))
                                 _CONTEXT_RUNTIME.record_usage(
                                     runtime_trace, ev.get("tokens_in", 0), ev.get("tokens_out", 0))
@@ -16439,7 +18762,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "engine": "codex",
                         "model": actual_model, "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in)}))
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
             elif (kind == "api" and api_key) or kind == "oauth":
                 orchestrator_plan = None
                 readonly_plan = None
@@ -16502,7 +18825,7 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "response", "content": final_text,
                         "engine": "javis-gateway", "model": api_model or "?",
                         "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in),
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                     }))
                 elif kind == "api" and api_key and not _persona:
                     # Mọi exception trong prepare của canary phải rơi tiếp xuống nhánh
@@ -16530,7 +18853,9 @@ async def websocket_endpoint(ws: WebSocket):
                             _CONTEXT_RUNTIME.record_runtime_event(
                                 runtime_trace, "readonly.prepare_error",
                                 {"error_type": type(_exc).__name__})
-                        if readonly_plan is None or readonly_plan.action == "not_applicable":
+                        # The fast path capsule has no project block: a project with rules skips it.
+                        if ((readonly_plan is None or readonly_plan.action == "not_applicable")
+                                and not _project_has_rules(_row0.get("project_id") or "")):
                             try:
                                 fast_plan = await asyncio.to_thread(
                                     _FAST_PATH.prepare, runtime_trace, user_message,
@@ -16566,7 +18891,7 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "response", "content": final_text,
                         "engine": "javis-gateway", "model": api_model or "?",
                         "session_id": conv_sid, "task_id": runtime_trace.task_id,
-                        **_ctx_frame(runtime_trace, _ctx_in),
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                     }))
                 elif readonly_plan and readonly_plan.action == "execute":
                     used_fast_path = True
@@ -16586,7 +18911,7 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "response", "content": final_text,
                         "engine": "javis-gateway", "model": api_model or "?",
                         "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in),
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                     }))
                 elif fast_plan and fast_plan.action == "execute":
                     used_fast_path = True
@@ -16606,18 +18931,30 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "response", "content": final_text,
                         "engine": "javis-gateway", "model": api_model or "?",
                         "session_id": conv_sid,
-                        **_ctx_frame(runtime_trace, _ctx_in),
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                     }))
                 else:
                     # ===== API/OAuth: Phase 8 sources canary, fallback độc lập về legacy =====
+                    if _task_skills is not None:
+                        await _task_skills.start(
+                            _cfg_all, provider_kind=kind, tool_provider=prov in _API_TOOL_PROVIDERS,
+                            hub_enabled=_hub_enabled(), api_key=api_key, root=_brain_root(brain),
+                            turn_token=_turn_token, runtime=_CONTEXT_RUNTIME, trace=runtime_trace,
+                            assets_factory=_improvement_write_store,
+                        )
                     def _phase8_base(include_memory: bool, include_skills: bool) -> str:
+                        # The project's INSTRUCTIONS ride along, as on Telegram and the CLI
+                        # (`_nen_goc`): they are a behaviour contract, its file list is not.
                         return build_adaptive_source_prompt(
-                            brain, include_memory=include_memory, include_skills=include_skills
+                            brain, include_memory=include_memory, include_skills=include_skills,
+                            routing_overlays=kind == "api",
+                        ) + (_project_block(_row0.get("project_id") or "", chi_huong_dan=True)
+                             if _row0.get("project_id") else ""
                         ) + _javis_core_block(conv_sid or "") + channel_context.build_channel_block(
                             "dashboard", {"session_id": conv_sid},
                             telegram_running=bool(_TG_BOT), port=_javis_port(),
                             brain_root=_brain_root(brain),
-                        )
+                        ) + _khoi_coding(_row0, brain)   # 0.362.0: pinned folder and GitHub repos reach API brains too
 
                     if _persona:
                         # Phiên cộng sự: prompt luôn là _agent_chat_prompt, không cần tốn công
@@ -16649,12 +18986,12 @@ async def websocket_endpoint(ws: WebSocket):
                             "type": "response", "content": final_text,
                             "engine": "javis-gateway", "model": api_model or "?",
                             "session_id": conv_sid,
-                            **_ctx_frame(runtime_trace, _ctx_in),
+                            **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                         }))
                     else:
                         sysprompt = (_phase8_plan.system_prompt
                                      if _phase8_plan.action == "use" and not _persona
-                                     else _legacy_system_prompt())
+                                     else _legacy_system_prompt(skill_served=True))
                         label = _api_label(prov)
                         actual_model = api_model or "?"
                         _ident = (
@@ -16711,16 +19048,29 @@ async def websocket_endpoint(ws: WebSocket):
                                         "detail": tool_label.chi_tiet(ev),
                                         "content": f"⚙ MCP: {ev.get('name', '')}",
                                     }))
+                                elif ev["type"] == "delta":
+                                    # 0.438.5: chữ xem trước của vòng tool, hiện ngay từng mẩu. Không cộng
+                                    # vào final_text: câu trả lời thật đến ở sự kiện `text` cuối vòng.
+                                    if ev.get("content"):
+                                        await ws.send_text(json.dumps({
+                                            "type": "stream", "content": ev["content"], "tts": False,
+                                        }))
                                 elif ev["type"] == "text":
                                     final_text += ev["content"]
-                                    await ws.send_text(json.dumps({
-                                        "type": "stream", "content": ev["content"], "tts": False,
-                                    }))
+                                    if not ev.get("streamed"):   # đã hiện qua `delta` thì đừng in lại
+                                        await ws.send_text(json.dumps({
+                                            "type": "stream", "content": ev["content"], "tts": False,
+                                        }))
                                 elif ev["type"] == "error":
                                     if not _limit_hit:
                                         await ws.send_text(json.dumps({
                                             "type": "error", "content": ev["content"],
                                         }))
+                                        # 0.354.0: a key out of quota rests; the turn may run on the next one.
+                                        if (not final_text and aux_engine.cooldown_for(ev["content"])
+                                                == aux_engine.COOLDOWN_QUOTA_S):
+                                            _limit_state["quota"] = True
+                                            _note_api_limit(mcfg, prov, api_key, ev["content"])
                             if not _limit_hit or _attempt == 2:
                                 break
                             # Thử lại chỉ có nghĩa khi việc cần làm là CO NHỎ. Hết hạn mức
@@ -16758,6 +19108,11 @@ async def websocket_endpoint(ws: WebSocket):
                                     f"shrinking the context to {_target:,} tokens and retrying..."),
                             }))
                             or_messages = _shrink_messages(or_messages, _target)
+                        if _limit_hit and not final_text and str(_limit_hit.get("remedy") or "") != "shrink":
+                            # 0.354.0: out of quota (not a request too big): that key rests, the next route may take over.
+                            _limit_state["quota"] = True
+                            _note_api_limit(mcfg, prov, api_key, str(_limit_hit.get("raw") or ""),
+                                            3600 if _limit_hit.get("remedy") == "wait_long" else 0)
                         if _limit_hit:
                             final_text = final_text or _limit_autoshrink_message(
                                 prov, actual_model, _limit_hit)
@@ -16768,7 +19123,7 @@ async def websocket_endpoint(ws: WebSocket):
                         await ws.send_text(json.dumps({
                             "type": "response", "content": final_text, "engine": prov,
                             "model": actual_model, "session_id": conv_sid,
-                            **_ctx_frame(runtime_trace, _ctx_in),
+                            **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                         }))
             else:
                 # ===== PROVIDER anthropic-cli - qua Claude Code, đầy đủ MCP / skill / session =====
@@ -16779,6 +19134,8 @@ async def websocket_endpoint(ws: WebSocket):
                 # model". Rơi về bộ não mặc định là có chủ ý, nhưng phải rơi cả MODEL theo nó.
                 cli.model = ((api_model if prov == "anthropic-cli" else "")
                              or mcfg.get("claude_model") or None)   # alias opus/sonnet/haiku/fable
+                # 0.353.0: the Claude account that should run now (only here: other engines never touch it).
+                _turn_acc["anthropic-cli"] = _plan_account_apply(cli, "anthropic-cli", mcfg)
                 # Cùng luật với Codex: mạch phình quá ngưỡng thì thôi --resume, mở mạch mới.
                 # Claude Code cũng tự quản transcript nên Javis chỉ có đúng con số token vào
                 # của lượt trước làm dấu hiệu.
@@ -16803,8 +19160,11 @@ async def websocket_endpoint(ws: WebSocket):
                             f"({int(_row0.get('last_input_tokens') or 0):,} tokens per turn), "
                             "Javis started a new one."),
                     }))
+                # Stable prompt (0.445.0, #975): plain chats only. An agent DM keeps its own prompt, which has
+                # its own clock and session lines.
+                _stable_sp = not _persona
                 sysprompt, _sub_plan = await _subscription_system_prompt(
-                    "cli", cli.model or mcfg.get("claude_model") or "mặc định", kind)
+                    "cli", cli.model or mcfg.get("claude_model") or "mặc định", kind, stable=_stable_sp)
                 cli.system_prompt = sysprompt
                 # mode: `full` cho mọi phiên như xưa nay; riêng phiên coding lấy theo chip Mức
                 # quyền của trang đó, vì ở trang ấy người dùng CHỌN mức chứ không thừa kế.
@@ -16812,7 +19172,13 @@ async def websocket_endpoint(ws: WebSocket):
                 _streamed = ""      # phần đã stream - phương án dự phòng khi luồng đứt trước 'final'
                 _cli_sid = None
                 _cost = None
-                _cli_prompt = _cli_do_sau(cli, reasoning, user_message)
+                if _stable_sp:
+                    _cli_prompt = _cli_do_sau(cli, reasoning, user_message)
+                    _hdr = _turn_facts_header(brain, conv_sid or "", _lang_qd.lang, first=not cli.session_id)
+                    if _hdr and isinstance(_cli_prompt, str):
+                        _cli_prompt = _hdr + "\n" + _cli_prompt
+                else:
+                    _cli_prompt = _gio_luot_noi_mach(cli, _cli_do_sau(cli, reasoning, user_message), _lang_qd.lang)
                 _cli_fast(cli)
                 if not cli.session_id:
                     # Bỏ --resume là Claude Code mất sạch mạch cũ. Mở mạch mới mà không mang
@@ -16844,15 +19210,22 @@ async def websocket_endpoint(ws: WebSocket):
                 )
                 _t0_cli = time.time()
                 _da_ghi: list = []      # đường dẫn moi từ tham số tool trong lượt (Write/Edit/Bash...)
+                _cli_err = False        # the engine reported an error this turn (already shown to the user)
 
                 async def _consume_claude(prompt, suppress_resume_error=False):
                     """Một lần gọi `claude`. Trả True nếu mạch cũ không còn (resume trượt)."""
-                    nonlocal final_text, _streamed, _cli_sid, _cost, _ctx_in
+                    nonlocal final_text, _streamed, _cli_sid, _cost, _ctx_in, _ctx_cache, _cli_err
                     resume_failed = False
-                    async for event in cli.query(prompt):
+                    async for event in claude_warm.query(cli, prompt, conv_sid):
                         etype = event["type"]
+                        if etype == "warm":
+                            _first_out["warm"] = bool(event.get("warm"))
+                            continue
+                        _note_first_output("claude-code", _first_out.get("warm"))
                         if etype in ("tool_call", "tool_result"):
                             _resonance_note_write(conv_sid, user_mid, brain, event)
+                            if etype == "tool_call":
+                                await asyncio.to_thread(_auto_learning_note_tool, brain, conv_sid, event)
                         elif etype in ("final", "error"):
                             _engine_outcome_note(conv_sid, event)
                         if etype == "tool_call":
@@ -16884,6 +19257,7 @@ async def websocket_endpoint(ws: WebSocket):
                                 except Exception:
                                     pass
                             _ctx_in += int(event.get("tokens_in", 0) or 0)
+                            _ctx_cache += int(event.get("tokens_cache_read", 0) or 0)
                             usage_store.record("cli", cli.model or mcfg.get("claude_model") or "mặc định",
                                                event.get("tokens_in", 0), event.get("tokens_out", 0), event.get("cost_usd") or 0)
                             _CONTEXT_RUNTIME.record_usage(
@@ -16893,6 +19267,7 @@ async def websocket_endpoint(ws: WebSocket):
                                 resume_failed = True
                                 if suppress_resume_error:
                                     continue      # sẽ mồi lại ngay dưới, không bắn câu lỗi ra
+                            _cli_err = True
                             # Hết lượt gói Claude thì Claude Code in nguyên văn câu tiếng Anh (có khi
                             # là dạng máy "…reached|<epoch>"). Dịch sang câu nói được TRƯỚC khi đẩy
                             # ra khung chat; cuối lượt lưu câu đó và hẹn tự chạy lại (xem _limit_state).
@@ -16920,6 +19295,14 @@ async def websocket_endpoint(ws: WebSocket):
                                  if _m["role"] in ("user", "assistant") and _m.get("content")]
                     await _consume_claude(compaction.bootstrap_prompt(
                         _cli_raw2, _cli_prompt, summary=_row0.get("compact_summary") or ""))
+                if not (final_text or _streamed) and _cli_sid and not _cli_err and not _limit_state.get("notice"):
+                    # Claude Code ended the turn cleanly without writing a single word (owner report 26/10/2026: a
+                    # plain question answered with "(không có nội dung trả về)"). The model sometimes stops after its
+                    # thinking alone. Ask once more in the same thread, which already holds the question and any
+                    # work this turn did, instead of leaving the owner an empty bubble to resend.
+                    print(f"[claude] {conv_sid}: turn ended with no text, asking once more", file=sys.stderr)
+                    cli.session_id = _cli_sid
+                    await _consume_claude(EMPTY_ANSWER_NUDGE)
                 # Khung `response` PHẢI nằm NGOÀI vòng lặp. Trước đây nó nằm trong nhánh
                 # `final`, nên luồng đứt trước khi có `final` (engine chết, mạng rớt) là client
                 # không nhận `response` nào cả và bong bóng chat treo mãi - trong khi phần chữ
@@ -16948,7 +19331,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "type": "response", "content": final_text, "session_id": conv_sid,
                     "cli_session_id": _cli_sid, "cost_usd": _cost, "engine": "cli",
                     "model": (cli.model or mcfg.get("claude_model") or "mặc định"),
-                    **_ctx_frame(runtime_trace, _ctx_in)}))
+                    **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache)}))
 
             # Token VÀO của lượt vừa xong. Với engine gói thuê bao đây là DẤU HIỆU DUY NHẤT
             # cho biết mạch hội thoại của chúng đã phình tới đâu: Claude Code và Codex tự quản
@@ -16961,6 +19344,20 @@ async def websocket_endpoint(ws: WebSocket):
                 except Exception as _e:
                     print(f"[last_input_tokens] {type(_e).__name__}: {_e}", file=sys.stderr)
 
+            # 0.354.0 (spec 6.4): out of quota before a single word or tool call -> run_turn reruns this turn at once on
+            # the next route (next account of the card, then the next card). Nothing of this run is kept or shown.
+            if (_limit_state.get("quota") and _hops_left > 0 and ws.untouched()
+                    and (not final_text or (kind == "api" and not ws.said.strip()))):
+                _nxt = _chat_next_route(mcfg, prov, api_key if kind == "api" else "", _tried,
+                                        failed_account=_turn_acc.get(prov))
+                if _nxt:
+                    ws.drop()
+                    _CONTEXT_RUNTIME.record_runtime_event(runtime_trace, "routing.reroute",
+                                                          {"from": prov, "to": _nxt["route"][0]})
+                    _out = _RerouteText("")
+                    _out.reroute = _nxt
+                    return _out
+            await ws.flush()
             # Vấp hạn mức gói thuê bao mà KHÔNG có câu trả lời nào: lưu câu báo vào kho phiên
             # (để F5 còn thấy, đi thẳng vào kho chứ không qua _persist_turn: một câu báo lỗi
             # không đáng vào nhật ký Memory hay hàng đợi tự học), rồi hẹn chạy lại đúng lượt
@@ -17000,7 +19397,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_text(json.dumps({
                         "type": "response", "content": final_text, "session_id": conv_sid,
                         "tts": False,
-                        **_ctx_frame(runtime_trace, _ctx_in),
+                        **_ctx_frame(runtime_trace, _ctx_in, _ctx_cache),
                     }))
 
             # Lưu lượt assistant: kho phiên + title + log Memory + hàng đợi tự học.
@@ -17008,6 +19405,22 @@ async def websocket_endpoint(ws: WebSocket):
             if final_text:
                 await _persist_turn(store, conv_sid, brain, user_message, final_text,
                                     turn_started=(_mem_snap or {}).get("t0") or 0)
+                if _limit_state.get("quota") and not ws.untouched():
+                    # 0.354.0: out of quota halfway (words written or tools run): the turn stops where it is, never
+                    # reruns by itself (a tool may have sent or posted something). A "Run again" card under the answer
+                    # reruns the question on the route that has quota now, replacing this half answer.
+                    try:
+                        _last = (store.get_messages(conv_sid) or [{}])[-1]
+                        _half = (_last.get("content") or "") if _last.get("role") == "assistant" else ""
+                        _item = limit_resume.REGISTRY.schedule(
+                            conv_sid, 0,
+                            lambda attempt, _n=_half: _start_resumed_turn(
+                                conv_sid, user_message, brain, attempt, _n, user_mid=user_mid, user_text=user_text),
+                            engine=_NHA_SANG_ENGINE.get(prov, prov),
+                            attempt=int(resume_attempt or 0), auto_default=False, partial=True)
+                        await ws.send_text(json.dumps({"type": "resume", "state": "off", **_item.payload()}))
+                    except Exception as _e:  # noqa: BLE001
+                        print(f"[limit resume] half answer: {type(_e).__name__}: {_e}", file=sys.stderr)
                 # 0.190.0: the turn saved, changed or forgot a memory -> one small line under the answer with Undo;
                 # it said so but nothing changed -> one line of fact. Stored like every pushed line, so F5 keeps it.
                 try:
@@ -17077,10 +19490,14 @@ async def websocket_endpoint(ws: WebSocket):
             # A4: lượt có trợ lý chụp thứ tự quyền của kho TRƯỚC khi engine chạy (gốc cấp lại sau ảnh chụp này
             # không vào được lượt này, kể cả lần đầu lượt chạm mục tiêu). Đọc lỗi thì -1: đóng khi lỗi.
             _ag_luot = _resonance_turn_agent(conv_sid, brain, store.get_session)
-            _luot_token = turn_context.bind(turn_context.make(
+            _luot_turn = turn_context.make(
                 "dashboard", chat_id=conv_sid, la_chu=True, session_id=conv_sid, message_id=user_mid,
                 agent=_ag_luot, authority_seq=(_ag_luot or {}).get("authority_seq"),
-                provider=(_ag_luot or {}).get("provider") or ""))
+                provider=(_ag_luot or {}).get("provider") or "")
+            # the Partners-page assistant of this chat ("" elsewhere), host-resolved, for javis_schedule. An
+            # extra key like the chatbot turn's `bot_id`: turn_context.py is pinned by the native profile evidence.
+            _luot_turn["assistant"] = _session_assistant(conv_sid, brain, store.get_session)
+            _luot_token = turn_context.bind(_luot_turn)
             # Ghi vào sổ lượt đang chạy để tool giao việc biết kết quả phải về khung chat này
             # khi model quên truyền chat_id (luot_dang_chay.py, 0.64.49). Kèm id tin và lời người
             # dùng để tool javis_goal (Resonance) biết đúng tin nhắn nào; 0 thì tool từ chối lập mục tiêu.
@@ -17105,12 +19522,40 @@ async def websocket_endpoint(ws: WebSocket):
             # 0.206.0: from here on, a message the owner sends goes to this turn (steer_inbox.py).
             _steer_tok = steer_inbox.INBOX.open(conv_sid, turn_tag)
             _engine_outcome_reset(conv_sid)
+            # Local import: tests exec run_turn from its source in a namespace without this module's globals.
+            from improvement_task_skill_turn import TaskSkillTurn as _TaskSkillTurn
+            _task_skills = _TaskSkillTurn()
             try:
                 final_text = await _do_turn(
                     conv_sid, user_message, brain, turn_tag, runtime_trace, has_attachments,
                     resume_attempt=resume_attempt, user_mid=user_mid, user_text=user_text,
+                    _task_skills=_task_skills, _turn_token=_luot_token, _hops_left=3,
                 )
+                # 0.354.0: the route ran out of quota before writing anything -> same turn again on the next route,
+                # with one line saying why (spec 6.4). _do_turn stops handing over after 3 hops.
+                _hop = 0
+                while getattr(final_text, "reroute", None):
+                    _hop += 1
+                    _nxt = final_text.reroute
+                    _engine_outcome_reset(conv_sid)
+                    _task_skills.close()                    # one task-skill scope per engine run
+                    _task_skills = _TaskSkillTurn()
+                    await send_raw({"type": "reroute", "content": _nxt["status"], "session_id": conv_sid,
+                                    **context_runtime.event_fields(runtime_trace)})
+                    final_text = await _do_turn(
+                        conv_sid, user_message, brain, turn_tag, runtime_trace, has_attachments,
+                        resume_attempt=resume_attempt, user_mid=user_mid, user_text=user_text,
+                        _task_skills=_task_skills, _turn_token=_luot_token,
+                        _route=_nxt["route"], _tried=_nxt["tried"], _hops_left=3 - _hop,
+                    )
                 _resonance_after_turn(conv_sid, brain, user_mid, _t0_luot, runtime_trace)
+                # A long turn (a render the engine waited for, a background job's follow-up) rings the bell when done.
+                try:
+                    await _bao_luot_dai_xong(conv_sid, brain, turn_tag, user_message,
+                                             final_text if isinstance(final_text, str) else "",
+                                             time.time() - _t0_luot)
+                except Exception as _e:  # noqa: BLE001 - a missed bell never fails the turn
+                    print(f"[long turn notice] {type(_e).__name__}: {_e}", file=sys.stderr)
                 # Phiên TRỢ LÝ mở từ một lệnh "/" gõ ở khung Trò chuyện: câu trả lời quay về
                 # đúng khung đó, kèm link mở lại cuộc hội thoại (cùng luật với quy trình).
                 if goc_chat:
@@ -17141,6 +19586,7 @@ async def websocket_endpoint(ws: WebSocket):
                                                                           f"Processing error: {type(e).__name__}: {e}"),
                                 "session_id": conv_sid, **context_runtime.event_fields(runtime_trace)})
             finally:
+                _task_skills.close()
                 luot_dang_chay.ket_thuc(_khoa_luot)
                 _steer_left = steer_inbox.INBOX.close(conv_sid, turn_tag, _steer_tok)
                 if _steer_left:
@@ -17317,6 +19763,12 @@ async def websocket_endpoint(ws: WebSocket):
                 for chunk in chunks:
                     await send_raw({"type": "stream", "content": chunk, "session_id": conv_sid, "lane": "voice"})
 
+            try:
+                # A call in a partner's chat speaks with that partner's prompt. The helper logs its own failures;
+                # anything else keeps the Javis voice rather than dropping the fast lane.
+                conf = _voice_brain_conf(conf, conv_sid, brain)
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 brain_obj = await voice_brain.get_brain(conv_sid, conf)
                 await send_raw({"type": "status", "content": localefmt.chu("Javis đang trả lời nhanh...",
@@ -17685,6 +20137,11 @@ async def websocket_endpoint(ws: WebSocket):
             action = payload.get("action")
             if action == "reset":
                 continue                        # client tự quản phiên; reset KHÔNG còn giết lượt nào
+            if action == "typing":
+                # 0.382.0: the owner started typing. Reopen this conversation's engine process if it was closed for
+                # being idle, so the message lands on a warm one (warm_pool.prewarm; bounded by the same budget).
+                warm_pool.POOL.prewarm(str(payload.get("session_id") or ""))
+                continue
             if action == "ping":
                 # Trang hỏi "còn sống không" sau một quãng im (0.85.11): socket chết mà không đóng thì
                 # không có pong, trang bỏ socket đó và nối lại. Xem _checkSocket trong app.js.
@@ -17794,6 +20251,16 @@ async def websocket_endpoint(ws: WebSocket):
             user_message = payload.get("message", "").strip()
             if not user_message:
                 continue
+            # Owner, 06/11/2026: a message typed on the phone, then the app swiped away, vanished from the chat and from
+            # History. It had gone into a socket the phone had already let die, so the server never got it. The page
+            # now keeps each typed message until `chat_ack` comes back and sends it again on the next socket; the id
+            # makes that resend land once (the turn is not run twice), here and after a server restart.
+            _cmid = str(payload.get("client_msg_id") or "").strip()[:64]
+            _cmid_sid = str(payload.get("session_id") or "")
+            if _cmid and _cmid_sid and store.message_by_client_id(_cmid_sid, _cmid):
+                await send_client({"type": "chat_ack", "session_id": _cmid_sid, "client_msg_id": _cmid,
+                                   "dup": True, "running": bool(_CHAT_RUNTIME.get_job(_cmid_sid))})
+                continue
             _voice_raw = str(payload.get("voice_text") or user_message).strip()
             brain = payload.get("brain", "brain")
             _cfg_luot = cfgmod.read_settings()
@@ -17807,7 +20274,7 @@ async def websocket_endpoint(ws: WebSocket):
             _nghe_tho = ""
             if payload.get("voice_input", payload.get("voice")):
                 try:
-                    _tv = nghe_sua.tu_vung(_cfg_luot)
+                    _tv = nghe_sua.fix_vocabulary(_cfg_luot)
                     _ctx, _speech = nghe_sua.split_ui_context(user_message)
                     _sua = nghe_sua.sua(_speech, _tv)
                     if _sua != _speech:
@@ -17878,6 +20345,10 @@ async def websocket_endpoint(ws: WebSocket):
                 if payload.get("voice") and payload.get("utterance_id"):
                     await send_client({"type":"voice_busy", "session_id":conv_sid, "utterance_id":str(payload["utterance_id"])})
                 else:
+                    if _cmid:
+                        # Answered with the error below: the page stops holding it for a resend.
+                        await send_client({"type": "chat_ack", "session_id": conv_sid, "client_msg_id": _cmid,
+                                           "dup": False, "rejected": True})
                     await send_raw({"type": "error", "content": localefmt.chu(
                         "Phiên này đang trả lời - đợi lượt hiện tại xong đã.",
                         "This session is still answering - wait for the current turn to finish."),
@@ -17908,7 +20379,16 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
                 _user_mid = int(_receipt.get("message_id") or 0)
             else:
-                _user_mid = store.append_message(conv_sid, "user", user_message)
+                if _cmid and store.message_by_client_id(conv_sid, _cmid):
+                    # The same message came in on another socket while this one was getting ready (no await between
+                    # this check and the insert below, so only one copy can pass).
+                    await send_client({"type": "chat_ack", "session_id": conv_sid, "client_msg_id": _cmid,
+                                       "dup": True, "running": bool(_CHAT_RUNTIME.get_job(conv_sid))})
+                    continue
+                _user_mid = store.append_message(conv_sid, "user", user_message, client_msg_id=_cmid or None)
+                if _cmid:
+                    await send_client({"type": "chat_ack", "session_id": conv_sid, "client_msg_id": _cmid,
+                                       "dup": False})
             # Bong bóng đang hiện chữ thô của máy nghe: báo câu đã sửa tên để người dùng thấy
             # Javis hiểu câu nào, chữ thô hiện nhỏ bên dưới.
             if _nghe_tho:
@@ -17998,6 +20478,21 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         # Chỉ bỏ subscriber; job server tiếp tục chạy và tự lưu kết quả.
         _CHAT_RUNTIME.remove_client(client_id)
+
+
+# Javis Gate (0.440.0): AI bên ngoài nhắn vào hội thoại qua đúng vòng chat ở trên. Lambda để test
+# thay `_CHAT_RUNTIME` sau khi nạp vẫn trúng.
+import chat_bridge  # noqa: E402
+
+async def _gate_luu_luot(sid, brain, tin, tra_loi):
+    """Ghi chép của Javis Gate (0.441.0): lưu tin của chủ rồi đi ĐÚNG đường lưu một lượt chat (`_persist_turn`:
+    Lịch sử, nhật ký hội thoại, vòng tự học), mà không chạy engine nào."""
+    st = get_store()
+    st.append_message(sid, "user", tin)
+    return await _persist_turn(st, sid, brain, tin, tra_loi)
+
+
+chat_bridge.gan(lambda ws: _chat_socket(ws), lambda: _CHAT_RUNTIME, _gate_luu_luot)
 
 
 # ============================================================
@@ -18242,9 +20737,12 @@ def sessions_new(brain: str = Form("brain"), channel: str = Form("web")):
 
 
 @app.get("/sessions/search")
-async def sessions_search(q: str = Query(...), brain: str = Query(None), limit: int = Query(30),
-                          channel: str = Query(""), bots: int = Query(0)):
-    """channel: bỏ trống = tìm mọi kênh (thanh tìm trang Trò chuyện); có giá trị = chỉ kênh đó
+def sessions_search(q: str = Query(...), brain: str = Query(None), limit: int = Query(30),
+                    channel: str = Query(""), bots: int = Query(0)):
+    """Performance (2026-11-05): a plain `def`, so FastAPI runs the full-text search in its thread pool; as `async def`
+    it ran on the event loop and every request waited for it.
+
+    channel: bỏ trống = tìm mọi kênh (thanh tìm trang Trò chuyện); có giá trị = chỉ kênh đó
     (ô tìm ở cột lịch sử của một trợ lý / quy trình trên trang Cộng sự)."""
     return {"results": get_store().search(q, limit=limit, brain=_brain_keys(brain),
                                           channel=channel or None,
@@ -18252,19 +20750,22 @@ async def sessions_search(q: str = Query(...), brain: str = Query(None), limit: 
 
 
 @app.get("/sessions/{session_id}")
-def sessions_get(session_id: str, limit: int = Query(0)):
+def sessions_get(session_id: str, limit: int = Query(0), tools: int = Query(1)):
     """`limit=0` (mặc định) trả CẢ hội thoại - khuôn cũ, mọi chỗ gọi cũ giữ nguyên hành vi.
 
     `limit=N` trả N tin CUỐI kèm `has_more` + `total`: khung chat mở hội thoại dài thì chỉ
     dựng phần đuôi rồi rơi thẳng xuống câu trả lời gần nhất, phần cũ để cuộn lên mới kéo về
     qua `/sessions/{id}/messages`.
+
+    `tools=0` (performance, 2026-11-05, with `limit`): leave out the stored tool calls, which the chat view never
+    shows and which can be most of the payload. The default keeps the old shape for every other caller.
     """
     store = get_store()
     sess = store.get_session(session_id)
     if not sess:
         return JSONResponse({"error": "not found"}, status_code=404)
     if limit and limit > 0:
-        khuc = store.get_messages_page(session_id, limit=limit)
+        khuc = store.get_messages_page(session_id, limit=limit, with_tools=bool(tools))
         sess["messages"] = khuc["messages"]
         sess["has_more"] = khuc["has_more"]
         sess["total"] = store.count_messages(session_id)
@@ -18282,9 +20783,11 @@ def sessions_get(session_id: str, limit: int = Query(0)):
 
 
 @app.get("/sessions/{session_id}/messages")
-async def sessions_messages(session_id: str, limit: int = Query(30),
-                            before_ts: float = Query(None), before_id: int = Query(None)):
-    """Khúc tin CŨ HƠN con trỏ (before_ts, before_id) - khung chat cuộn lên thì gọi đường này.
+def sessions_messages(session_id: str, limit: int = Query(30),
+                      before_ts: float = Query(None), before_id: int = Query(None), tools: int = Query(1)):
+    """Performance (2026-11-05): a plain `def` (thread pool), not `async def` doing SQLite on the event loop.
+
+    Khúc tin CŨ HƠN con trỏ (before_ts, before_id) - khung chat cuộn lên thì gọi đường này.
 
     Thiếu con trỏ thì trả khúc cuối, y như `/sessions/{id}?limit=N`.
     """
@@ -18294,21 +20797,59 @@ async def sessions_messages(session_id: str, limit: int = Query(30),
     truoc = None
     if before_ts is not None and before_id is not None:
         truoc = (float(before_ts), int(before_id))
-    page = store.get_messages_page(session_id, limit=max(1, min(int(limit), 200)), before=truoc)
+    page = store.get_messages_page(session_id, limit=max(1, min(int(limit), 200)), before=truoc,
+                                   with_tools=bool(tools))   # tools=0: see sessions_get
     _gan_reaction(store, session_id, page.get("messages") or [])
     return page
 
 
 def _gan_reaction(store, session_id, msgs) -> None:
-    """T2: mỗi tin đã có `content_sha` (kho phiên); tin `assistant` thêm `reaction` (khuôn R của hợp đồng hay null)."""
+    """T2: mỗi tin đã có `content_sha` (kho phiên); tin `assistant` thêm `reaction` (khuôn R của hợp đồng hay null).
+    0.374.0: và `pinned` (đã ghim vào mục lục của cuộc chat hay chưa)."""
+    ids = [m["id"] for m in msgs if m.get("role") == "assistant"]
     try:
-        got = store.dm_reactions_for(session_id, [m["id"] for m in msgs if m.get("role") == "assistant"])
+        got = store.dm_reactions_for(session_id, ids)
     except Exception as _e:   # noqa: BLE001
         print(f"[dm reactions] {type(_e).__name__}: {_e}", file=sys.stderr)
         got = {}
+    try:
+        ghim = store.pinned_message_ids(session_id, ids)
+    except Exception as _e:   # noqa: BLE001 - a broken pin read never hides the chat
+        print(f"[message pins] {type(_e).__name__}: {_e}", file=sys.stderr)
+        ghim = set()
     for m in msgs:
         if m.get("role") == "assistant":
             m["reaction"] = reaction_values.public(got.get(int(m["id"])))
+            m["pinned"] = int(m["id"]) in ghim
+
+
+@app.post("/sessions/{session_id}/messages/{message_id}/pin")
+async def sessions_message_pin(session_id: str, message_id: int, request: Request):
+    """0.374.0: pin an answer into the chat's table of contents, or unpin it. Body {"pinned": true|false}. Only Javis's
+    answers are pinned (a question is already in the list). Writes nothing else and starts no turn."""
+    try:
+        body = await request.json()
+    except Exception:   # noqa: BLE001
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("pinned"), bool):
+        return JSONResponse({"ok": False, "error": localefmt.chu("Thân yêu cầu không hợp lệ", "Invalid request body")},
+                            status_code=400)
+
+    def _do():
+        store = get_store()
+        if not store.get_session(session_id):
+            return 404, localefmt.chu("Không có cuộc trò chuyện này", "No such chat")
+        msg = store.message_row(session_id, int(message_id))
+        if msg is None:
+            return 404, localefmt.chu("Không có tin này trong cuộc trò chuyện", "No such message in this chat")
+        if msg.get("role") != "assistant":
+            return 409, localefmt.chu("Chỉ ghim được câu trả lời", "Only answers can be pinned")
+        store.set_message_pinned(session_id, int(message_id), body["pinned"])
+        return 200, ""
+    code, err = await asyncio.to_thread(_do)
+    if code != 200:
+        return JSONResponse({"ok": False, "error": err}, status_code=code)
+    return {"ok": True, "pinned": body["pinned"]}
 
 
 # ============================================================
@@ -18593,6 +21134,7 @@ async def sessions_rename(session_id: str, title: str = Form(...)):
 @app.post("/sessions/{session_id}/delete")
 async def sessions_delete(session_id: str):
     get_store().delete(session_id)
+    warm_pool.POOL.forget(session_id)   # 0.382.0: its warm engine process and prewarm recipe go with it
     # 0.256.0: terminal của engine API giữ tiến trình nền, thư mục và biến môi trường theo phiên,
     # kho mốc khôi phục giữ ref theo phiên. Phiên mất thì dọn theo, kẻo dev server chạy mãi.
     try:
@@ -18602,6 +21144,14 @@ async def sessions_delete(session_id: str):
         await asyncio.to_thread(coding_checkpoint.don_phien, session_id)
     except Exception:
         pass
+    # 0.362.0: the chat's GitHub worktrees go with it, except one still holding unsaved or unpushed work.
+    try:
+        import github_repos
+        import github_store
+        await asyncio.to_thread(github_repos.forget_session, session_id)
+        await asyncio.to_thread(github_store.store().delete_session, session_id)
+    except Exception as e:  # noqa: BLE001
+        print(f"[github forget] {type(e).__name__}: {e}", file=sys.stderr)
     # Phase 8 state is a disposable projection; purge it with the source transcript.
     if _ADAPTIVE_CONTEXT is not None:
         try:
@@ -18618,8 +21168,26 @@ async def sessions_pin(session_id: str, pinned: str = Form("1")):
     return {"ok": True}
 
 
+@app.get("/chat/route")
+async def chat_route():
+    """Where the first turn of a new chat would run (owner, 05/11/2026): the model bar of an empty chat asks this, so its
+    chip shows a fallback card while the main one is out of quota. A chat with a session reads `route` from its meta."""
+    def _view():
+        try:
+            return _route_view(cfgmod.read_settings().get("model", {}), {})
+        except Exception as e:  # noqa: BLE001 - the chip then shows the chosen model, as before
+            print(f"[route view] {type(e).__name__}: {e}", file=sys.stderr)
+            return {}
+    return await asyncio.to_thread(_view)
+
+
 @app.get("/sessions/{session_id}/meta")
 async def sessions_meta(session_id: str):
+    """Performance (2026-11-05): asked on every chat open; its reads run in a worker thread, off the event loop."""
+    return await asyncio.to_thread(_sessions_meta_sync, session_id)
+
+
+def _sessions_meta_sync(session_id: str):
     """Row phiên KHÔNG kèm messages - cho model bar hỏi 'phiên này ghim model gì' mà
     không phải kéo cả hội thoại về (GET /sessions/{id} trả nguyên cả messages).
 
@@ -18629,23 +21197,39 @@ async def sessions_meta(session_id: str):
     sess = get_store().get_session(session_id)
     if not sess:
         return JSONResponse({"error": "not found"}, status_code=404)
+    if javis_core.is_core_channel(sess.get("channel")):
+        # 0.402.0: a Javis Core chat shows the pin of Javis Core, not an old stamp of this one chat.
+        _cp = _core_pin(cfgmod.read_settings().get("model", {}))
+        sess["pinned_provider"], sess["pinned_model"] = _cp.get("provider") or None, _cp.get("model") or None
     pp = (sess.get("pinned_provider") or "").strip()
     if pp:
-        d = _provider_def(pp)
-        mcfg = cfgmod.read_settings().get("model", {})
         # Cùng cách giải nghĩa khoá với đường định tuyến (`_provider_key`), nếu không thì
         # thanh model và server nói hai chuyện khác nhau: Ollama máy nhà chạy ngon mà nhãn
         # vẫn kêu "ghim hỏng", đúng thứ trong ảnh chủ repo gửi 02/09.
-        key = _provider_key(mcfg, d) if d else ""
-        sess["pin_ok"] = bool(d) and (d.get("kind") != "api" or bool(key))
+        sess["pin_ok"], lim_until = _pin_health(cfgmod.read_settings().get("model", {}), pp)
+        if lim_until:
+            sess["pin_limited_until"] = lim_until
     # 0.193.0: an assistant's chat tells the model bar whose reasoning level it shows and changes.
     _p = workflow_chat.persona_cua_phien(sess)
     if _p and _p[0] == "agent":
+        # Always an assistant's chat for the model bar (0.285.0): before, an agent file it could not read here (another
+        # spelling of the brain) left `agent_slug` out, and the level chip of that chat changed the MAIN chat's level.
+        sess["agent_slug"], sess["agent_reasoning"] = _p[1], AGENT_REASONING_DEFAULT
         try:
             _m = _read_md(_agents_dir(sess.get("brain") or "brain") / f"{_p[1]}.md")[0]
-            sess["agent_slug"], sess["agent_reasoning"] = _p[1], _agent_reasoning(_m)
+            sess["agent_reasoning"] = _agent_reasoning(_m)
         except Exception:  # noqa: BLE001
             pass
+    elif javis_core.is_core_channel(sess.get("channel")):
+        # 0.283.0: a Javis Core chat is an assistant's chat for the level chip too, with its own level.
+        sess["agent_slug"] = javis_core.SLUG
+        sess["agent_reasoning"] = _core_reasoning(cfgmod.read_settings().get("model", {}))
+    # Owner, 05/11/2026: the model the next turn of this chat really runs on, so the chip is right on opening a chat
+    # (a fallback card while the chosen one is out of quota) and goes back by itself once the quota returns.
+    try:
+        sess["route"] = _route_view(cfgmod.read_settings().get("model", {}), sess)
+    except Exception as e:  # noqa: BLE001 - the chip then shows the chosen model, as before
+        print(f"[route view] {type(e).__name__}: {e}", file=sys.stderr)
     return sess
 
 
@@ -18653,11 +21237,15 @@ async def sessions_meta(session_id: str):
 async def agent_set_reasoning(slug: str, level: str = Form(...), brain: str = Form("brain")):
     """Set one assistant's reasoning level (0.193.0), from its settings or the model bar of its chat. Only this key of
     the frontmatter changes, under the same lock as the other agent writes."""
-    if not skill_router.valid_file_slug(slug) or javis_core.is_core_slug(slug):
+    if not skill_router.valid_file_slug(slug):
         return JSONResponse({"ok": False, "error": localefmt.chu("Trợ lý không hợp lệ", "Invalid assistant")}, status_code=400)
     if level not in engine.REASONING_LEVELS:
         return JSONResponse({"ok": False, "error": localefmt.chu("Mức suy luận không hợp lệ", "Invalid reasoning level")},
                             status_code=400)
+    if javis_core.is_core_slug(slug):
+        # Javis Core keeps its level in settings (no agent file of its own), apart from the main chat's `reasoning`.
+        await asyncio.to_thread(cfgmod.update_settings, {"model": {"core_reasoning": level}})
+        return {"ok": True, "slug": slug, "reasoning": level}
     path = _agents_dir(brain) / f"{slug}.md"
 
     def _luu():
@@ -18681,11 +21269,21 @@ async def sessions_set_model(session_id: str, provider: str = Form(""),
     Có `brain` thì tạo hàng nếu phiên chưa tồn tại - dashboard mint id phía client nên
     user có thể đổi model trước cả tin nhắn đầu tiên (cùng khuôn /sessions/{id}/project).
     CHỦ Ý không đi qua _set_main_model: hàm đó ghi mốc nhật ký usage cho việc đổi bộ não
-    TOÀN CỤC, ghim theo phiên mà đi qua đó là rác hoá biểu đồ token."""
+    TOÀN CỤC, ghim theo phiên mà đi qua đó là rác hoá biểu đồ token.
+
+    0.402.0: a Javis Core chat pins Javis Core as a whole (`model.core_provider/core_model`), see `_core_pin`."""
     prov = (provider or "").strip()
     if prov and not _provider_def(prov):
         return JSONResponse({"error": localefmt.chu(f"provider không tồn tại: {prov}",
                                                     f"provider does not exist: {prov}")}, status_code=400)
+    if prov:
+        _clear_pin_limit(prov)   # picking a model in the chat bar means "use this one": its old quota mark goes
+    _row = get_store().get_session(session_id)
+    if _row and javis_core.is_core_channel(_row.get("channel")):
+        _cp = await _set_core_pin(prov, model)
+        if (_row.get("pinned_provider") or "").strip():
+            get_store().set_pinned_model(session_id, "", "")   # an older stamp of this chat must not show as a pin
+        return {"ok": True, "pinned_provider": _cp["provider"] or None, "pinned_model": _cp["model"] or None, "scope": "core"}
     ok = get_store().set_pinned_model(session_id, prov, model,
                                       brain=_brain_key(brain) if (brain or "").strip() else None)
     if not ok:
@@ -18974,62 +21572,104 @@ async def ollama_local_set_endpoint(endpoint: str = Form(""), key: str = Form(No
 
 @app.post("/provider/openai-compat/connect")
 async def openai_compat_connect(request: Request):
-    """Lưu Base URL + key của provider OpenAI Compatible SAU KHI gọi thử {base}/models.
+    """Add or edit one gateway of the Advanced API key card (OpenAI-compatible route), AFTER checking it.
 
-    Các provider API khác lưu key không kiểm, nhưng ở đây URL cũng do người dùng gõ: lưu bừa
-    thì thẻ báo "Đã kết nối" với key sai, rồi hiện danh sách model cũ còn nhớ như thể thật.
-    Key để trống = dùng lại key đang lưu (ô key chỉ để ĐỔI key)."""
+    Owner 05/11/2026: the Advanced card runs on the OpenAI format, so the seller's own list ({base}/models) fills the
+    model picker and nobody has to type a model name. The URL is typed by the owner, so saving blind would show
+    "Connected" with a wrong key: Javis calls {base}/models first, and for a seller with no list it sends one tiny
+    /chat/completions request (max_tokens 1) with the model typed in the box that then opens.
+    `id` edits that gateway, `add` appends one; a page from before (neither) edits the only gateway it knows.
+    A blank key reuses the saved one, for the same gateway and URL only; a gateway may have no key at all (a server
+    on the owner's own machine)."""
     import httpx
     data = await request.json()
-    base = str(data.get("base") or "").strip().rstrip("/")
-    if base.endswith("/chat/completions"):
-        base = base[: -len("/chat/completions")]
+    base = adv_keys.norm_base(adv_keys.OPENAI, data.get("base"))
     if not base.lower().startswith(("http://", "https://")):
         return {"ok": False, "error": localefmt.chu("Base URL phải bắt đầu bằng http:// hoặc https://",
                                                     "Base URL must start with http:// or https://")}
-    cfg = cfgmod.read_settings()
-    m = cfg.setdefault("model", {})
+    typed_in = data.get("models")
+    if isinstance(typed_in, str):
+        typed_in = re.split(r"[,\n]+", typed_in)
+    typed = _gop_giu_thu_tu([str(x).strip() for x in (typed_in or []) if str(x).strip()])
+    m = cfgmod.read_settings().get("model") or {}
+    gid = str(data.get("id") or "").strip()
+    gws = adv_keys.gateways(m, adv_keys.OPENAI)
+    if not gid and not data.get("add") and len(gws) == 1:
+        gid = gws[0]["id"]
+    old = next((g for g in gws if g["id"] == gid), None)
+    if gid and not old:
+        return {"ok": False, "error": localefmt.chu("Không tìm thấy key này nữa, tải lại trang.",
+                                                    "This key is gone, reload the page.")}
     # A blank input reuses the secret only for the same endpoint. Reusing it for another URL
     # would send that secret to the new host during the validation request below.
-    old_base = str(m.get("openai_compat_base") or "").strip().rstrip("/")
     key = str(data.get("key") or "").strip()
-    if not key and base == old_base:
-        key = m.get("openai_compat_key") or ""
+    if not key and old and base == old["base"]:
+        key = old["key"]
+    headers = {"Authorization": f"Bearer {key or 'none'}"}
+    live, why = [], ""
     try:
         async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.get(base + "/models", headers={"Authorization": f"Bearer {key or 'none'}"})
+            r = await c.get(base + "/models", headers=headers)
+        if r.status_code in (401, 403):
+            return {"ok": False, "error": localefmt.chu(f"API key không hợp lệ (HTTP {r.status_code}). Chưa lưu gì.",
+                                                        f"Invalid API key (HTTP {r.status_code}). Nothing was saved.")}
+        if r.status_code == 200:
+            try:
+                body = r.json()
+                rows = body.get("data") if isinstance(body, dict) else body
+                live = sorted({x.get("id") for x in (rows or []) if isinstance(x, dict) and x.get("id")})
+            except Exception:
+                live = []
+        else:
+            why = f"HTTP {r.status_code}"
     except Exception as e:
-        return {"ok": False, "error": localefmt.chu(f"Không gọi được {base}/models ({type(e).__name__}). "
-                                                    "Kiểm tra lại Base URL.",
-                                                    f"Could not reach {base}/models ({type(e).__name__}). "
-                                                    "Check the Base URL.")}
-    if r.status_code in (401, 403):
-        return {"ok": False, "error": localefmt.chu(f"API key không hợp lệ (HTTP {r.status_code}). Chưa lưu gì.",
-                                                    f"Invalid API key (HTTP {r.status_code}). Nothing was saved.")}
-    if r.status_code == 404:
-        return {"ok": False, "error": localefmt.chu(f"Không thấy {base}/models (HTTP 404). Base URL phải tính tới "
-                                                    "/v1, ví dụ https://api.example.com/v1.",
-                                                    f"{base}/models not found (HTTP 404). The Base URL must include "
-                                                    "/v1, for example https://api.example.com/v1.")}
-    if r.status_code != 200:
-        return {"ok": False, "error": localefmt.chu(f"Endpoint trả HTTP {r.status_code}: {r.text[:160]}",
-                                                    f"Endpoint returned HTTP {r.status_code}: {r.text[:160]}")}
-    try:
-        ids = sorted(x.get("id") for x in (r.json().get("data") or [])
-                     if isinstance(x, dict) and x.get("id"))
-    except Exception:
-        ids = []
-    if not ids:
-        return {"ok": False, "error": localefmt.chu("Endpoint trả lời nhưng không có model nào - không giống "
-                                                    "endpoint chuẩn OpenAI.",
-                                                    "The endpoint answered but lists no models - it does not "
-                                                    "look like a standard OpenAI endpoint.")}
-    m["openai_compat_base"] = base
-    m["openai_compat_key"] = key
-    m.setdefault("catalog", {})["openai-compat"] = ids
-    cfgmod.write_settings(cfg)
-    _PROV_MODELS_CACHE["openai-compat"] = {"ids": ids, "ts": time.time()}
-    return {"ok": True, "models": len(ids)}
+        why = type(e).__name__
+    if not live:
+        if not typed:
+            if why and not why.startswith("HTTP"):
+                return {"ok": False, "error": localefmt.chu(f"Không gọi được {base}/models ({why}). Kiểm tra lại Base URL.",
+                                                            f"Could not reach {base}/models ({why}). Check the Base URL.")}
+            # The box for model names stays hidden until a seller turns out to list none (same rule as Claude
+            # Compatible): this reply opens it.
+            return {"ok": False, "need_models": True, "suggest": [],
+                    "error": localefmt.chu(
+                        "Cổng này không tự báo danh sách model. Gõ tên model bên bán cho dùng ở ô vừa hiện ra, rồi bấm "
+                        "Kết nối lại. Nếu bên bán có danh sách model, kiểm tra Base URL đã có /v1 chưa "
+                        "(ví dụ https://integrate.api.nvidia.com/v1).",
+                        "This gateway does not list its models. Type the model the seller gave you in the box that "
+                        "just appeared, then press Connect again. If the seller does list models, check that the Base "
+                        "URL ends with /v1 (for example https://integrate.api.nvidia.com/v1).")}
+        url = base + "/chat/completions"
+        payload = {"model": typed[0], "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45, connect=15)) as c:
+                r = await c.post(url, headers=headers, json=payload)
+        except Exception as e:
+            return {"ok": False, "error": localefmt.chu(f"Không gọi được {url} ({type(e).__name__}). Kiểm tra lại Base URL.",
+                                                        f"Could not reach {url} ({type(e).__name__}). Check the Base URL.")}
+        if r.status_code in (401, 403):
+            return {"ok": False, "error": localefmt.chu(f"API key không hợp lệ (HTTP {r.status_code}). Chưa lưu gì.",
+                                                        f"Invalid API key (HTTP {r.status_code}). Nothing was saved.")}
+        if r.status_code == 404:
+            return {"ok": False, "error": localefmt.chu(f"Không thấy {url} (HTTP 404). Base URL phải tính tới /v1, "
+                                                        "ví dụ https://api.example.com/v1.",
+                                                        f"{url} not found (HTTP 404). The Base URL must include /v1, "
+                                                        "for example https://api.example.com/v1.")}
+        if r.status_code not in (200, 429, 529):   # 429/529: key and model accepted, the gateway is only busy
+            return {"ok": False, "error": localefmt.chu(f"Cổng trả HTTP {r.status_code} khi thử model {typed[0]}: {r.text[:160]}",
+                                                        f"The gateway returned HTTP {r.status_code} for model {typed[0]}: {r.text[:160]}")}
+    ids = _gop_giu_thu_tu(typed, live)
+    label = str(data.get("label") or "").strip()
+    with cfgmod._SETTINGS_LOCK:
+        cfg = cfgmod.read_settings()
+        m = cfg.setdefault("model", {})
+        if old and adv_keys.update(m, adv_keys.OPENAI, old["id"], label=label or None, base=base, key=key, models=ids):
+            g_id = old["id"]
+        else:
+            g_id = adv_keys.add(m, adv_keys.OPENAI, label, base, key, ids)["id"]
+        cfgmod.write_settings(cfg)
+    _PROV_MODELS_CACHE.pop("openai-compat", None)
+    return {"ok": True, "models": len(ids), "listed": bool(live), "id": g_id}
 
 
 @app.post("/provider/anthropic-compat/connect")
@@ -19054,12 +21694,22 @@ async def anthropic_compat_connect(request: Request):
     typed = _gop_giu_thu_tu([str(x).strip() for x in (typed_in or []) if str(x).strip()])
     cfg = cfgmod.read_settings()
     m = cfg.setdefault("model", {})
+    # Claude Compatible keeps a list of gateways (0.477.0): `id` edits one, `add` appends one. A page from before
+    # (no `id`, no list yet) edits the one gateway it knows.
+    gid = str(data.get("id") or "").strip()
+    gws = adv_keys.gateways(m, adv_keys.ANTHROPIC)
+    if not gid and not data.get("add") and len(gws) == 1:
+        gid = gws[0]["id"]
+    old = next((g for g in gws if g["id"] == gid), None)
+    if gid and not old:
+        return {"ok": False, "error": localefmt.chu("Không tìm thấy key này nữa, tải lại trang.",
+                                                    "This key is gone, reload the page.")}
     # A blank input reuses the secret only for the same gateway: reusing it for another URL would
     # send that secret to the new host during the check below.
-    old_base = engine.normalize_anthropic_compat_base(m.get("anthropic_compat_base") or "")
+    old_base = old["base"] if old else ""
     key = str(data.get("key") or "").strip()
-    if not key and base == old_base:
-        key = m.get("anthropic_compat_key") or ""
+    if not key and old and base == old_base:
+        key = old["key"]
     if not key:
         return {"ok": False, "error": localefmt.chu("Cần API key bên bán đưa cho bạn.",
                                                     "Enter the API key the seller gave you.")}
@@ -19077,10 +21727,14 @@ async def anthropic_compat_connect(request: Request):
         live = []   # no list is normal here; the message check below decides
     if not live:
         if not typed:
-            return {"ok": False, "error": localefmt.chu(
-                "Cổng này không trả danh sách model. Gõ tên model bên bán đưa (ví dụ claude-sonnet-4-6) rồi bấm Lưu.",
-                "This gateway does not list its models. Type the model name the seller gave you "
-                "(for example claude-sonnet-4-6) and press Save.")}
+            # 0.308.0 (owner 24/10/2026: "không cần hiện tên model được không? người dùng phải được chọn chứ"): the card
+            # no longer shows the model box up front. Only a gateway with no list needs names, so this reply opens the
+            # box (need_models) with the usual Claude names to pick from (suggest), still free to type another.
+            return {"ok": False, "need_models": True, "suggest": list(_provider_def("anthropic-api")["default_models"]),
+                    "error": localefmt.chu(
+                        "Cổng này không tự báo danh sách model. Chọn hoặc gõ model bên bán cho dùng ở ô vừa hiện ra, rồi bấm Kết nối lại.",
+                        "This gateway does not list its models. Pick or type the model the seller gave you in the box "
+                        "that just appeared, then press Connect again.")}
         url = base + "/v1/messages"
         payload = {"model": typed[0], "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
         try:
@@ -19102,13 +21756,18 @@ async def anthropic_compat_connect(request: Request):
             return {"ok": False, "error": localefmt.chu(f"Cổng trả HTTP {r.status_code} khi thử model {typed[0]}: {r.text[:160]}",
                                                         f"The gateway returned HTTP {r.status_code} for model {typed[0]}: {r.text[:160]}")}
     ids = _gop_giu_thu_tu(typed, live)
-    m["anthropic_compat_base"] = base
-    m["anthropic_compat_key"] = key
-    m["anthropic_compat_models"] = typed
-    m.setdefault("catalog", {})["anthropic-compat"] = ids
-    cfgmod.write_settings(cfg)
-    _PROV_MODELS_CACHE["anthropic-compat"] = {"ids": ids, "ts": time.time()}
-    return {"ok": True, "models": len(ids), "listed": bool(live)}
+    label = str(data.get("label") or "").strip()
+    # Each gateway keeps its own model names: a seller's list, or the names typed for a seller that lists none.
+    with cfgmod._SETTINGS_LOCK:
+        cfg = cfgmod.read_settings()
+        m = cfg.setdefault("model", {})
+        if old and adv_keys.update(m, adv_keys.ANTHROPIC, old["id"], label=label or None, base=base, key=key, models=ids):
+            g_id = old["id"]
+        else:
+            g_id = adv_keys.add(m, adv_keys.ANTHROPIC, label, base, key, ids)["id"]
+        cfgmod.write_settings(cfg)
+    _PROV_MODELS_CACHE.pop("anthropic-compat", None)
+    return {"ok": True, "models": len(ids), "listed": bool(live), "id": g_id}
 
 
 @app.get("/ollama-local/specs")
@@ -19315,7 +21974,7 @@ async def runtime_diagnostics(hours: float = Query(24.0), limit: int = Query(200
             "vi_sao": _vi_sao_chua_di_tat(snapshot.get("tasks") or [])}
 
 
-def _ctx_frame(trace, tokens_in) -> dict:
+def _ctx_frame(trace, tokens_in, tokens_cache=0) -> dict:
     """Cho khung chat biết lượt vừa rồi đi đường nào và tốn bao nhiêu token vào.
 
     Vì sao cần: trước đây không có cách nào biết một lượt đã đi đường tiết kiệm hay lặng lẽ
@@ -19328,8 +21987,14 @@ def _ctx_frame(trace, tokens_in) -> dict:
         path = str(getattr(trace, "execution_path", "") or "")
     except Exception:  # noqa: BLE001 - phần hiển thị, không được phá lượt chat
         path = ""
-    return {"ctx_path": path if path and path != "unassigned" else "legacy",
-            "ctx_in": max(0, int(tokens_in or 0))}
+    tin = max(0, int(tokens_in or 0))
+    out = {"ctx_path": path if path and path != "unassigned" else "legacy", "ctx_in": tin}
+    # 0.345.0: phần đọc lại từ cache. `ctx_in` là TỔNG mọi vòng gọi model trong lượt, gồm cả phần cache rẻ hơn nhiều,
+    # nên một câu chào trên Claude Code hiện "60k token" và người dùng tưởng mình vừa tiêu 60k token mới.
+    ca = max(0, min(int(tokens_cache or 0), tin))
+    if ca:
+        out["ctx_cache"] = ca
+    return out
 
 
 async def _uoc_tinh_tiet_kiem(brain: str = "brain") -> dict:
@@ -19773,6 +22438,26 @@ def _configured_api_providers() -> tuple:
     return tuple(out)
 
 
+def _fallback_brain_labels(engine_hint: str = "") -> tuple:
+    """Every other card a turn could move to while one plan is out of quota: API keys AND signed-in plan cards.
+
+    `_configured_api_providers` alone counts API keys only, so an owner with ChatGPT signed in was told "no other
+    brain is connected" when Antigravity ran out (owner's report, 05/11/2026). The plan that just ran out is left
+    out. A broken check falls back to the API list: this only words an error message."""
+    labels = list(_configured_api_providers())
+    try:
+        failed = _LIMIT_ENGINE_PROVIDER.get(str(engine_hint or ""), "")
+        for pid in _routing_connected_ids(cfgmod.read_settings()):
+            d = _provider_def(pid) or {}
+            if pid == failed or d.get("kind") == "api":
+                continue
+            if d.get("label") and d["label"] not in labels:
+                labels.append(d["label"])
+    except Exception:  # noqa: BLE001 - see docstring
+        pass
+    return tuple(labels)
+
+
 def _subscription_limit_event(raw: str, engine_hint: str):
     """(câu người dùng hiểu, SubscriptionLimit) cho lỗi "gói thuê bao hết lượt"; ("", None) nếu
     không phải loại lỗi này. Khung chat cần cả hai: câu chữ để hiện, mốc reset để hẹn chạy lại."""
@@ -19780,7 +22465,8 @@ def _subscription_limit_event(raw: str, engine_hint: str):
         hit = limit_learner.parse_subscription_limit(raw, engine_hint=engine_hint)
         if not hit:
             return "", None
-        return model_limits.subscription_blocked_hint(hit, _configured_api_providers()), hit
+        return model_limits.subscription_blocked_hint(
+            hit, _fallback_brain_labels(getattr(hit, "engine", "") or engine_hint)), hit
     except Exception:   # noqa: BLE001 - không được để câu báo lỗi tự nó nổ
         return "", None
 
@@ -20482,6 +23168,18 @@ def _tg_save_brain_map() -> None:
         print(f"[tg brain map write] {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def _agent_sess_key(chat_id, agent) -> str:
+    """Session key of one chat's turns with one agent: `<chat>@<slug>`, or the chat itself without an agent.
+
+    One session per agent, for the reason given at `_cli_turn`: sharing the plain session made the
+    first turn's prompt stick. Idempotent, because the CLI already sends the suffixed key."""
+    key = str(chat_id or "default")
+    slug = str((agent or {}).get("slug") or "")
+    if not slug or key.endswith("@" + slug):
+        return key
+    return f"{key}@{slug}"
+
+
 def _tg_session(chat_id):
     """Lấy (tạo nếu chưa có) phiên riêng của 1 chat_id. chat_id rỗng → gộp vào 'default'."""
     key = str(chat_id or "default")
@@ -20624,6 +23322,9 @@ def _tg_conv_sid(store, sess, brain, engine_label, model, channel="telegram"):
     """
     sid = sess.get("sid") or _TG_SID_MAP.get(str(sess.get("key") or ""))
     ly_do = "chưa có phiên nào cho chat này"
+    # The project of the session a rotation retires: the next chunk is the same conversation, so it
+    # stays in that project. Only a rotation carries it, never a missing record or a brain change.
+    carry_project = ""
     if sid:
         row = store.get_session(sid)
         if not row:
@@ -20649,6 +23350,7 @@ def _tg_conv_sid(store, sess, brain, engine_label, model, channel="telegram"):
             so_tin = int(row.get("msg_count") or 0)
             if nghi >= _TG_CONV_IDLE_S or so_tin >= _TG_CONV_MAX_MSGS:
                 ly_do = f"phiên cũ nghỉ {nghi / 3600:.1f} tiếng, dài {so_tin} tin"
+                carry_project = str(row.get("project_id") or "")
                 sid = None      # nghỉ lâu / đã dài → sang khúc mới
     if sid:
         # Còn dùng tiếp: đồng bộ engine/model vì người dùng có thể vừa đổi bằng /model.
@@ -20661,6 +23363,13 @@ def _tg_conv_sid(store, sess, brain, engine_label, model, channel="telegram"):
     sess["sid"] = store.create_session(brain=_brain_key(brain), engine=engine_label, model=model,
                                        channel=channel or "telegram")
     _tg_nho_sid(sess, sess["sid"])
+    if carry_project:
+        try:
+            if store.get_project(carry_project):   # a project deleted meanwhile is not revived
+                store.set_project(sess["sid"], carry_project)
+        except Exception as e:  # noqa: BLE001 - losing the label must not lose the turn
+            print(f"[{channel or 'telegram'} project carry] {type(e).__name__}: {e}",
+                  file=__import__('sys').stderr)
     # VÌ SAO mở phiên mới - in ra mỗi lần, vì đây là thứ không tài nào đoán được từ giao diện:
     # ở Lịch sử chỉ thấy một loạt hội thoại ngắn mà không biết chúng bị cắt ra bởi luật nghỉ
     # 12 tiếng, bởi brain lệch, hay bởi liên kết bền không ghi được (chủ dự án báo 16/09).
@@ -20721,8 +23430,31 @@ def _tg_lich_su_kho(store, conv_sid, text):
     return msgs, tom_tat
 
 
+def _tg_quota_out(out: str, prov: str, kind: str, api_key: str, mcfg, account: str = None) -> bool:
+    """Whether a channel turn's error string says the route ran out of quota (0.354.0). When it does, the account
+    that ran out rests, as on the web chat, so the next route and the next turns skip it."""
+    hint = _NHA_SANG_ENGINE.get(prov, "")
+    noi, lim = _subscription_limit_event(out or "", hint) if hint else ("", None)
+    quota = bool(noi) or aux_engine.cooldown_for(out or "") == aux_engine.COOLDOWN_QUOTA_S
+    if not quota:
+        return False
+    if kind == "api":
+        _note_api_limit(mcfg, prov, api_key, out)
+    elif hint:
+        _note_pin_limit(getattr(lim, "engine", "") or hint, float(getattr(lim, "reset_epoch", 0) or 0),
+                        account=account)
+    return True
+
+
+def _tg_turn_account(sess, prov: str):
+    """The plan account a channel turn just ran on: plan_accounts.use left it on that chat's engine object."""
+    eng = (sess or {}).get({"openai-oauth": "codex", "grok-cli": "grok", "anthropic-cli": "cli"}.get(prov, ""))
+    acc = getattr(eng, "account_id", None)
+    return acc if isinstance(acc, str) and acc else None
+
+
 async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=None,
-                     phien_kho="", ghi_kho=True):
+                     phien_kho="", ghi_kho=True, agent=None, project_id=""):
     """Vỏ ngoài một lượt KHÔNG-WEBSOCKET: khớp phiên trong kho -> chạy engine -> LƯU lượt.
 
     `channel` mở hàm này cho kênh thứ ba là CLI (xem docs/dev/2026-08-cli-spec.md). Cố ý
@@ -20747,6 +23479,15 @@ async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=Non
     trong lúc nói chuyện. Truyền `phien_kho` = phiên chat đang nói để lượt chạy NGAY TRONG đó,
     và `ghi_kho=False` khi người gọi tự lo phần ghi (việc nền ghi bằng `push_to_chat`), nên
     lịch sử chỉ được ĐỌC làm ngữ cảnh chứ không bị chèn thêm tin nào.
+
+    `agent` = {"brain", "slug"}, ALREADY CHECKED (see `_cli_agent`): an OWNER turn that runs with the
+    prompt, skills and model of one agent of that brain. Unlike `bot`, the person asking is still
+    the owner: permissions and storage are those of a normal turn; the prompt, the model and the
+    end of turn (lessons, rules, run log) are the agent's.
+
+    `project_id`: an ALREADY CHECKED project (see `_cli_project`) to attach the conversation to
+    before the prompt is built, as the dashboard's project panel does. Kept on the conversation, so
+    later turns without it stay in that project.
     """
     # Gỡ ký tự vô hình (tag U+E0000, ghi đè hướng chữ, zero-width...) ngay ở cửa chung của mọi kênh: người lạ
     # giấu lệnh vào đó, model đọc được còn chủ thì không thấy. Gỡ TRƯỚC khi ghi kho vì vòng tự học đọc lại kho (0.83.2).
@@ -20757,6 +23498,15 @@ async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=Non
     # group. A dedicated bot is never the owner, whatever its permission level; every other
     # caller of this shell is an owner surface (admin channels, CLI, voice).
     _luot = turn_context.from_meta(channel, meta, la_chu=not bot)
+    if bot:
+        # 0.429.0: jobs this turn creates (reminders, loops, Kanban) are stamped with the bot, so the Tasks page
+        # shows them under the bot's assistant instead of Javis Core.
+        # A plain string, so a hook reading the turn (a shallow copy) cannot edit it for the next reader.
+        _luot["bot_id"] = str(bot["id"])
+        # 0.459.0: an internal API turn opens private documents by the caller's scope list, never by its chat id. The
+        # doc tools read it from the turn (chatbot_doc_tools.turn_chat_id).
+        import chatbot_grounding
+        chatbot_grounding.add_turn_scopes(_luot, meta)
     # ĐA PHIÊN: định tuyến theo chat_id → ngữ cảnh của mỗi tài khoản tách biệt.
     chat_id = str((meta or {}).get("chat_id") or "default")
     if bot:
@@ -20767,13 +23517,22 @@ async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=Non
         brain = bot["brain"]
         channel = f"bot:{bot.get('slug') or bot['id']}"
     else:
-        sess = _tg_session(chat_id)
-        brain = _tg_brain(chat_id)   # brain riêng của phiên (đổi bằng /brain), mặc định theo Settings
+        # An agent turn gets its own RAM session and stored conversation (`<chat>@<slug>`, see
+        # `_agent_sess_key`), while `chat_id` stays the real chat: /stop, background results and
+        # the channel block keep pointing at the chat the owner is typing in.
+        sess = _tg_session(_agent_sess_key(chat_id, agent))
+        # The session's own brain (changed with /brain), Settings by default. An agent turn runs in
+        # EXACTLY the brain the agent was checked in, without a second lookup: a lookup that landed
+        # elsewhere would put the agent's prompt in one brain and its files and memory in another.
+        brain = agent["brain"] if agent else _tg_brain(chat_id)
     mcfg = cfgmod.read_settings().get("model", {})
     # Chủ chat trên Telegram thì theo ghim của kênh (nếu có). Bot chuyên trách KHÔNG ăn theo
     # ghim của chủ: nó phục vụ khách, và model của nó là model của chính Agent nó trỏ tới.
+    # An agent turn borrows that same path (same fall back to the main model when the agent is on
+    # "Default").
     prov, kind, api_key, api_model = (_chat_provider_bot(mcfg, bot) if bot
-                                      else _chat_provider_kenh(mcfg, channel))
+                                      else _chat_provider_bot(mcfg, {"agent": agent}) if agent
+                                      else _chat_provider_kenh(mcfg, channel, str(chat_id)))
     # Nhãn engine phải do VỎ quyết định rồi truyền xuống lõi: hai bên tự suy ra độc lập là
     # có ngày phiên bị dán nhãn 'cli' trong khi lượt thật chạy qua OpenRouter.
     engine_label = ("codex" if prov == "openai-oauth"
@@ -20800,6 +23559,8 @@ async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=Non
             # ghi hội thoại rỗng tanh trong thanh Lịch sử - đúng thứ đang phải dọn.
             conv_sid = _tg_conv_sid(store, sess, brain, engine_label,
                                     api_model or mcfg.get("claude_model"), channel=channel)
+        if conv_sid and project_id:
+            store.set_project(conv_sid, project_id)
         if conv_sid and ghi_kho:
             store.append_message(conv_sid, "user", text)
             # 0.213.0: a message the owner sent while this turn runs (bot_gateway._steer) joins the history when the
@@ -20819,10 +23580,49 @@ async def _tg_answer(text, meta=None, progress=None, channel="telegram", bot=Non
     _trace_token = context_runtime.bind_trace(runtime_trace)
     _luot_token = turn_context.bind(_luot)
     try:
+        _hop_acted = [False]
+
+        async def _hop_progress(s):
+            # 0.354.0: a "⚙" line is a tool call; after one, a quota error never reruns the turn elsewhere.
+            if str(s or "").startswith("⚙"):
+                _hop_acted[0] = True
+            if progress:
+                await progress(s)
         out = await _tg_answer_engine(
-            text, meta, progress, chat_id=chat_id, sess=sess, brain=brain, mcfg=mcfg,
-            prov=prov, kind=kind, api_key=api_key, api_model=api_model,
-            store=store, conv_sid=conv_sid, channel=channel, bot=bot)
+            text, meta, _hop_progress, chat_id=chat_id, sess=sess, brain=brain,
+            mcfg=mcfg, prov=prov, kind=kind, api_key=api_key, api_model=api_model,
+            store=store, conv_sid=conv_sid, channel=channel, bot=bot, agent=agent)
+        # 0.354.0 (spec 6.4): out of quota before any tool ran -> the same message again on the next route, with
+        # one progress line saying why. Customer bots keep their own model and never hop.
+        _tried = []
+        while (isinstance(out, str) and not bot and not _hop_acted[0] and len(_tried) < REROUTE_MAX_HOPS
+               and _tg_quota_out(out, prov, kind, api_key, mcfg, account=_tg_turn_account(sess, prov))):
+            _nxt = _chat_next_route(mcfg, prov, api_key if kind == "api" else "", _tried,
+                                    failed_account=_tg_turn_account(sess, prov))
+            if not _nxt:
+                break
+            _tried = _nxt["tried"]
+            prov, kind, api_key, api_model = _nxt["route"]
+            _tg_ngat_mach(sess, tru=("codex" if prov == "openai-oauth" else prov if prov in ("grok-cli", "antigravity-cli")
+                                     else prov if ((kind == "api" and api_key) or kind == "oauth") else "cli"))
+            _CONTEXT_RUNTIME.set_route(runtime_trace, prov, api_model or mcfg.get("claude_model") or "mặc định")
+            if progress:
+                try:
+                    await progress("↻ " + _nxt["status"])
+                except Exception:  # noqa: BLE001
+                    pass
+            out = await _tg_answer_engine(
+                text, meta, _hop_progress, chat_id=chat_id, sess=sess, brain=brain, mcfg=mcfg,
+                prov=prov, kind=kind, api_key=api_key, api_model=api_model,
+                store=store, conv_sid=conv_sid, channel=channel, bot=bot, agent=agent)
+
+        if agent and isinstance(out, dict):
+            # The agent prompt asks for JAVIS_LESSON / JAVIS_RULE lines and says they are saved. The
+            # /chat caller is the authenticated owner, as on the dashboard, so end the turn through
+            # the same handler as an agent chat there: owner rules and lessons are recorded, the run
+            # is logged, and the lines are stripped before the turn is stored or returned.
+            out["text"] = _ket_luot_agent(brain, agent["slug"], text, out.get("text") or "",
+                                          conv_sid=conv_sid)
 
         # Cùng luật với dashboard: hứa "xong em báo" mà không có việc nền nào thì nói thẳng.
         # Ở kênh này tin nhắn CHƯA gửi đi nên nối luôn vào cuối, khỏi phải bắn thêm một tin.
@@ -21451,12 +24251,12 @@ async def _bot_tra_loi_co_tool(text, *, sess, sysprompt, prov, api_key, api_mode
 
 async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
                             prov, kind, api_key, api_model, store=None, conv_sid="",
-                            channel="telegram", bot=None):
+                            channel="telegram", bot=None, agent=None):
     """Lõi 4 nhánh engine của một lượt Telegram. Trả dict khi có câu trả lời thật,
     trả CHUỖI khi là thông báo lỗi (vỏ `_tg_answer` dựa vào đó để biết lượt nào đáng lưu)."""
     sess["last"] = text
     sess["sent"] = set()    # lượt mới → reset dedupe (endpoint /telegram/send-file add vào đây)
-    reasoning = _reasoning_level(mcfg)
+    reasoning = _chat_reasoning(mcfg, prov)   # 0.350.0: effort of the card this turn runs on
     # The bolt is the owner's: customer chatbots answering strangers never inherit it.
     fast_mode.use(mcfg.get("fast") is True and not bot)
     runtime_trace = context_runtime.current_trace()
@@ -21583,7 +24383,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         # không - người dùng không có cách nào biết vì sao, chỉ thấy Javis bướng. Danh sách
         # tài liệu là dữ liệu tra cứu, bỏ thì cùng lắm model phải hỏi lại.
         _n = build_adaptive_source_prompt(
-            brain, include_memory=include_memory, include_skills=include_skills)
+            brain, include_memory=include_memory, include_skills=include_skills, routing_overlays=kind == "api")
         if _pid:
             try:
                 _n += _project_block(_pid, chi_huong_dan=True)
@@ -21593,9 +24393,14 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
 
     if _bot_full:
         sysprompt = _bot_full_prompt(brain, _sys_bot_full, _lang_qd, conv_sid)
+    elif agent:
+        sysprompt = _cli_agent_prompt(brain, agent["slug"], conv_sid,
+                                      channel=("telegram" if channel == "telegram"
+                                               # `call_lang` is set only by a voice call (_voice_ask_javis)
+                                               else "voice" if "call_lang" in (meta or {}) else "cli"))
     try:
-        if _bot_full:
-            raise _BoQua()   # nguồn chọn lọc thay prompt bằng giọng Javis: không dùng cho bot
+        if _bot_full or agent:
+            raise _BoQua()   # selected sources swap the prompt for Javis's voice: not for a bot or an agent
         _p8 = await asyncio.to_thread(
             _get_adaptive_context().prepare, runtime_trace, text, _brain_root(brain),
             str(conv_sid or chat_id), [], channel, prov,
@@ -21626,8 +24431,10 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
             "codex" if prov == "openai-oauth" else "cli",
             api_model or mcfg.get("claude_model") or "mặc định", kind,
         )
-    # Gateway huỷ lịch bằng câu chữ là lối tắt của chủ; bot Toàn quyền vẫn huỷ được qua tool javis_schedule.
-    schedule_action = None if _bot_full else await _schedule_cancel_action(text, brain)
+    # The plain-words schedule cancel gateway is the owner's shortcut; a full-access bot and an agent
+    # turn still cancel through the javis_schedule tool. The shortcut answers in Javis's voice, not
+    # in the agent's role.
+    schedule_action = None if (_bot_full or agent) else await _schedule_cancel_action(text, brain)
     if schedule_action:
         for call in schedule_action.get("calls") or []:
             await _p(f"⚙ Lịch: {call.split(':')[-1]}")
@@ -21635,7 +24442,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         return {"text": channel_context.strip_control_blocks(_schedule_cancel_reply(schedule_action)),
                 "files": []}
 
-    if _FAST_PATH is not None and not _bot_full:
+    if _FAST_PATH is not None and not _bot_full and not agent and not _project_has_rules(_pid):
         try:
             _fp = await asyncio.to_thread(
                 _FAST_PATH.prepare, runtime_trace, text, _brain_root(brain), channel, prov,
@@ -21678,6 +24485,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
             kcli.instructions = sysprompt
         kcli.mode = "full"
         _apply_grok_hub(kcli, _brain_root(brain))
+        _plan_account_apply(kcli, "grok-cli")   # 0.353.0: the Grok account that should run now
         if not kcli.is_available():
             return ("⚠ Chưa cài Grok Build CLI trên máy chạy Javis. Cài một lần:\n"
                     f"`{grok_cli.lenh_cai()}`\n"
@@ -21764,15 +24572,30 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
             # user biết. Trước đây Telegram lặng lẽ đổi, user cứ tưởng đang chạy model mình chọn.
             # NOT for a dedicated bot (0.102.1): its model is the Agent's, and writing the owner's MAIN
             # model because a customer bot's Agent named a stale model changed the owner's own brain.
-            if not _bot_full:
+            # Nor for an agent turn (POST /chat with `agent`): same reason, the stale model is the agent's.
+            if not _bot_full and not agent:
                 try:
                     _fix = cfgmod.read_settings()
                     _set_main_model(_fix, "openai-oauth", actual_model)
                     cfgmod.write_settings(_fix)
                 except Exception as _e:
                     print(f"[codex model self-heal] {_e}", file=__import__('sys').stderr)
-            canh_bao = (f"⚠ Model '{api_model}' không chạy được qua Codex (tài khoản ChatGPT) - "
-                        f"đã tự đổi sang '{actual_model}'. Đổi model khác ở trang Models nếu muốn.\n\n")
+            if agent:
+                # The main model was not touched, so pointing at the Models page would be wrong: the
+                # model to change is the one in the agent's settings.
+                canh_bao = localefmt.chu(
+                    f"⚠ Model '{api_model}' của agent '{agent['slug']}' không chạy được qua Codex (tài khoản "
+                    f"ChatGPT) - lượt này dùng '{actual_model or 'mặc định của Codex'}'. Đổi model trong cài đặt "
+                    f"của agent để hết thông báo này.",
+                    f"⚠ Model '{api_model}' of agent '{agent['slug']}' does not run through Codex (ChatGPT "
+                    f"account) - this turn fell back to '{actual_model or 'the Codex default'}'. Change the model "
+                    f"in the agent's settings to stop this notice.") + "\n\n"
+            else:
+                canh_bao = localefmt.chu(
+                    f"⚠ Model '{api_model}' không chạy được qua Codex (tài khoản ChatGPT) - "
+                    f"đã tự đổi sang '{actual_model}'. Đổi model khác ở trang Models nếu muốn.",
+                    f"⚠ Model '{api_model}' does not run through Codex (ChatGPT account) - switched to "
+                    f"'{actual_model}' automatically. Pick another model on the Models page if you like.") + "\n\n"
         openai_oauth.write_codex_auth()
         ccli = sess.get("codex")
         if ccli is None:
@@ -21788,6 +24611,7 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
             ccli.model = actual_model
             ccli.instructions = sysprompt
         _apply_codex_hub(ccli, _brain_root(brain))
+        _plan_account_apply(ccli, "openai-oauth")   # 0.353.0: the ChatGPT account that should run now
         ccli.steer = True   # 0.213.0: a channel turn takes messages mid-way when its gateway opened an inbox (codex_steer.py)
         if not ccli.is_available():
             return "⚠ Chưa cài Codex CLI trong container nên ChatGPT chưa dùng được tool."
@@ -21882,9 +24706,15 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         return _tg_ket(clean_out, files, canh_bao, loi, khach=_bot_full)
     if (kind == "api" and api_key) or kind == "oauth":
         label = _api_label(prov)
+        ident = (f"\n\n[Sự thật hệ thống: bạn chạy qua {label}, model '{api_model}'. "
+                 f"Hỏi model nào thì khai đúng tên này, KHÔNG nhận là model khác.]")
+        if sess["or"] and sess["or"][0].get("role") == "system":
+            # Refresh the head every turn, as the CLI engines get `sysprompt` every turn. Built once
+            # per RAM session, it froze the prompt of the first turn: a project attached to the
+            # conversation afterwards (dashboard, `project` on /chat, carried over by a rotation)
+            # never reached an API engine on Telegram or the CLI until the server restarted.
+            sess["or"][0] = {"role": "system", "content": sysprompt + ident}
         if sess["or"] is None:
-            ident = (f"\n\n[Sự thật hệ thống: bạn chạy qua {label}, model '{api_model}'. "
-                     f"Hỏi model nào thì khai đúng tên này, KHÔNG nhận là model khác.]")
             sess["or"] = [{"role": "system", "content": sysprompt + ident}]
             # Lịch sử này chỉ sống trong RAM, nên restart là mất. Dựng lại từ transcript đã
             # lưu (xem `_tg_lich_su_kho`) - đây là nửa THẬT SỰ quan trọng với người dùng chạy
@@ -21964,13 +24794,14 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
         cli.model = ((api_model if prov == "anthropic-cli" else "")
                      or mcfg.get("claude_model") or None)
         _apply_mcp(cli, brain=brain)
+        _plan_account_apply(cli, "anthropic-cli", mcfg)   # 0.353.0: the Claude account that should run now
         t0 = time.time()
         written = []   # file agent ghi bằng tool Write trong lượt này (ứng viên auto-gửi)
         out = ""
         _streamed = ""   # phần đã stream - phương án dự phòng khi luồng đứt trước 'final'
         loi = []
         _pinged = False
-        _cli_prompt = _cli_do_sau(cli, reasoning, text)
+        _cli_prompt = _gio_luot_noi_mach(cli, _cli_do_sau(cli, reasoning, text))
         _cli_fast(cli)
         if not getattr(cli, "session_id", None):
             # Chưa có mạch native (phiên mới, hoặc vừa restart nên object engine dựng lại từ
@@ -21988,6 +24819,8 @@ async def _tg_answer_engine(text, meta, progress, *, chat_id, sess, brain, mcfg,
             """Một lần gọi `claude`. Trả True nếu mạch cũ không còn (resume trượt)."""
             nonlocal out, _streamed, _pinged
             resume_failed = False
+            # A command Claude Code leaves running in a Telegram turn is adopted and reported back (tien_trinh_nen).
+            claude_warm.mark_background(cli, getattr(cli, "tag", ""))
             async for ev in cli.query(prompt):
                 et = ev["type"]
                 if et == "final":
@@ -22114,7 +24947,7 @@ _TG_NHAN_NGAN = {
     "deepseek": "DeepSeek",
     "ollama": "Ollama",
     "openai-compat": "OpenAI Compat",
-    "anthropic-compat": "Anthropic Compat",
+    "anthropic-compat": "Claude Compat",
 }
 _TG_MODEL_LISTS = {}   # provider -> list model id ĐÃ render (index nút ổn định khi bấm)
 _TG_PAGE = 8           # model mỗi trang (lưới 2 cột x 4 hàng)
@@ -22252,26 +25085,28 @@ def _tg_model_list_text(pid):
     return f"⚙️ {_tg_prov_label(pid)} - chọn model ({n}):{tip}"
 
 
-def _tg_model_hieu_luc():
-    """(provider, model, đang_ghim) mà kênh Telegram THẬT SỰ chạy. Điện thoại không có banner
+def _tg_model_hieu_luc(chat_key=""):
+    """(provider, model, đang_ghim) mà MỘT cuộc trò chuyện Telegram THẬT SỰ chạy. Điện thoại không có banner
     như web, nên chỗ nào hiện model cho Telegram cũng phải nói được nó là ghim hay theo chính."""
     m = cfgmod.read_settings().get("model", {})
-    g = _tg_ghim(m)
+    g = _tg_ghim(m, chat_key)
     if g and _provider_def(g["provider"]):
         return g["provider"], (g["model"] or "mặc định"), True
     prov, cur = _model_current()
     return prov, cur, False
 
 
-def _model_header():
-    prov, cur, ghim = _tg_model_hieu_luc()
-    return ("⚙️ Cấu hình model\n"
-            f"Hiện tại: {cur}\n"
-            f"Provider: {_tg_prov_label(prov)}\n"
-            + ("📌 Telegram đang GHIM riêng (web đổi không ảnh hưởng). /model theo để bỏ ghim.\n\n"
+def _model_header(chat_key=""):
+    prov, cur, ghim = _tg_model_hieu_luc(chat_key)
+    return (localefmt.chu("⚙️ Cấu hình model\n", "⚙️ Model settings\n")
+            + localefmt.chu(f"Hiện tại: {cur}\n", f"Current: {cur}\n")
+            + f"Provider: {_tg_prov_label(prov)}\n"
+            + (localefmt.chu("📌 Cuộc trò chuyện này đang GHIM riêng (web đổi không ảnh hưởng). /model theo để bỏ ghim.\n\n",
+                             "📌 This chat has its own pin (web changes do not affect it). /model theo removes it.\n\n")
                if ghim else
-               "🔗 Telegram đang theo model chính. /model ghim để khoá riêng cho Telegram.\n\n")
-            + "Chọn provider (chỉ hiện provider đã kết nối):")
+               localefmt.chu("🔗 Cuộc trò chuyện này đang theo model chính. Chọn một model bên dưới là ghim riêng cho nó.\n\n",
+                             "🔗 This chat follows the main model. Picking a model below pins it to this chat only.\n\n"))
+            + localefmt.chu("Chọn provider (chỉ hiện provider đã kết nối):", "Pick a provider (connected ones only):"))
 
 
 # ---- Menu chọn brain cho PHIÊN Telegram (inline keyboard, giống menu model) ----
@@ -22324,7 +25159,7 @@ async def _tg_callback(data, chat=None):
     if data == "noop":
         return None   # nút chỉ-hiển-thị (số trang) - answer callback cho tắt spinner, không sửa tin
     if data in ("mp:back", "model"):
-        return {"text": _model_header(), "reply_markup": await _model_provider_kb()}
+        return {"text": _model_header(chat_key), "reply_markup": await _model_provider_kb()}
     if data.startswith("mp:"):
         pid = data.split(":", 1)[1]
         if pid not in dict(_tg_providers()):
@@ -22358,7 +25193,7 @@ async def _tg_callback(data, chat=None):
             return {"alert": f"{_tg_prov_label(pid)} chưa kết nối - vào dashboard trang Models"}
         if pid == "anthropic-cli":
             mdl = mdl.lower()   # alias opus/sonnet/haiku/fable
-        _tg_dat_model(s, pid, mdl); cfgmod.write_settings(s)
+        _tg_dat_model(s, pid, mdl, chat_key); cfgmod.write_settings(s)
         note = {"anthropic-cli": "Claude Code - đầy đủ MCP/skill",
                 "openai-oauth": "ChatGPT qua Codex CLI - có MCP",
                 "openrouter": "OpenRouter - chat + MCP đa-model",
@@ -22393,47 +25228,54 @@ async def _tg_command(cmd, arg, chat=None, meta=None):
         return {"reply": "🔄 Đã reset hội thoại (chỉ phiên của bạn)."}
     if cmd in ("cli", "claude"):
         s = cfgmod.read_settings()
-        _tg_dat_model(s, "anthropic-cli", (s["model"].get("main") or {}).get("model") or s["model"].get("claude_model") or "opus")
+        _tg_dat_model(s, "anthropic-cli", (s["model"].get("main") or {}).get("model") or s["model"].get("claude_model") or "opus", chat_key)
         cfgmod.write_settings(s)
         return {"reply": "✅ Provider: Anthropic (Claude Code) - đầy đủ MCP, hỏi POS/Ads/vault được."}
     if cmd in ("or", "openrouter"):
         s = cfgmod.read_settings()
         if not s["model"].get("openrouter_key"):
             return {"reply": "⚠ Chưa có OpenRouter key - đặt trong Models trên dashboard trước."}
-        _tg_dat_model(s, "openrouter", s["model"].get("openrouter_model")); cfgmod.write_settings(s)
+        _tg_dat_model(s, "openrouter", s["model"].get("openrouter_model"), chat_key); cfgmod.write_settings(s)
         return {"reply": f"✅ Provider: OpenRouter ({s['model'].get('openrouter_model')}) - chat + MCP đa-model."}
     if cmd in ("help", "menu", "start"):
         return {"reply": await _tg_help_text(brain)}
     if cmd == "skills":
         return {"reply": await _tg_skills_text(brain)}
     if cmd == "status":
-        prov, model, ghim = _tg_model_hieu_luc()
+        prov, model, ghim = _tg_model_hieu_luc(chat_key)
         busy = _tg_chat_busy(chat_key)
         bname = brain_label.display(_brain_root(brain))
         return {"reply": ("📊 Trạng thái Javis\n"
                           f"Provider: {prov}\n"
                           f"Model: {model}"
-                          + (" (📌 ghim riêng cho Telegram)" if ghim else " (theo model chính)") + "\n"
+                          + (localefmt.chu(" (📌 ghim riêng cho cuộc trò chuyện này)", " (📌 pinned to this chat)")
+                             if ghim else localefmt.chu(" (theo model chính)", " (follows the main model)")) + "\n"
                           f"Brain: {bname} (đổi bằng /brain)\n"
                           f"Phiên: {chat_key} (ngữ cảnh riêng)\n"
                           f"Đang xử lý: {'có (gửi /stop để dừng)' if busy else 'rảnh'}")}
     if cmd == "model":
         s = cfgmod.read_settings(); m = s["model"]
         a = arg.strip()
-        # /model ghim: khoá Telegram vào model ĐANG DÙNG, từ đó web đổi gì cũng mặc.
-        # /model theo: bỏ ghim, Telegram lại đi theo model chính.
+        # 0.350.0: every pin belongs to THIS chat only. /model ghim: pin the model this chat runs now, so web changes no
+        # longer move it. /model theo: drop the pin, this chat follows MAIN again.
         if a.lower() in ("ghim", "pin"):
-            em = _effective_main(s)
-            _set_telegram_model(s, em["provider"], em["model"]); cfgmod.write_settings(s)
-            return {"reply": (f"📌 Đã ghim Telegram vào {_tg_prov_label(em['provider'])}: "
-                              f"{em['model'] or 'mặc định'}.\nĐổi model trên web không còn kéo "
-                              "Telegram theo. Gõ /model <tên> để đổi riêng cho Telegram, "
-                              "/model theo để bỏ ghim.")}
+            prov_now, model_now, _g = _tg_model_hieu_luc(chat_key)
+            model_now = "" if model_now == "mặc định" else model_now
+            _tg_dat_model(s, prov_now, model_now, chat_key); cfgmod.write_settings(s)
+            return {"reply": localefmt.chu(
+                f"📌 Đã ghim cuộc trò chuyện này vào {_tg_prov_label(prov_now)}: {model_now or 'mặc định'}.\n"
+                "Đổi model trên web không còn kéo cuộc trò chuyện này theo. /model theo để bỏ ghim.",
+                f"📌 This chat is pinned to {_tg_prov_label(prov_now)}: {model_now or 'default'}.\n"
+                "Changing the model on the web no longer moves this chat. /model theo removes the pin.")}
         if a.lower() in ("theo", "bo-ghim", "unpin"):
-            _set_telegram_model(s, "", ""); cfgmod.write_settings(s)
+            _tg_dat_model(s, "", "", chat_key)
+            if (s["model"].get("telegram") or {}).get("provider"):
+                s["model"]["telegram"] = {"provider": "", "model": ""}   # old shared pin (settings not yet moved)
+            cfgmod.write_settings(s)
             em = _effective_main(s)
-            return {"reply": (f"🔗 Đã bỏ ghim. Telegram theo model chính: "
-                              f"{_tg_prov_label(em['provider'])} {em['model'] or 'mặc định'}.")}
+            return {"reply": localefmt.chu(
+                f"🔗 Đã bỏ ghim. Cuộc trò chuyện này theo model chính: {_tg_prov_label(em['provider'])} {em['model'] or 'mặc định'}.",
+                f"🔗 Pin removed. This chat follows the main model: {_tg_prov_label(em['provider'])} {em['model'] or 'default'}.")}
         if a:
             # HỎI DANH SÁCH THẬT TRƯỚC, đoán sau. Mấy luật đoán bên dưới ra đời khi Telegram chỉ
             # biết 3 provider, và giờ chúng gán nhầm một cách im lặng: gõ tên model của
@@ -22441,7 +25283,7 @@ async def _tg_command(cmd, arg, chat=None, meta=None):
             # CLAUDE, lượt chat sau mới báo lỗi mà chẳng ai hiểu vì sao.
             _pid, _ung_vien = await _tg_provider_cho_model(a, m)
             if _pid:
-                _tg_dat_model(s, _pid, a); cfgmod.write_settings(s)
+                _tg_dat_model(s, _pid, a, chat_key); cfgmod.write_settings(s)
                 return {"reply": f"✅ {_tg_prov_label(_pid)}: {a}."}
             if len(_ung_vien) > 1:
                 _ten = ", ".join(_tg_prov_label(p) for p in _ung_vien)
@@ -22450,17 +25292,17 @@ async def _tg_command(cmd, arg, chat=None, meta=None):
             # Không provider nào khai model này (danh sách hỏng, hoặc tên mới tinh) → về mấy
             # luật đoán cũ: id chứa "/" = OpenRouter; gpt*/*-codex = ChatGPT; còn lại = Claude.
             if "/" in a:
-                _tg_dat_model(s, "openrouter", a); cfgmod.write_settings(s)
+                _tg_dat_model(s, "openrouter", a, chat_key); cfgmod.write_settings(s)
                 return {"reply": f"✅ OpenRouter model: {a}."}
             if _is_codex_model(a):
                 if not _tg_prov_ready("openai-oauth", m):
                     return {"reply": "⚠ Chưa kết nối ChatGPT (OpenAI OAuth) - nối ở dashboard trang Models trước."}
-                _tg_dat_model(s, "openai-oauth", a); cfgmod.write_settings(s)
+                _tg_dat_model(s, "openai-oauth", a, chat_key); cfgmod.write_settings(s)
                 return {"reply": f"✅ ChatGPT (Codex) model: {a}."}
-            _tg_dat_model(s, "anthropic-cli", a.lower()); cfgmod.write_settings(s)
+            _tg_dat_model(s, "anthropic-cli", a.lower(), chat_key); cfgmod.write_settings(s)
             return {"reply": f"✅ Model Claude: {a.lower()}. Nếu CLI chưa hỗ trợ tên này, query sẽ báo lỗi."}
         # Không tham số → mở menu nút bấm (chọn provider → chọn model, phân trang)
-        return {"reply": _model_header(), "reply_markup": await _model_provider_kb()}
+        return {"reply": _model_header(chat_key), "reply_markup": await _model_provider_kb()}
     if cmd == "usage":
         try:
             _or = await _openrouter_credits(cfgmod.read_settings().get("model", {}) or {})
@@ -22538,6 +25380,283 @@ async def _tg_command(cmd, arg, chat=None, meta=None):
     return {"ask": f"[SKILL: {cmd}\n{dan}]\n\n" + (arg.strip() if arg else f"/{cmd}")}
 
 
+# ---- Talking to an agent (partner) from the owner's Telegram bot ----
+# Customer report 0.270 (Code 24): "@TEST-Thẩm định viên ..." over Telegram was answered by Javis,
+# and the partner's run log had no turn; the only command was /agents, which just lists them.
+# Now, in the OWNER's bot and only in a chat on its whitelist:
+#   - a message that starts with `@<agent name or slug>` is one turn of that agent;
+#   - `/agent <name>` makes that agent answer every message of the chat, `/agent off` goes back to Javis;
+#   - `@javis ...` asks Javis one question while an agent is picked.
+# The turn itself is the CLI agent turn (`_tg_answer(..., agent=...)`, from #744): agent prompt, model,
+# own session, lessons, rules and run log. Customer-facing bot accounts (chatbot_runtime) have their own
+# answer and command functions, so none of this is reachable from them.
+_TG_AGENT_PATH = cfgmod.STATE_DIR / "tg_agent.json"
+
+
+def _tg_load_agent_map() -> dict:
+    try:
+        if _TG_AGENT_PATH.exists():
+            d = json.loads(_TG_AGENT_PATH.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                return {str(k): v for k, v in d.items()
+                        if isinstance(v, dict) and v.get("slug") and v.get("brain")}
+    except Exception:
+        pass
+    return {}
+
+
+_TG_AGENT_MAP = _tg_load_agent_map()   # chat -> {"brain": brain root, "slug": agent slug}
+
+
+def _tg_save_agent_map() -> None:
+    try:
+        _atomic_write_text(_TG_AGENT_PATH, json.dumps(_TG_AGENT_MAP, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"[tg agent map write] {type(e).__name__}: {e}", file=__import__('sys').stderr)
+
+
+def _agent_name_key(s) -> str:
+    """Comparison key of an agent name or slug: no case, no diacritics, and `-`, `_` and spaces all
+    alike, so "TEST-Thẩm định viên" and its slug `test-tham-dinh-vien` give the same key."""
+    return re.sub(r"[\s_\-]+", " ", _fold_accents(str(s or ""))).strip()
+
+
+# What `@...` or `/agent ...` call Javis itself (the main assistant, not an agent of the brain).
+_TG_JAVIS_KEYS = frozenset({"javis", _agent_name_key(javis_core.NAME), _agent_name_key(javis_core.SLUG)})
+_TG_AGENT_OFF = frozenset({"off", "tat", "huy", "none", "stop"}) | _TG_JAVIS_KEYS
+
+
+def _tg_agent_rows(brain_root) -> list:
+    """[{"slug", "name"}] of the brain's agents. `slug` is the REAL file stem (see `_cli_agent`)."""
+    out = []
+    try:
+        for f in sorted(_agents_dir(brain_root).glob("*.md")):
+            if javis_core.is_core_slug(f.stem):
+                continue
+            try:
+                meta, _ = _read_md(f)
+            except Exception:
+                meta = {}
+            out.append({"slug": f.stem, "name": str((meta or {}).get("name") or f.stem)})
+    except Exception as e:
+        print(f"[tg agents] {type(e).__name__}: {e}", file=__import__('sys').stderr)
+    return out
+
+
+def _tg_agent_find(rows, query) -> list:
+    """Agents whose name or slug is exactly `query` (case and diacritics insensitive). No partial
+    match: two partners with similar names must never be swapped by a guess."""
+    k = _agent_name_key(query)
+    if not k:
+        return []
+    return [r for r in rows if k in (_agent_name_key(r["slug"]), _agent_name_key(r["name"]))]
+
+
+_TG_MENTION_WORDS = 8   # longest agent name, in words, that a mention is tried against
+
+
+def _tg_agent_mention(text, rows, bot_username=""):
+    """Read a leading `@<agent>` mention. Returns (kind, hits, rest):
+
+    kind "" (no mention: `rest` is the text unchanged), "agent" (one agent, `hits[0]`), "javis",
+    "ambiguous" (several agents share that name, `hits`) or "unknown". Names have spaces, so the
+    LONGEST run of words that names an agent wins ("@Writer Pro ..." picks "Writer Pro" over
+    "Writer"). A leading mention of the bot itself (`@my_bot`, as in a group) is skipped first.
+    """
+    s = str(text or "")
+    st = s.lstrip()
+    if bot_username:
+        m = re.match(r"@" + re.escape(str(bot_username)) + r"(?![A-Za-z0-9_])[\s,:]*", st, re.I)
+        if m:
+            st = st[m.end():]
+    if len(st) < 2 or st[0] != "@" or not st[1].isalnum():
+        return "", [], s
+    body = st[1:]
+    words = list(re.finditer(r"\S+", body))[:_TG_MENTION_WORDS]
+    for n in range(len(words), 0, -1):
+        end = words[n - 1].end()
+        key = _agent_name_key(body[:end].rstrip(",.:;!?"))
+        hits = [r for r in rows if key in (_agent_name_key(r["slug"]), _agent_name_key(r["name"]))]
+        if hits or key in _TG_JAVIS_KEYS:
+            rest = re.sub(r"^[\s,:;]*(?:-\s+)?", "", body[end:])
+            if not hits:
+                return "javis", [], rest
+            return ("agent" if len(hits) == 1 else "ambiguous"), hits, rest
+    return "unknown", [], s
+
+
+def _tg_owner_chat(chat) -> bool:
+    """A chat on the owner bot's whitelist. An empty whitelist answers anyone, so it allows no agent."""
+    ids = tg_parse_ids((cfgmod.read_settings().get("telegram") or {}).get("chat_id", ""))
+    return bool(chat) and str(chat) in ids
+
+
+def _tg_agent_list_text(rows, head="") -> str:
+    lines = [f"• {r['name']}" + (f" ({r['slug']})" if _agent_name_key(r["name"]) != _agent_name_key(r["slug"]) else "")
+             for r in rows[:30]]
+    return ((head + "\n\n") if head else "") + "\n".join(lines) + "\n\n" + localefmt.chu(
+        "Gõ @<tên> <câu hỏi> để hỏi một câu, hoặc /agent <tên> để cộng sự đó trả lời cả chat (/agent off để về Javis).",
+        "Type @<name> <question> to ask once, or /agent <name> to let that partner answer the whole chat "
+        "(/agent off to go back to Javis).")
+
+
+def _tg_agent_pinned(chat, root, rows):
+    """(row, notice) of the agent picked with /agent for this chat. A pick whose brain changed (/brain)
+    or whose agent is gone is dropped, with a notice saying Javis answers again."""
+    pin = _TG_AGENT_MAP.get(str(chat))
+    if not pin:
+        return None, ""
+    hit = next((r for r in rows if r["slug"] == pin.get("slug")), None)
+    if hit and str(pin.get("brain")) == str(root):
+        return hit, ""
+    _TG_AGENT_MAP.pop(str(chat), None)
+    _tg_save_agent_map()
+    return None, localefmt.chu(
+        f"(Cộng sự '{pin.get('slug')}' đã chọn không còn trong brain này, Javis trả lời lại từ đây.)",
+        f"(The partner '{pin.get('slug')}' picked earlier is not in this brain any more, Javis answers from here.)")
+
+
+def _tg_agent_route(chat, text, bot_username="") -> dict:
+    """Who answers this owner message: {"agent": {"brain", "slug", "name"} | None, "text": what the
+    turn receives, "reply": a direct answer instead of a turn | None, "notice": a line to prepend}."""
+    out = {"agent": None, "text": text, "reply": None, "notice": ""}
+    key = str(chat or "")
+    if not _tg_owner_chat(key):
+        return out
+    root = _brain_root(_tg_brain(key))
+    rows = _tg_agent_rows(root)
+    if not rows:
+        return out   # nothing to pick: an `@someone` message is just a message to Javis
+    kind, hits, rest = _tg_agent_mention(text, rows, bot_username)
+    if kind == "javis":
+        out["text"] = rest or text
+        return out
+    if kind == "unknown":
+        out["reply"] = _tg_agent_list_text(rows, localefmt.chu(
+            "Không thấy cộng sự nào tên như vậy trong brain này. Có:",
+            "No partner by that name in this brain. There are:"))
+        return out
+    if kind == "ambiguous":
+        out["reply"] = _tg_agent_list_text(hits, localefmt.chu(
+            "Có nhiều cộng sự trùng tên này, gọi bằng mã (slug) cho chắc:",
+            "Several partners share that name, call one by its slug:"))
+        return out
+    if kind == "agent":
+        if not rest.strip():
+            out["reply"] = localefmt.chu(
+                f"Viết câu hỏi ngay sau tên, ví dụ: @{hits[0]['name']} <câu hỏi>. "
+                f"Muốn {hits[0]['name']} trả lời cả chat thì gõ /agent {hits[0]['slug']}.",
+                f"Write the question right after the name, e.g. @{hits[0]['name']} <question>. "
+                f"To let {hits[0]['name']} answer the whole chat, type /agent {hits[0]['slug']}.")
+            return out
+        out["agent"] = {"brain": root, **hits[0]}
+        out["text"] = rest
+        return out
+    row, out["notice"] = _tg_agent_pinned(key, root, rows)
+    if row:
+        out["agent"] = {"brain": root, **row}
+    return out
+
+
+def _tg_owner_precheck(text, meta):
+    """Owner bot precheck: a mention that names no agent, or several, is answered with the list
+    BEFORE a turn starts (no "Javis is working" message, no turn spent on a guess)."""
+    m = meta or {}
+    r = _tg_agent_route(m.get("chat_id"), text, m.get("bot_username") or "")
+    return {"reply": r["reply"]} if r["reply"] else None
+
+
+async def _tg_owner_answer(text, meta=None, progress=None):
+    """Answer function of the OWNER's Telegram bot: `_tg_answer`, routed to an agent when asked."""
+    m = meta or {}
+    chat = str(m.get("chat_id") or "")
+    r = _tg_agent_route(chat, text, m.get("bot_username") or "")
+    if r["reply"]:
+        return {"text": r["reply"], "files": []}
+    ag = r["agent"]
+    if not ag:
+        out = await _tg_answer(r["text"], meta, progress)
+    else:
+        out = await _tg_answer(r["text"], meta, progress, agent={"brain": ag["brain"], "slug": ag["slug"]})
+        try:
+            # The agent turn ran in its own session: /retry reads the chat's, and must resend the
+            # message as written (mention included) so it reaches the same agent again.
+            _tg_session(chat)["last"] = text
+        except Exception:
+            pass
+    if isinstance(out, dict):
+        head = "\n\n".join(x for x in (r["notice"], f"🤝 {ag['name']}" if ag else "") if x)
+        if head:
+            out["text"] = head + "\n\n" + (out.get("text") or "")
+    elif r["notice"]:
+        out = r["notice"] + "\n\n" + str(out or "")
+    return out
+
+
+async def _tg_owner_command(cmd, arg, chat=None, meta=None):
+    """Command function of the OWNER's Telegram bot: `_tg_command` plus /agent. Kept out of
+    `_tg_command` because the owner's Zalo bot and owner channels share it and have no agent routing."""
+    chat_key = str(chat or "default")
+    if cmd == "agent":
+        if not _tg_owner_chat(chat_key):
+            return {"reply": localefmt.chu(
+                "Chỉ chat nằm trong danh sách cho phép của bot (trang Kênh) mới chọn được cộng sự.",
+                "Only a chat on the bot's allow list (Channels page) can pick a partner.")}
+        root = _brain_root(_tg_brain(chat_key))
+        rows = _tg_agent_rows(root)
+        a = arg.strip()
+        if a and _agent_name_key(a) in _TG_AGENT_OFF:
+            had = _TG_AGENT_MAP.pop(chat_key, None)
+            if had:
+                _tg_save_agent_map()
+            return {"reply": localefmt.chu("Javis trả lời chat này như thường.",
+                                           "Javis answers this chat as usual.")}
+        if not rows:
+            return {"reply": localefmt.chu("Brain này chưa có cộng sự nào (tạo ở trang Cộng sự trên dashboard).",
+                                           "This brain has no partner yet (create one on the Partners page).")}
+        if not a:
+            cur, notice = _tg_agent_pinned(chat_key, root, rows)
+            head = (localefmt.chu(f"Đang trả lời chat này: {cur['name']}.", f"Answering this chat: {cur['name']}.")
+                    if cur else localefmt.chu("Đang trả lời chat này: Javis.", "Answering this chat: Javis."))
+            return {"reply": _tg_agent_list_text(rows, "\n".join(x for x in (notice, head) if x))}
+        hits = _tg_agent_find(rows, a)
+        if len(hits) != 1:
+            return {"reply": _tg_agent_list_text(hits or rows, localefmt.chu(
+                "Có nhiều cộng sự trùng tên này, chọn bằng mã (slug):" if hits
+                else f"Không thấy cộng sự '{a}' trong brain này. Có:",
+                "Several partners share that name, pick one by its slug:" if hits
+                else f"No partner '{a}' in this brain. There are:"))}
+        _TG_AGENT_MAP[chat_key] = {"brain": str(root), "slug": hits[0]["slug"]}
+        _tg_save_agent_map()
+        name = hits[0]["name"]
+        return {"reply": localefmt.chu(
+            f"🤝 Từ giờ {name} trả lời chat này. Gõ @javis <câu hỏi> để hỏi Javis một câu, /agent off để về Javis.",
+            f"🤝 {name} answers this chat from now on. Type @javis <question> to ask Javis once, /agent off to go back.")}
+    res = await _tg_command(cmd, arg, chat, meta)
+    if cmd in ("reset", "new", "clear"):
+        # The chat's agent conversations live in their own sessions (`_agent_sess_key`): /reset
+        # starts those over too, not only Javis's.
+        pre = chat_key + "@"
+        for k in {k for k in list(_TG_SESS) + list(_TG_SID_MAP) if str(k).startswith(pre)}:
+            s = _tg_session(k)
+            _tg_ngat_mach(s)
+            s["or"] = None
+            s["last"] = None
+            s["sid"] = None
+            _tg_quen_sid(s)
+    elif cmd in ("agents", "help", "menu", "start") and isinstance(res, dict) and "reply" in res:
+        res["reply"] += "\n\n" + localefmt.chu(
+            "/agent <tên> - chọn cộng sự trả lời chat này (/agent off: về Javis) · @<tên> <câu hỏi> - hỏi cộng sự một câu",
+            "/agent <name> - pick the partner that answers this chat (/agent off: back to Javis) · "
+            "@<name> <question> - ask a partner once")
+    elif cmd == "status" and isinstance(res, dict) and "reply" in res:
+        pin = _TG_AGENT_MAP.get(chat_key)
+        if pin:
+            res["reply"] += "\n" + localefmt.chu(f"Cộng sự: {pin.get('slug')} (/agent off để về Javis)",
+                                                 f"Partner: {pin.get('slug')} (/agent off to go back to Javis)")
+    return res
+
+
 def _tg_inbox_dir(chat=None):
     """Nơi lưu file user gửi lên Telegram - đặt trong brain CỦA PHIÊN người gửi
     (đổi bằng /brain; chưa đổi thì brain mặc định) để agent đọc được ngay."""
@@ -22569,10 +25688,16 @@ async def _stt_nghe(data, ten=""):
            or lang_registry.chuan_hoa(_lc2.get("ui_lang") or ""))
     # Cùng bộ từ vựng và lớp sửa nghe nhầm như mic trên dashboard (nghe_sua): tin thoại Telegram
     # hay Zalo nói "David" cũng phải ra "Javis" trước khi vào bộ não.
-    _tv = nghe_sua.tu_vung(_cfg)
-    res = await stt.groq_nghe(data, ten, key,
-                              ngon_ngu=(lang_registry.get(_ma).stt if _ma else ""),
-                              hotwords=nghe_sua.goi_y_whisper(_tv))
+    _tv = nghe_sua.fix_vocabulary(_cfg)
+    # 0.435.0: not Groq only any more. Every ear the owner has is tried in turn (Groq, OpenAI, Gemini, then the
+    # offline Whisper from the Tools page); one missing or failing hands over to the next (`stt.listen_any`).
+    _m = _cfg.get("model") or {}
+    import local_stt
+    res = await stt.listen_any(data, ten, {"groq": key, "openai": _m.get("openai_api_key") or "",
+                                           "gemini": _m.get("gemini_api_key") or ""},
+                               ngon_ngu=(lang_registry.get(_ma).stt if _ma else ""),
+                               hotwords=nghe_sua.goi_y_whisper(_tv),
+                               local=local_stt.transcribe if local_stt.installed() else None)
     if res.get("ok") and res.get("text"):
         res["text"] = nghe_sua.sua(res["text"], _tv)
     return res
@@ -22857,6 +25982,32 @@ async def whatsapp_webhook(request: Request):
     return {"ok": True, "messages": n}
 
 
+@app.post("/chatbot-api/v1/turn")
+async def chatbot_api_turn(request: Request):
+    """Internal API channel (0.459.0): one turn of the Chatbot the key belongs to. Every check (source, key, ceiling,
+    limits) and the answer live in channels/api.py; this route only hands it the raw request."""
+    import channels.api as api_channel
+    auth = request.headers.get("authorization", "")
+    ip = request.client.host if request.client else ""
+    hdrs = dict(request.headers)
+
+    def _out(status, body):
+        headers = {"Retry-After": "900"} if body.get("code") == "banned" else None
+        return JSONResponse(body, status_code=status, headers=headers)
+
+    # Source and key first, body after (0.459.0): nobody outside, or without the key, makes Javis buffer a body, and a
+    # body is read only up to the channel's cap.
+    account, bad = api_channel.gate(auth, ip, hdrs)
+    if bad:
+        return _out(*bad)
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > api_channel.BODY_MAX:
+            return _out(*api_channel.too_large())
+    return _out(*await api_channel.handle_http(auth, ip, hdrs, bytes(raw), account=account))
+
+
 # ============================================================
 # Messenger (0.134.0): customer bots on a Facebook Page. Meta calls one webhook for every Page;
 # `messenger_bot.handle_webhook` routes by Page id. No owner control channel here.
@@ -22887,8 +26038,13 @@ def _ms_account_secrets() -> list:
 @app.get("/channels/webhook-info")
 async def channels_webhook_info(request: Request, channel: str = ""):
     """Address and verify token to paste into the platform for a channel that receives messages
-    by webhook (Messenger). Shown on the Add account form; the verify token is not a secret."""
-    if str(channel or "").strip().lower() != "messenger":
+    by webhook (Messenger, Zalo OA). Shown on the Add account form; the verify token is not a secret."""
+    kenh = str(channel or "").strip().lower()
+    if kenh == "zalo_oa":
+        url = _zo_webhook_url(request)
+        return {"ok": True, "webhook_url": url, "verify_token": "", "https": url.startswith("https://"),
+                "site_verify": True, "site_codes": _zo_site_codes()}
+    if kenh != "messenger":
         return JSONResponse({"ok": False, "error": localefmt.chu("Kênh này không dùng webhook",
                                                                  "This channel does not use a webhook")},
                             status_code=400)
@@ -22930,6 +26086,653 @@ async def messenger_webhook(request: Request):
     return {"ok": True, "events": n}
 
 
+# ---- Messenger setup wizard and health check (0.311.0) ----
+# The Connections page card drives these. `messenger_setup` does the Graph calls; this layer
+# stores the account and restarts the bots that use it. No response ever carries a token.
+def _ms_webhook_url(request: Request) -> str:
+    base = web_security.external_base(
+        request.url.scheme, request.url.netloc,
+        request.headers.get("x-forwarded-proto", ""), request.headers.get("x-forwarded-host", ""))
+    return base + "/messenger/webhook"
+
+
+def _ms_account_view(a: dict) -> dict:
+    bots = chatbot_store.bots_using_account(a.get("id", ""))
+    meta = a.get("meta") or {}
+    return {"id": a.get("id"), "label": a.get("label"), "page_id": a.get("external_id"),
+            "page_name": meta.get("bot_name", ""), "app_id": meta.get("app_id", ""),
+            "brain": a.get("brain", ""), "comments": messenger_bot.comment_mode(a.get("id", "")),
+            "instagram": messenger_bot.instagram_of(a.get("id", "")),
+            "bots": [{"id": b["id"], "name": b.get("name"), "enabled": bool(b.get("enabled"))} for b in bots]}
+
+
+def _ms_account_creds(account_id: str):
+    a = channel_accounts.get_account(account_id)
+    if not a or a.get("channel") != "messenger":
+        return None, None
+    return a, messenger_bot.split_credentials(channel_accounts.get_token(account_id))
+
+
+def _ms_bot_running(account_id: str, page_id: str) -> bool:
+    return bool(page_id in messenger_bot.registered()
+                or any(b.get("enabled") for b in chatbot_store.bots_using_account(account_id)))
+
+
+def _ms_save_account(request: Request, page_id: str, app_id, app_secret, res: dict, label="", brain="",
+                     extra_meta=None) -> tuple:
+    """Store (or update) the Messenger account of one Page after `messenger_setup.connect` succeeded,
+    and restart the bots that use it. Returns (account id, error, updated). Shared by the paste
+    wizard and Log in with Facebook (0.434.0)."""
+    secret = f"{page_id} {res['page_token']} {str(app_secret or '').strip()}"
+    meta = {"bot_name": res.get("page_name", ""), "app_id": str(app_id or "").strip(),
+            "webhook_url": _ms_webhook_url(request), **(extra_meta or {})}
+    old = channel_accounts.owner_of(page_id, "messenger")
+    if old:
+        aid = old["id"]
+        ok, loi = channel_accounts.update_account(aid, {"token": secret, "external_id": page_id,
+                                                        "meta": {**(old.get("meta") or {}), **meta}})
+        if not ok:
+            return "", loi, True
+        for b in chatbot_store.bots_using_account(aid):
+            if b.get("enabled"):
+                chatbot_runtime.start_bot(b["id"])
+        return aid, "", True
+    aid, loi = channel_accounts.create_account({
+        "channel": "messenger", "token": secret, "external_id": page_id, "meta": meta,
+        "label": str(label or "").strip() or res.get("page_name", "") or page_id,
+        "brain": str(brain or "").strip()})
+    return aid, loi or "", False
+
+
+@app.get("/messenger/setup")
+async def messenger_setup_info(request: Request, brain: str = ""):
+    """What the wizard needs before the owner types anything: the webhook address, whether it is
+    HTTPS, the verify token, and the Messenger accounts already saved."""
+    url = _ms_webhook_url(request)
+    accs = channel_accounts.list_accounts(channel="messenger", brain=str(brain or "").strip())
+    base = url[: -len("/messenger/webhook")]
+    return {"ok": True, "webhook_url": url, "https": url.startswith("https://"),
+            "verify_token": _ms_verify_token(), "accounts": [_ms_account_view(a) for a in accs],
+            "oauth_redirect": base + messenger_oauth.CALLBACK_PATH, "privacy_url": base + messenger_oauth.PRIVACY_PATH}
+
+
+@app.post("/messenger/connect")
+async def messenger_connect(request: Request):
+    """Wizard submit: Page ID, App ID, App secret and any user or Page token -> a saved Messenger
+    account with a non-expiring Page token, the app webhook registered and the Page subscribed."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    page_id = str(body.get("page_id") or "").strip()
+    res = await messenger_setup.connect(page_id, body.get("app_id"), body.get("app_secret"),
+                                        body.get("token"), _ms_webhook_url(request), _ms_verify_token())
+    if not res.get("ok"):
+        return JSONResponse({"ok": False, "error": res.get("error", ""), "step": res.get("step", "")},
+                            status_code=400)
+    aid, loi, updated = _ms_save_account(request, page_id, body.get("app_id"), body.get("app_secret"), res,
+                                         body.get("label"), body.get("brain"))
+    if loi:
+        return JSONResponse({"ok": False, "error": loi}, status_code=400)
+    a = channel_accounts.get_account(aid) or {}
+    return {"ok": True, "updated": updated, "account": _ms_account_view(a), "check": _ms_with_bot_row(res, aid, page_id),
+            "repair_errors": res.get("repair_errors", [])}
+
+
+def _ms_with_bot_row(res: dict, aid: str, page_id: str) -> dict:
+    chk = res.get("check") or {}
+    chk.setdefault("items", []).append(messenger_setup._item(
+        "bot", True if _ms_bot_running(aid, page_id) else None, ("Có bot đang trực", "A bot is answering"), "",
+        ("Vào Chatbot, Bot, tạo hoặc bật bot cho kênh này.",
+         "Open Chatbot, Bots and create or turn on a bot for this channel.")))
+    return chk
+
+
+# ---- Log in with Facebook (0.434.0) ----
+# The card sends App ID + App secret, opens the returned Facebook address in a new tab, polls
+# /messenger/oauth/result until the Pages arrive, then posts the ticked Pages to /finish. The user
+# token stays inside `messenger_oauth`; nothing here returns a token.
+def _ms_base(request: Request) -> str:
+    return web_security.external_base(
+        request.url.scheme, request.url.netloc,
+        request.headers.get("x-forwarded-proto", ""), request.headers.get("x-forwarded-host", ""))
+
+
+@app.post("/messenger/oauth/start")
+async def messenger_oauth_start(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    res = await messenger_oauth.start(body.get("app_id"), body.get("app_secret"),
+                                      _ms_base(request) + messenger_oauth.CALLBACK_PATH,
+                                      str(body.get("brain") or ""), str(body.get("label") or ""),
+                                      instagram=bool(body.get("instagram")))
+    if not res.get("ok"):
+        return JSONResponse(res, status_code=400)
+    return res
+
+
+@app.get("/messenger/oauth/callback")
+async def messenger_oauth_callback(state: str = Query(""), code: str = Query(""), error: str = Query(""),
+                                   error_description: str = Query("")):
+    res = await messenger_oauth.callback(state, code, error, error_description)
+    if res.get("ok"):
+        title = localefmt.chu("✓ Đã đăng nhập Facebook", "✓ Signed in with Facebook")
+        body = localefmt.chu(f"Tìm thấy {len(res['pages'])} Fanpage. Quay lại tab Javis để chọn Trang muốn nối, "
+                             "tab này tự đóng.",
+                             f"Found {len(res['pages'])} Page(s). Go back to the Javis tab to pick the Pages to "
+                             "connect, this tab closes by itself.")
+    else:
+        title = localefmt.chu("⚠ Chưa đăng nhập được", "⚠ Sign-in did not finish")
+        body = str(res.get("error", ""))
+    html = ("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, "
+            "initial-scale=1'><title>Javis</title></head><body style='font-family:system-ui,sans-serif;font-size:18px;"
+            "background:#111;color:#eee;text-align:center;padding:72px 16px'>"
+            f"<h2>{html_mod.escape(title)}</h2><p>{html_mod.escape(body)}</p>"
+            + ("<script>setTimeout(function(){try{window.close()}catch(e){}},1500)</script>" if res.get("ok") else "")
+            + "</body></html>")
+    return HTMLResponse(html)
+
+
+@app.get("/messenger/oauth/result")
+async def messenger_oauth_result(state: str = ""):
+    return messenger_oauth.result(state)
+
+
+@app.post("/messenger/oauth/finish")
+async def messenger_oauth_finish(request: Request):
+    """Connect every ticked Page of a ready login. One result per Page, so one failure does not
+    hide the others; the login is kept while any Page failed, so the owner can retry."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    state = str(body.get("state") or "")
+    p = messenger_oauth.take(state)
+    if not p:
+        return JSONResponse(messenger_oauth.result(state) | {"ok": False}, status_code=400)
+    known = {x["id"]: x for x in p.get("pages") or []}
+    ids = [str(i) for i in (body.get("page_ids") or []) if str(i) in known]
+    if not ids:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Hãy tick ít nhất một Fanpage.",
+                                                                 "Tick at least one Page.")}, status_code=400)
+    mode = str(body.get("comments") or messenger_bot.COMMENT_MODE_DEFAULT)
+    if mode not in messenger_bot.COMMENT_MODES:
+        mode = messenger_bot.COMMENT_MODE_DEFAULT
+    url = _ms_webhook_url(request)
+    out = []
+    import httpx
+    async with httpx.AsyncClient(timeout=25) as c:
+        for pid in ids:
+            res = await messenger_setup.connect(pid, p["app_id"], p["app_secret"], p["user_token"], url,
+                                                _ms_verify_token(), client=c)
+            if not res.get("ok"):
+                out.append({"page_id": pid, "page_name": known[pid]["name"], "ok": False,
+                            "error": res.get("error", "")})
+                continue
+            extra = {"comments": mode, "login": "facebook"}
+            ig_note = ""
+            if p.get("instagram"):
+                ig, ig_note = await _ms_link_instagram(c, pid, res["page_token"], p["app_id"], p["app_secret"], url)
+                if ig.get("id"):
+                    extra.update({"ig_id": ig["id"], "ig_username": ig.get("username", ""), "instagram": "on"})
+            aid, loi, updated = _ms_save_account(request, pid, p["app_id"], p["app_secret"], res,
+                                                 known[pid]["name"] if not p.get("label") else p["label"],
+                                                 p.get("brain", ""), extra)
+            if loi:
+                out.append({"page_id": pid, "page_name": known[pid]["name"], "ok": False, "error": loi})
+                continue
+            out.append({"page_id": pid, "page_name": res.get("page_name") or known[pid]["name"], "ok": True,
+                        "updated": updated, "account": _ms_account_view(channel_accounts.get_account(aid) or {}),
+                        "check": _ms_with_bot_row(res, aid, pid),
+                        "repair_errors": res.get("repair_errors", []) + ([ig_note] if ig_note else [])})
+    if all(r["ok"] for r in out):
+        messenger_oauth.forget(state)
+    return {"ok": any(r["ok"] for r in out), "results": out}
+
+
+async def _ms_link_instagram(c, page_id: str, page_token: str, app_id: str, app_secret: str, url: str) -> tuple:
+    """Find the Instagram account linked to a Page and register the app's `instagram` webhook (0.447.0).
+    Returns (account {"id", "username"}, a note for the owner or "")."""
+    ig = await messenger_setup.instagram_account(c, page_id, page_token)
+    if not ig.get("ok"):
+        return {}, localefmt.chu("Instagram: ", "Instagram: ") + ig.get("error", "")
+    if not ig.get("id"):
+        return {}, localefmt.chu("Trang này chưa gắn tài khoản Instagram chuyên nghiệp nào.",
+                                 "This Page has no Instagram professional account linked.")
+    wh = await messenger_setup.set_instagram_webhook(c, app_id, app_secret, url, _ms_verify_token())
+    return ig, "" if wh.get("ok") else localefmt.chu("Webhook Instagram: ", "Instagram webhook: ") + wh.get("error", "")
+
+
+@app.post("/messenger/instagram")
+async def messenger_instagram_toggle(request: Request):
+    """Turn a Page's Instagram on or off in Javis (0.447.0). Off: its messages and comments are dropped."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = str(body.get("account_id") or "").strip()
+    a = channel_accounts.get_account(aid)
+    if not a or a.get("channel") != "messenger":
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có tài khoản Messenger này",
+                                                                 "No such Messenger account")}, status_code=404)
+    if not (a.get("meta") or {}).get("ig_id"):
+        return JSONResponse({"ok": False, "error": localefmt.chu("Trang này chưa nối Instagram",
+                                                                 "This Page has no Instagram connected")}, status_code=400)
+    ok, loi = channel_accounts.update_account(aid, {"meta": {**(a.get("meta") or {}),
+                                                             "instagram": "on" if body.get("on") else "off"}})
+    if not ok:
+        return JSONResponse({"ok": False, "error": loi}, status_code=400)
+    return {"ok": True, "account": _ms_account_view(channel_accounts.get_account(aid) or a)}
+
+
+@app.post("/messenger/comments")
+async def messenger_comments_mode(request: Request):
+    """Set how one Page's comments are handled: off, inbox (the owner answers) or reply (the bot too)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = str(body.get("account_id") or "").strip()
+    mode = str(body.get("mode") or "")
+    a = channel_accounts.get_account(aid)
+    if not a or a.get("channel") != "messenger":
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có tài khoản Messenger này",
+                                                                 "No such Messenger account")}, status_code=404)
+    if mode not in messenger_bot.COMMENT_MODES:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Chế độ bình luận không hợp lệ",
+                                                                 "Invalid comment mode")}, status_code=400)
+    ok, loi = channel_accounts.update_account(aid, {"meta": {**(a.get("meta") or {}), "comments": mode}})
+    if not ok:
+        return JSONResponse({"ok": False, "error": loi}, status_code=400)
+    return {"ok": True, "account": _ms_account_view(channel_accounts.get_account(aid) or a)}
+
+
+@app.get("/messenger/privacy")
+async def messenger_privacy():
+    """Privacy policy and data deletion page for the owner's Meta app (needed to go Live)."""
+    try:
+        brand = str(cfgmod.read_settings().get("workspace_name") or "") or "Javis OS"
+    except Exception:
+        brand = "Javis OS"
+    pages = []
+    try:
+        pages = [(a.get("meta") or {}).get("bot_name") or a.get("label") or ""
+                 for a in channel_accounts.list_accounts(channel="messenger")]
+    except Exception:
+        pages = []
+    return HTMLResponse(messenger_oauth.privacy_html(brand, pages))
+
+
+@app.post("/messenger/check")
+async def messenger_check(request: Request):
+    """Rerun the checklist on a saved Messenger account. `repair: true` first re-registers the
+    app webhook and re-subscribes the Page."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = str(body.get("account_id") or "").strip()
+    a, cr = _ms_account_creds(aid)
+    if not a:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có tài khoản Messenger này",
+                                                                 "No such Messenger account")}, status_code=404)
+    meta = a.get("meta") or {}
+    url = _ms_webhook_url(request)
+    if not url.startswith("https://"):
+        url = meta.get("webhook_url", "")
+    errs = []
+    import httpx
+    async with httpx.AsyncClient(timeout=25) as c:
+        app_id = meta.get("app_id", "")
+        if not app_id:
+            info = await messenger_setup.debug_token(c, cr["access_token"])
+            app_id = info.get("app_id", "") if info.get("ok") else ""
+            if app_id:
+                channel_accounts.update_account(aid, {"meta": {**meta, "app_id": app_id}})
+        if body.get("repair") and app_id:
+            rep = await messenger_setup.repair(c, cr["page_id"], cr["access_token"], app_id,
+                                               cr["app_secret"], url, _ms_verify_token())
+            errs = rep.get("errors", [])
+        chk = await messenger_setup.run_checks(c, cr["page_id"], cr["access_token"], cr["app_secret"],
+                                               app_id, url, _ms_bot_running(aid, cr["page_id"]))
+        if meta.get("ig_id") and app_id:
+            # Instagram (0.447.0): Repair registers its webhook again; the row says what is missing.
+            if body.get("repair") and url.startswith("https://"):
+                r = await messenger_setup.set_instagram_webhook(c, app_id, cr["app_secret"], url, _ms_verify_token())
+                if not r.get("ok"):
+                    errs.append(r.get("error", ""))
+            ig = await messenger_setup.instagram_account(c, cr["page_id"], cr["access_token"])
+            info = await messenger_setup.debug_token(c, cr["access_token"], app_id, cr["app_secret"])
+            wh = await messenger_setup.instagram_webhook(c, app_id, cr["app_secret"])
+            chk.setdefault("items", []).append(messenger_setup.instagram_item(ig, info.get("scopes", []), wh))
+    return {"ok": True, "account": _ms_account_view(channel_accounts.get_account(aid) or a),
+            "check": chk, "repair_errors": errs}
+
+
+# ============================================================
+# Threads (0.448.0): replies under the owner's Threads posts, pushed by Meta to one webhook and routed by
+# account id in `threads_bot.handle_webhook`. Connected with Log in to Threads on the Meta card. Imports stay
+# inside the routes so loading main does not pay for a channel most installs never use.
+# ============================================================
+def _th_verify_token() -> str:
+    """The handshake string Threads echoes when its webhook is set up in the App Dashboard. Generated once."""
+    m = cfgmod.read_settings().get("threads", {}) or {}
+    tok = str(m.get("verify_token") or "").strip()
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        cfgmod.update_settings({"threads": {"verify_token": tok}})
+    return tok
+
+
+def _th_account_secrets() -> list:
+    import threads_bot
+    out = []
+    try:
+        for a in channel_accounts.list_accounts(channel="threads"):
+            cr = threads_bot.split_credentials(channel_accounts.get_token(a.get("id", "")))
+            if cr.get("app_secret"):
+                out.append(cr["app_secret"])
+    except Exception as e:
+        print(f"[threads secrets] {type(e).__name__}: {e}", file=sys.stderr)
+    return out
+
+
+def _th_account_view(a: dict) -> dict:
+    import threads_bot
+    meta = a.get("meta") or {}
+    bots = chatbot_store.bots_using_account(a.get("id", ""))
+    return {"id": a.get("id"), "label": a.get("label"), "user_id": a.get("external_id"),
+            "username": meta.get("username", ""), "app_id": meta.get("app_id", ""), "brain": a.get("brain", ""),
+            "comments": threads_bot.comment_mode(a.get("id", "")), "token_expires": meta.get("token_expires", 0),
+            "last_webhook": meta.get("last_webhook", 0),
+            "bots": [{"id": b["id"], "name": b.get("name"), "enabled": bool(b.get("enabled"))} for b in bots]}
+
+
+@app.get("/threads/webhook")
+async def threads_webhook_verify(request: Request):
+    q = request.query_params
+    got = str(q.get("hub.verify_token") or "")
+    if q.get("hub.mode") == "subscribe" and got and secrets.compare_digest(got, _th_verify_token()):
+        return PlainTextResponse(str(q.get("hub.challenge") or ""))
+    return PlainTextResponse("forbidden", status_code=403)
+
+
+@app.post("/threads/webhook")
+async def threads_webhook(request: Request):
+    """New replies under the owner's Threads posts. Nothing is trusted before the signature check under the
+    Threads app secret of a connected account."""
+    import threads_bot
+    raw = await request.body()
+    if len(raw) > 2_000_000:
+        return PlainTextResponse("too large", status_code=413)
+    if not threads_bot.verify_signature(raw, request.headers.get("x-hub-signature-256", ""), _th_account_secrets()):
+        return PlainTextResponse("bad signature", status_code=401)
+    try:
+        payload = json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        return PlainTextResponse("bad json", status_code=400)
+    # The card's checklist says whether Threads has called at all (the most common setup miss).
+    try:
+        for target, _f, _v in threads_bot._notifications(payload):
+            o = channel_accounts.owner_of(target, "threads") if target else None
+            if o:
+                channel_accounts.update_account(o["id"], {"meta": {**(o.get("meta") or {}), "last_webhook": time.time()}})
+    except Exception as e:
+        print(f"[threads webhook mark] {type(e).__name__}: {e}", file=sys.stderr)
+    n = await threads_bot.handle_webhook(payload)
+    return {"ok": True, "events": n}
+
+
+@app.get("/threads/setup")
+async def threads_setup_info(request: Request, brain: str = ""):
+    """What the Threads part of the Meta card shows: the addresses to paste in the App Dashboard, the verify token
+    and the connected accounts. Never a token."""
+    import threads_oauth
+    base = _ms_base(request)
+    accs = channel_accounts.list_accounts(channel="threads", brain=str(brain or "").strip())
+    return {"ok": True, "https": base.startswith("https://"), "webhook_url": base + "/threads/webhook",
+            "verify_token": _th_verify_token(), "redirect_url": base + threads_oauth.CALLBACK_PATH,
+            "uninstall_url": base + threads_oauth.UNINSTALL_PATH, "delete_url": base + threads_oauth.DELETE_PATH,
+            "accounts": [_th_account_view(a) for a in accs]}
+
+
+@app.post("/threads/oauth/start")
+async def threads_oauth_start(request: Request):
+    import threads_oauth
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    res = threads_oauth.start(body.get("app_id"), body.get("app_secret"), _ms_base(request) + threads_oauth.CALLBACK_PATH,
+                              str(body.get("brain") or ""), str(body.get("comments") or ""))
+    return res if res.get("ok") else JSONResponse(res, status_code=400)
+
+
+def _th_save(p: dict) -> tuple:
+    """Store (or update) the Threads account of a ready login and restart the bots using it. (id, error)."""
+    import threads_bot
+    acc = p.get("account") or {}
+    uid = str(acc.get("id") or "")
+    secret = threads_bot.join_credentials(uid, p.get("token", ""), p.get("app_secret", ""))
+    mode = p.get("comments") if p.get("comments") in threads_bot.COMMENT_MODES else threads_bot.COMMENT_MODE_DEFAULT
+    meta = {"username": acc.get("username", ""), "bot_name": acc.get("name") or acc.get("username", ""),
+            "app_id": p.get("app_id", ""), "token_at": time.time(),
+            "token_expires": time.time() + int(p.get("expires_in") or 0), "login": "threads"}
+    old = channel_accounts.owner_of(uid, "threads")
+    if old:
+        ok, loi = channel_accounts.update_account(old["id"], {"token": secret, "external_id": uid,
+                                                              "meta": {**(old.get("meta") or {}), **meta}})
+        if not ok:
+            return "", loi
+        for b in chatbot_store.bots_using_account(old["id"]):
+            if b.get("enabled"):
+                chatbot_runtime.start_bot(b["id"])
+        return old["id"], ""
+    aid, loi = channel_accounts.create_account({
+        "channel": "threads", "token": secret, "external_id": uid, "meta": {**meta, "comments": mode},
+        "label": "@" + acc["username"] if acc.get("username") else uid, "brain": p.get("brain", "")})
+    return aid or "", loi or ""
+
+
+@app.get("/threads/oauth/callback")
+async def threads_oauth_callback(state: str = Query(""), code: str = Query(""), error: str = Query(""),
+                                 error_description: str = Query("")):
+    import threads_oauth
+    res = await threads_oauth.callback(state, code, error, error_description)
+    if res.get("ok"):
+        p = threads_oauth.take(state)
+        aid, loi = _th_save(p) if p else ("", localefmt.chu("Phiên đăng nhập đã hết hạn", "This sign-in expired"))
+        if loi:
+            res = {"ok": False, "error": loi}
+            threads_oauth._set(state, status="error", error=loi)
+        else:
+            threads_oauth._set(state, status="saved", account_id=aid)
+    if res.get("ok"):
+        title = localefmt.chu("✓ Đã nối Threads", "✓ Threads connected")
+        body = localefmt.chu(f"Đã nối @{res['account'].get('username', '')}. Quay lại tab Javis, tab này tự đóng.",
+                             f"@{res['account'].get('username', '')} is connected. Go back to the Javis tab, "
+                             "this tab closes by itself.")
+    else:
+        title = localefmt.chu("⚠ Chưa nối được Threads", "⚠ Threads did not connect")
+        body = str(res.get("error", ""))
+    html = ("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, "
+            "initial-scale=1'><title>Javis</title></head><body style='font-family:system-ui,sans-serif;font-size:18px;"
+            "background:#111;color:#eee;text-align:center;padding:72px 16px'>"
+            f"<h2>{html_mod.escape(title)}</h2><p>{html_mod.escape(body)}</p>"
+            + ("<script>setTimeout(function(){try{window.close()}catch(e){}},1500)</script>" if res.get("ok") else "")
+            + "</body></html>")
+    return HTMLResponse(html)
+
+
+@app.get("/threads/oauth/result")
+async def threads_oauth_result(state: str = ""):
+    import threads_oauth
+    return threads_oauth.result(state)
+
+
+@app.post("/threads/comments")
+async def threads_comments_mode(request: Request):
+    """How one Threads account's replies are handled: off, inbox (the owner answers) or reply (the bot too)."""
+    import threads_bot
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = str(body.get("account_id") or "").strip()
+    mode = str(body.get("mode") or "")
+    a = channel_accounts.get_account(aid)
+    if not a or a.get("channel") != "threads":
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có tài khoản Threads này",
+                                                                 "No such Threads account")}, status_code=404)
+    if mode not in threads_bot.COMMENT_MODES:
+        return JSONResponse({"ok": False, "error": localefmt.chu("Chế độ không hợp lệ", "Invalid mode")}, status_code=400)
+    ok, loi = channel_accounts.update_account(aid, {"meta": {**(a.get("meta") or {}), "comments": mode}})
+    if not ok:
+        return JSONResponse({"ok": False, "error": loi}, status_code=400)
+    return {"ok": True, "account": _th_account_view(channel_accounts.get_account(aid) or a)}
+
+
+@app.post("/threads/check")
+async def threads_check(request: Request):
+    """The checklist of one Threads account: token, permissions to read and answer, webhook received, bot on duty."""
+    import httpx
+    import threads_bot
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    aid = str(body.get("account_id") or "").strip()
+    a = channel_accounts.get_account(aid)
+    if not a or a.get("channel") != "threads":
+        return JSONResponse({"ok": False, "error": localefmt.chu("Không có tài khoản Threads này",
+                                                                 "No such Threads account")}, status_code=404)
+    cr = threads_bot.split_credentials(channel_accounts.get_token(aid))
+    meta = a.get("meta") or {}
+    async with httpx.AsyncClient(timeout=20) as c:
+        who = await threads_bot.whoami(c, cr.get("access_token", ""))
+    item = messenger_setup._item
+    items = [item("token", bool(who.get("ok")), ("Token Threads hợp lệ", "The Threads token is valid"),
+                  "@" + who.get("username", "") if who.get("ok") else who.get("error", ""),
+                  ("Bấm Đăng nhập Threads lại.", "Click Log in to Threads again."))]
+    exp = float(meta.get("token_expires") or 0)
+    if exp:
+        days = int((exp - time.time()) // 86400)
+        items.append(item("expiry", days > 7 or None, ("Token còn hạn, Javis tự gia hạn", "The token is valid and renews itself"),
+                          localefmt.chu(f"còn {days} ngày", f"{days} days left"),
+                          ("Bật một bot cho kênh này để Javis tự gia hạn, hoặc đăng nhập Threads lại.",
+                           "Turn on a bot for this channel so Javis renews the token, or log in to Threads again.")))
+    last = float(meta.get("last_webhook") or 0)
+    items.append(item("webhook", True if last else None, ("Threads đã gửi bình luận về Javis", "Threads has sent replies to Javis"),
+                      time.strftime("%Y-%m-%d %H:%M", time.localtime(last)) if last else localefmt.chu("chưa nhận lần nào", "none received yet"),
+                      ("Trong App Dashboard, Threads API, Webhooks: dán Địa chỉ webhook và Mã xác minh ở thẻ này, đăng ký "
+                       "trường replies, rồi chuyển app sang Live. Thử bình luận một bài của bạn để kiểm tra.",
+                       "In the App Dashboard, Threads API, Webhooks: paste this card's Webhook address and Verify token, "
+                       "subscribe to the replies field, then switch the app to Live. Reply to one of your posts to test.")))
+    running = bool(cr.get("user_id") in threads_bot.registered()
+                   or any(b.get("enabled") for b in chatbot_store.bots_using_account(aid)))
+    items.append(item("bot", True if running else None, ("Có bot đang trực", "A bot is answering"), "",
+                      ("Vào Chatbot, Bot, tạo hoặc bật bot cho kênh Threads.",
+                       "Open Chatbot, Bots and create or turn on a bot for the Threads channel.")))
+    return {"ok": True, "account": _th_account_view(channel_accounts.get_account(aid) or a),
+            "check": {"ok": all(i["ok"] is not False for i in items), "items": items}}
+
+
+@app.post("/threads/uninstall")
+async def threads_uninstall(request: Request):
+    """Threads calls this when the owner removes the app from their account (a required setting of the Threads
+    use case). Nothing to undo here: the token stops working and the card's check says so."""
+    return {"ok": True}
+
+
+@app.post("/threads/delete")
+async def threads_delete(request: Request):
+    """The data deletion callback the Threads use case requires. Javis keeps no data about other Threads users
+    beyond the replies in the owner's own inbox, which the owner deletes there."""
+    return {"url": _ms_base(request) + "/messenger/privacy", "confirmation_code": secrets.token_hex(8)}
+
+
+# ============================================================
+# Zalo OA (0.412.0): customer bots on a Zalo Official Account. Zalo calls one webhook for every
+# OA; `zalo_oa_bot.handle_webhook` routes by OA id. No owner control channel here.
+# ============================================================
+def _zo_webhook_url(request: Request) -> str:
+    base = web_security.external_base(
+        request.url.scheme, request.url.netloc,
+        request.headers.get("x-forwarded-proto", ""), request.headers.get("x-forwarded-host", ""))
+    return base + "/zalo-oa/webhook"
+
+
+def _zo_site_codes() -> list:
+    z = cfgmod.read_settings().get("zalo_oa", {}) or {}
+    return [str(c) for c in (z.get("site_codes") or []) if str(c or "").strip()]
+
+
+def _zo_account_secrets() -> list:
+    """(App ID, OA secret key) of every Zalo OA account, for the webhook signature check."""
+    out = []
+    try:
+        for a in channel_accounts.list_accounts(channel="zalo_oa"):
+            cr = zalo_oa_bot.split_credentials(channel_accounts.get_token(a.get("id", "")))
+            if cr.get("oa_secret"):
+                out.append((cr.get("app_id", ""), cr["oa_secret"]))
+    except Exception as e:
+        print(f"[zalo_oa secrets] {type(e).__name__}: {e}", file=sys.stderr)
+    return out
+
+
+@app.post("/zalo-oa/webhook")
+async def zalo_oa_webhook(request: Request):
+    """Inbound Zalo OA events. Public URL, so nothing is trusted before the signature check; a
+    request no known OA secret key signed is dropped with 401 and never handed to a bot."""
+    raw = await request.body()
+    if len(raw) > 2_000_000:
+        return PlainTextResponse("too large", status_code=413)
+    sig = request.headers.get("x-zevent-signature", "") or request.headers.get("mac", "")
+    if not zalo_oa_bot.verify_signature(raw, sig, _zo_account_secrets()):
+        return PlainTextResponse("bad signature", status_code=401)
+    try:
+        payload = json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        return PlainTextResponse("bad json", status_code=400)
+    # Answer 200 right away (Zalo wants it within about 2 seconds and retries otherwise); the
+    # events run as tasks.
+    n = await zalo_oa_bot.handle_webhook(payload if isinstance(payload, dict) else {})
+    return {"ok": True, "events": n}
+
+
+@app.post("/zalo-oa/site-verification")
+async def zalo_oa_site_verification(request: Request):
+    """Save the domain verification code Zalo shows (file name, meta tag or bare code), so that
+    /zalo_verifier<code>.html answers and the owner can press Verify on developers.zalo.me.
+    `remove: true` forgets it."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    code = zalo_oa_bot.parse_site_code(body.get("code"))
+    if not code:
+        return JSONResponse({"ok": False, "error": localefmt.chu(
+            "Không đọc được mã xác thực. Dán tên file zalo_verifier...html, thẻ meta hoặc chính mã đó.",
+            "Could not read a verification code. Paste the zalo_verifier...html file name, the meta tag or the code itself.")},
+            status_code=400)
+    codes = [c for c in _zo_site_codes() if c != code]
+    if not body.get("remove"):
+        codes = ([code] + codes)[:10]
+    cfgmod.update_settings({"zalo_oa": {"site_codes": codes}})
+    return {"ok": True, "code": code, "site_codes": codes,
+            "file": f"/zalo_verifier{code}.html"}
+
+
+@app.get("/zalo_verifier{code}.html")
+async def zalo_oa_verifier_file(code: str):
+    """The file Zalo fetches to verify the webhook domain. Only codes the owner saved exist."""
+    if code not in _zo_site_codes():
+        return PlainTextResponse("not found", status_code=404)
+    return HTMLResponse(zalo_oa_bot.verifier_html(code))
+
+
 def restart_telegram():
     """Bật lại bot theo cấu hình settings.telegram (tắt bot cũ nếu có)."""
     global _TG_BOT
@@ -22939,8 +26742,9 @@ def restart_telegram():
         _TG_BOT = None
     _TG_SESS.clear()   # xoá mọi phiên hội thoại cũ khi khởi động lại bot
     if t.get("enabled") and t.get("token"):
-        _TG_BOT = TelegramBot(t["token"], t.get("chat_id", ""), _tg_answer, _tg_command, _tg_callback,
-                              download_dir=_tg_inbox_dir, stt_fn=_stt_nghe)
+        # `_tg_owner_*`: the shared turn and commands, plus talking to an agent (`@<agent>`, /agent).
+        _TG_BOT = TelegramBot(t["token"], t.get("chat_id", ""), _tg_owner_answer, _tg_owner_command, _tg_callback,
+                              download_dir=_tg_inbox_dir, stt_fn=_stt_nghe, precheck_fn=_tg_owner_precheck)
         _TG_BOT.start()
         return True
     return False
@@ -23113,6 +26917,29 @@ async def chatbots_chats(account_ids: str = "", bot_id: str = "", q: str = "", l
     return {"ok": True, "chats": chatbot_cuoc_chat.danh_sach(tk, q, limit, cho, bot)}
 
 
+@app.get("/chatbots/zalo-labels")
+async def chatbots_zalo_labels(account_ids: str = "", bot_id: str = ""):
+    """Zalo label names (tags the owner set in the Zalo app) of the personal Zalo accounts ticked in the bot form, for
+    "Never answer chats tagged" (0.281.0). Same account rules as `/chatbots/chats`; registered before `{bot_id}` routes.
+    `supported` is False when no ticked personal Zalo account could return labels (javis-zalo older than 1.6.0, or
+    signed out), so the form can say why the list is empty."""
+    import zalo_personal_channel
+    bot = chatbot_store.get_bot(bot_id) if bot_id else None
+    ids = [x.strip() for x in str(account_ids or "").split(",") if x.strip()]
+    if not ids:
+        ids = [str((a or {}).get("id") or a) if isinstance(a, dict) else str(a) for a in ((bot or {}).get("accounts") or [])]
+    names, supported = [], False
+    for aid in ids:
+        acc = channel_accounts.get_account(aid) or {}
+        if acc.get("channel") != "zalo_personal":
+            continue
+        for n in await zalo_personal_channel.label_names(aid):
+            if n not in names:
+                names.append(n)
+        supported = supported or bool((zalo_personal_channel._LABELS.get(aid) or {}).get("ok"))
+    return {"ok": True, "labels": names, "supported": supported}
+
+
 @app.post("/chatbots/{bot_id}/people")
 async def chatbots_people(bot_id: str, chat_id: str = Form(...), on: str = Form("1")):
     """Cho phép (hoặc gỡ) MỘT người nhắn riêng cho bot, bằng đúng một cú bấm. Đôi của
@@ -23152,7 +26979,7 @@ async def chatbots_create(name: str = Form(...), agent_slug: str = Form(...),
                           account_label: str = Form(""), reply_policy: str = Form(""),
                           gio_truc: str = Form(""), nhuong_tay_phut: str = Form(""),
                           ngoai_le: str = Form(""), xac_nhan_ngoai_le: str = Form(""),
-                          nhan_ket_ban: str = Form("")):
+                          nhan_ket_ban: str = Form(""), skip_labels: str = Form("")):
     # Bot sống TRONG một brain: Agent nó dùng và tài liệu nó đọc là cùng một chỗ. Nhận cả hai
     # tên tham số và tự bù cho nhau, nên người gọi chỉ cần gửi một cái.
     br = (brain or agent_brain or "").strip()
@@ -23190,6 +27017,8 @@ async def chatbots_create(name: str = Form(...), agent_slug: str = Form(...),
         "xac_nhan_ngoai_le": ack_nl,
         # Tự nhận lời mời kết bạn và đọc lời giới thiệu (0.172.0, Zalo cá nhân): "1" = bật, mặc định tắt.
         "nhan_ket_ban": nhan_ket_ban,
+        # Zalo labels the bot stays out of (0.281.0, personal Zalo): JSON list of label names.
+        "skip_labels": skip_labels,
     })
     if err:
         return JSONResponse({"ok": False, "error": err}, status_code=400)
@@ -23339,6 +27168,9 @@ conversations_routes.register(app, conversations_routes.ConversationsDeps(
     manual_answer=chatbot_runtime.manual_answer,
     manual_done=chatbot_runtime.manual_done,
     brain_root=_brain_root,
+    pending=chatbot_runtime.nhom_cho,
+    drop_pending=chatbot_runtime.bo_nhom_cho,
+    manual_meta=chatbot_runtime.manual_meta,
 ))
 
 # Trang Coding (0.63.0): sổ repo, ràng buộc phiên, worktree, điểm hồi. Không có deps - kho
@@ -23349,6 +27181,172 @@ coding_routes.register(app, coding_routes.CodingDeps(
     brain_keys=_brain_keys,
     resolve_path=lambda b, rel: str(_safe_serve_path(b, rel)),
     brain_root=lambda b: str(_brain_root(b))))
+
+# GitHub inside chat (0.362.0, docs/dev/2026-10-github-trong-chat-spec.md): the built-in GitHub connection, repo
+# clones per brain (outside the brain tree) and the repos attached to a conversation.
+import routes.github as github_routes   # noqa: E402
+github_routes.register(app, github_routes.GitHubDeps(brain_root=lambda b: str(_brain_root(b))))
+import github_work   # noqa: E402
+# 0.363.0: the gate result (and from G3 the PR and CI news) lands in the chat that owns the repo, plus the inbox.
+def _github_team(sid: str):
+    """The team whose chat is `sid`, or None (0.449.0: GitHub repos can be attached to a team chat)."""
+    try:
+        if not _TEAM_API.exists():
+            return None
+        return _TEAM_API.teams().by_session(sid)
+    except Exception:  # noqa: BLE001 - not a team, or the team store is unavailable
+        return None
+
+
+async def _github_notify(sid: str, text: str, ok: bool):
+    """GitHub news of a conversation. A team chat gets it as a system line in the team chat (a plain chat message would
+    show up there with no sender) plus the inbox; any other chat goes through _notify_owner as before."""
+    team = await asyncio.to_thread(_github_team, sid)
+    if team is None:
+        return await _notify_owner(f"{WEB_CHAT_PREFIX}{sid}", text, label="GitHub", source="github", quiet=bool(ok))
+    try:
+        runner = _TEAM_API.runner()
+        await asyncio.to_thread(runner._post, team, text, author_kind="system", meta={"kind": "github"})
+    except Exception as e:  # noqa: BLE001 - the inbox below still keeps the news
+        print(f"[team github notify] {type(e).__name__}: {e}", file=sys.stderr)
+    await _bo_vao_hom_thu(f"{WEB_CHAT_PREFIX}{sid}", text, kind="report", label="GitHub", source="github",
+                          quiet=bool(ok), brain=team.get("brain_id") or "")
+    return True, ""
+
+
+github_work.configure(notify=_github_notify)
+
+
+async def _github_start_turn(sid: str, text: str) -> bool:
+    """A fix round (0.364.0) runs as the next turn of the same chat: same worktree, same engine. It goes through
+    the follow-up opener the chat's WebSocket handler left in `_NOI_TIEP_WEB` (it waits for the chat to be idle).
+    False when this process has none for the chat (after a restart): github_work then asks the person instead."""
+    team = await asyncio.to_thread(_github_team, str(sid or ""))
+    if team is not None:
+        return await _github_team_fix(team, text)
+    runner = _NOI_TIEP_WEB.get(str(sid or ""))
+    if runner is None:
+        return False
+    t = asyncio.create_task(runner(text, 0))
+    _PUSH_TASKS.add(t)
+    t.add_done_callback(_PUSH_TASKS.discard)
+    return True
+
+
+async def _github_team_fix(team: dict, text: str) -> bool:
+    """A fix round of a team chat's repo (0.449.0) is handed to the team as a job, like the owner assigning it: the
+    leader plans, a member fixes in the same worktree, and the job's end pushes again (`_team_job_done`). The same
+    round text never makes a second job (client_msg_id from its hash). False when the team cannot take a job."""
+    if team.get("status") == "archived":
+        return False
+    cmid = "github:" + hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()[:24]
+
+    def _submit():
+        return _TEAM_API.runner().submit(team["team_id"], text, as_job=True, client_msg_id=cmid,
+                                         via={"correlation_id": cmid, "kenh": "github"})
+    try:
+        sub = await asyncio.to_thread(_submit)
+    except Exception as e:  # noqa: BLE001 - github_work then asks the person instead
+        print(f"[team github fix] {type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    if not sub.get("task_id"):
+        return False
+    if sub.get("created"):
+        _TEAM_API.kick()
+    return True
+
+
+def _github_session_info(sid: str) -> dict:
+    """Title, the person's latest request, and the engine/model a chat runs on, for the PR, the review and metrics.
+
+    `task` is the latest message the PERSON wrote (not a fix round Javis opened): a chat can hold several jobs, and
+    the chat title only describes the first one."""
+    store = get_store()
+    row = store.get_session(sid) or {}
+    task = ""
+    try:
+        for m in reversed(store.get_messages(sid) or []):
+            if m.get("role") != "user":
+                continue
+            text = chat_recall.strip_block(str(m.get("content") or "")).strip()
+            if text and not text.startswith("[Javis GitHub]"):
+                task = text
+                break
+    except Exception:  # noqa: BLE001
+        task = ""
+    main_m = (cfgmod.read_settings().get("model") or {}).get("main") or {}
+    return {"title": row.get("title") or "", "task": task[:2000],
+            "engine": row.get("pinned_provider") or main_m.get("provider") or "",
+            "model": row.get("pinned_model") or main_m.get("model") or ""}
+
+
+async def _github_review_ask(prompt: str, provider: str) -> str:
+    """Cross review (0.366.0, spec 10): ONE text-only turn on exactly `provider`, no tools, empty folder, like the
+    group-chat judge. The diff comes from someone else's repo, so the reviewer gets nothing it could act with."""
+    base = _reply_policy_sandbox_engine("Bạn là người review code độc lập. Chỉ trả về đúng khuôn JSON được yêu cầu.",
+                                        "gh-review", cwd_name="gh_review_cwd")
+    spec = {"provider": provider, "model": ""}
+    eng = aux_engine.strip_tools(
+        aux_engine.swap(base, mode="suggest", tag="gh-review", spec=spec, codex_profile=_write_codex_profile), base)
+    eng, info = resonance.pick_text_only_link(eng, base, spec, aux_engine._FallbackChain)
+    if eng is None:
+        raise RuntimeError(str((info or {}).get("reason") or "reviewer not available"))
+    final = ""
+    async for ev in eng.query(prompt):
+        if ev.get("type") == "final":
+            final = ev.get("content", "") or ""
+        elif ev.get("type") == "error":
+            raise RuntimeError(str(ev.get("content") or "engine error")[:200])
+    return final
+
+
+def _github_reviewers() -> list:
+    """Engines usable as a reviewer right now, in the Models page order.
+
+    Only engines `_github_review_ask` can really run text-only (owner, 05/11/2026): Claude (sandboxed, its tool gate)
+    and API providers (`no_tools`). Codex, Grok and Antigravity keep native file and shell tools, so
+    `resonance.pick_text_only_link` refuses them on a stranger's diff; listing them made every review of a Claude
+    author fail on ChatGPT and be skipped. A card resting out of quota is left out as well."""
+    s = cfgmod.read_settings()
+    m = s.get("model", {}) or {}
+    order = []
+    try:
+        order = [x for x in (model_routing.stored_order(m) or []) if isinstance(x, str)]
+    except Exception:
+        order = []
+    order += [aux_engine.CLAUDE, aux_engine.CODEX] + list(aux_engine.API_PROVIDERS)
+    out = []
+    for p in order:
+        if p in out:
+            continue
+        try:
+            ok, _why = aux_engine.availability({"provider": p}, s)
+        except Exception:
+            ok = False
+        if not ok or not (p == aux_engine.CLAUDE or p in aux_engine.API_PROVIDERS):
+            continue
+        if p == aux_engine.CLAUDE and not aux_engine._co_binary(p):
+            continue
+        try:
+            if _provider_def(p) and not _route_ready(m, p):
+                continue   # every key or the plan is resting out of quota
+        except Exception:  # noqa: BLE001 - unknown readiness: let the turn report the provider's own error
+            pass
+        out.append(p)
+    return out
+
+
+github_work.configure(start_turn=_github_start_turn, session_info=_github_session_info,
+                      review=_github_review_ask, reviewers=_github_reviewers,
+                      brain_root=lambda b: str(_brain_root(b)))
+github_routes._DEPS.busy_jobs = github_work.busy_jobs
+
+
+@app.on_event("startup")
+async def _github_watcher():
+    """0.364.0: watch every pushed commit's CI and PR until it settles (github_work.run_watcher)."""
+    t = asyncio.create_task(github_work.run_watcher())
+    _PUSH_TASKS.add(t)
 
 
 @app.post("/telegram/test")
@@ -23402,8 +27400,100 @@ def _cli_sess_key(session: str) -> str:
     return "cli:" + (raw or "default")
 
 
-async def _cli_turn(message: str, brain: str, session: str, host: str, progress=None):
-    """Một lượt chat của kênh CLI. Trả (out, key) với out là dict (trả lời thật) hoặc str (lỗi)."""
+def _cli_agent(brain: str, session: str, agent: str):
+    """The agent a CLI turn asks for. Returns ({"brain", "slug"}, "") when valid, (None, error) when
+    not, and (None, "") when no agent was asked for.
+
+    Checked against the RESOLVED brain, and a wrong brain is an ERROR instead of falling back to
+    the default brain as a plain turn does (`_cli_turn`): falling back would let an agent with the
+    same slug in the default brain answer instead, exactly the way around "an agent of another
+    brain is a 400".
+    """
+    slug = str(agent or "").strip()
+    if not slug:
+        return None, ""
+    name = str(brain or "").strip()
+    if name and name != "brain" and not os.path.isdir(name):
+        return None, localefmt.chu(
+            f"Không có brain '{name}': với agent, brain phải là đường dẫn tới một thư mục brain trên máy chủ.",
+            f"Brain '{name}' not found: with agent, brain must be the path of a brain folder on the server.")
+    # No brain sent: check in the session's brain, the brain this turn will run in.
+    root = _brain_root(name or _tg_brain(_cli_sess_key(session)))
+    f = _agent_md_path(root, slug)
+    if f is None:
+        return None, localefmt.chu(f"Brain này không có agent '{slug}'", f"This brain has no agent '{slug}'")
+    # The slug is the REAL file name: the readers further on join `<slug>.md` directly, while
+    # `_agent_md_path` also finds a name in the other Unicode form (NFC/NFD) than the one sent.
+    return {"brain": root, "slug": f.stem}, ""
+
+
+def _cli_project(brain: str, session: str, project: str, agent=None):
+    """The project a CLI turn asks to attach. Returns (project id, "") when valid, ("", error) when
+    not, and ("", "") when none was asked for.
+
+    `project` is a project id or the exact name of one (case does not matter) of the RESOLVED
+    brain, checked like `agent` (`_cli_agent`): a brain that does not exist is an error instead of
+    the default brain, and a project of another brain is an error too, since its files and rules
+    belong there. Not with `agent`: an agent turn runs with the agent's own prompt, which carries
+    no project block, as an agent chat on the dashboard.
+    """
+    want = str(project or "").strip()
+    if not want:
+        return "", ""
+    if agent:
+        return "", localefmt.chu("Không dùng được project cùng với agent: lượt agent chạy bằng prompt riêng của agent.",
+                                 "project cannot be combined with agent: an agent turn runs with the agent's own prompt.")
+    name = str(brain or "").strip()
+    if name and name != "brain" and not os.path.isdir(name):
+        return "", localefmt.chu(
+            f"Không có brain '{name}': với project, brain phải là đường dẫn tới một thư mục brain trên máy chủ.",
+            f"Brain '{name}' not found: with project, brain must be the path of a brain folder on the server.")
+    key = _brain_key(name or _tg_brain(_cli_sess_key(session)))
+    store = get_store()
+
+    def _in_brain(p) -> bool:
+        return bool(p) and _brain_key(p.get("brain") or "brain") == key
+
+    p = store.get_project(want)
+    if _in_brain(p):
+        return p["id"], ""
+    same = [x for x in store.list_projects() if _in_brain(x)
+            and str(x.get("name") or "").strip().casefold() == want.casefold()]
+    if len(same) == 1:
+        return same[0]["id"], ""
+    if len(same) > 1:
+        return "", localefmt.chu(f"Brain này có nhiều project tên '{want}': gửi id của project.",
+                                 f"This brain has several projects named '{want}': send the project id.")
+    return "", localefmt.chu(f"Brain này không có project '{want}'", f"This brain has no project '{want}'")
+
+
+def _cli_agent_prompt(brain, slug, conv_sid="", channel="cli") -> str:
+    """The agent's system prompt for a CLI turn: the very prompt of an agent chat on the dashboard
+    (`_agent_turn_system_prompt`: role, file body, skills, own memory, the Resonance swap, the
+    builder block, the session block, recent feedback and the agent's learned lessons), with the
+    closing channel line naming the CLI instead of the Partners page. Like the dashboard, no
+    CLAUDE.md and no owner memory; the CLI channel block is appended by the engine.
+
+    The owner's Telegram bot reuses it with `channel="telegram"` (see `_tg_owner_answer`)."""
+    return _agent_turn_system_prompt(brain, slug, conv_sid, channel=channel)
+
+
+async def _cli_turn(message: str, brain: str, session: str, host: str, progress=None, agent=None,
+                    project_id: str = ""):
+    """Một lượt chat của kênh CLI. Trả (out, key) với out là dict (trả lời thật) hoặc str (lỗi).
+
+    `agent`: a valid result of `_cli_agent`; the caller checks it FIRST to answer 400 instead of
+    running the turn.
+
+    An agent turn runs in its own session, keyed `<session key>@<slug>`: its own RAM session (the
+    API engines build the system prompt only when that session is new, and Claude Code / Codex
+    resume its native thread), its own `_TG_SID_MAP` entry and its own stored conversation. Sharing
+    the plain session made the first turn's prompt stick: a plain turn then `agent=x` ran with
+    Javis's prompt, and `agent=x` then `agent=y` ran with x's. `@` never survives
+    `_cli_sess_key`, so no plain session can collide with an agent one. The reply still names the
+    plain session the client sent.
+
+    `project_id`: a valid result of `_cli_project`, attached to the conversation before the turn."""
     key = _cli_sess_key(session)
     sess = _tg_session(key)
     if brain:
@@ -23415,8 +27505,10 @@ async def _cli_turn(message: str, brain: str, session: str, host: str, progress=
                 sess["brain"] = root
         except Exception:  # noqa: BLE001 - brain sai tên thì dùng mặc định, không phá lượt
             pass
-    meta = {"chat_id": key, "host": (host or "")[:64]}
-    out = await _tg_answer(message, meta=meta, progress=progress, channel="cli")
+    turn_key = key + (f"@{agent['slug']}" if agent else "")
+    meta = {"chat_id": turn_key, "host": (host or "")[:64]}
+    out = await _tg_answer(message, meta=meta, progress=progress, channel="cli", agent=agent,
+                           project_id=project_id)
     return out, key
 
 
@@ -23432,22 +27524,38 @@ def _cli_payload(out, key: str) -> dict:
 
 @app.post("/chat")
 async def chat_once(message: str = Form(...), brain: str = Form(""),
-                    session: str = Form(""), host: str = Form("")):
+                    session: str = Form(""), host: str = Form(""), agent: str = Form(""),
+                    project: str = Form("")):
     """Một lượt chat, đồng bộ. Trả câu trả lời cuối cùng.
 
     KHÔNG đặt trần thời gian riêng: một lượt agentic có thể chạy vài phút và cắt ngang giữa
     chừng là mất luôn công đã bỏ ra. Client tự chọn thời gian chờ; muốn thấy tiến độ thì dùng
     /chat/stream.
+
+    `agent` (optional) = slug of an agent of the chosen brain: the turn runs with that agent's
+    prompt, skills and model, in its own session. An agent missing from the brain, or a brain
+    that does not exist, is a 400.
+
+    `project` (optional) = id or name of a project of the chosen brain: the conversation is
+    attached to it before this turn (and stays there), so its rules apply from the first message.
+    A project missing from the brain, or sent together with `agent`, is a 400.
     """
     if not str(message or "").strip():
         return JSONResponse({"ok": False, "error": localefmt.chu("message rỗng", "message is empty")}, status_code=400)
-    out, key = await _cli_turn(message, brain, session, host)
+    ag, error = _cli_agent(brain, session, agent)
+    if error:
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
+    pid, error = _cli_project(brain, session, project, agent=ag)
+    if error:
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
+    out, key = await _cli_turn(message, brain, session, host, agent=ag, project_id=pid)
     return _cli_payload(out, key)
 
 
 @app.post("/chat/stream")
 async def chat_stream(message: str = Form(...), brain: str = Form(""),
-                      session: str = Form(""), host: str = Form("")):
+                      session: str = Form(""), host: str = Form(""), agent: str = Form(""),
+                      project: str = Form("")):
     """Cùng một lượt, nhưng đẩy tiến độ về ngay khi có (SSE).
 
     Gói đi theo ĐÚNG quy ước của WebSocket dashboard (`{"type": ...}`) để client không phải
@@ -23458,9 +27566,18 @@ async def chat_stream(message: str = Form(...), brain: str = Form(""),
 
     Client PHẢI bỏ qua im lặng mọi `type` nó chưa biết: server thêm loại gói mới là chuyện
     thường, và một CLI cũ không được vỡ vì điều đó.
+
+    `agent` and `project` as on /chat. Checked BEFORE the stream opens: once it is open the status
+    is already 200.
     """
     if not str(message or "").strip():
         return JSONResponse({"ok": False, "error": localefmt.chu("message rỗng", "message is empty")}, status_code=400)
+    ag, error = _cli_agent(brain, session, agent)
+    if error:
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
+    pid, error = _cli_project(brain, session, project, agent=ag)
+    if error:
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
 
     hang = asyncio.Queue()
 
@@ -23469,7 +27586,8 @@ async def chat_stream(message: str = Form(...), brain: str = Form(""),
 
     async def _chay():
         try:
-            out, key = await _cli_turn(message, brain, session, host, progress=_progress)
+            out, key = await _cli_turn(message, brain, session, host, progress=_progress, agent=ag,
+                                       project_id=pid)
             await hang.put({"type": "response", **_cli_payload(out, key)})
         except Exception as exc:  # noqa: BLE001 - lỗi phải tới được client, không nuốt
             await hang.put({"type": "error", "content": f"{type(exc).__name__}: {exc}"})
@@ -23552,6 +27670,63 @@ async def sessions_compact(session_id: str):
     res["provider"] = prov
     res["model"] = api_model or ""
     return res
+
+
+_DONG_TEP_CUOI = re.compile(r"(?:\s*\n\U0001F4CE [^\n]*)+\s*$")
+
+
+def _tim_tin_tua_lai(msgs, text: str, nth: int = 0):
+    """The stored user message the Rewind button points at: counted from the END, the (nth+1)-th user message whose
+    typed text equals `text` (whitespace folded). The bubble only knows the typed text; the stored content may carry
+    the context blocks the dashboard puts in front (`share_render.chu_nguoi_go`, the same rule as the bubble's
+    chuNguoiGo) and the attachment lines a message sent mid-turn gets at the end. Equality, not "contains": "ok" must
+    not match a later "ok làm đi", because the dashboard counts `nth` by equality."""
+    gon = lambda s: " ".join(str(s or "").split())
+    can = gon(text)
+    if not can:
+        return None
+    for m in reversed(msgs):
+        if m.get("role") != "user":
+            continue
+        if gon(_DONG_TEP_CUOI.sub("", share_render.chu_nguoi_go(m.get("content") or ""))) != can:
+            continue
+        if nth <= 0:
+            return m
+        nth -= 1
+    return None
+
+
+@app.post("/sessions/{session_id}/rewind")
+async def sessions_rewind(session_id: str, text: str = Form(...), nth: int = Form(0)):
+    """Rewind button under a question in the chat (0.349.0): delete that question and everything after it, so the
+    conversation continues from just before it. The dashboard then puts the question back in the composer.
+
+    The engines' native threads still hold the deleted turns, so they are dropped like `/compact` drops them: the next
+    turn opens a fresh thread seeded from the remaining transcript. A compaction summary that covers deleted turns is
+    dropped too. Refused while the chat is answering, like `/compact`.
+    """
+    st = get_store()
+    if not st.get_session(session_id):
+        return JSONResponse({"error": localefmt.chu("phiên không tồn tại", "session does not exist")}, status_code=404)
+    if _CHAT_RUNTIME.get_job(session_id):
+        return JSONResponse({"error": localefmt.chu("phiên đang trả lời", "session is still answering"),
+                             "ly_do": "dang_chay"}, status_code=409)
+    tin = _tim_tin_tua_lai(st.get_messages(session_id), text, max(0, int(nth or 0)))
+    if not tin:
+        return JSONResponse({"error": localefmt.chu("không tìm thấy câu này trong hội thoại đã lưu",
+                                                    "this message is not in the saved conversation"),
+                             "ly_do": "khong_thay"}, status_code=404)
+    da_xoa = st.rewind_from(session_id, int(tin["id"]))
+    con = [m for m in st.get_messages(session_id)
+           if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()]
+    sess = st.get_session(session_id) or {}
+    if int(sess.get("compact_count") or 0) > len(con):
+        st.set_compact(session_id, "", 0)
+    mach = st.clear_native_threads(session_id)
+    st.mark_thread_rotated(session_id)
+    st.set_last_input_tokens(session_id, 0)
+    limit_resume.REGISTRY.cancel(session_id)   # a pending quota rerun would answer the deleted question
+    return {"ok": True, "deleted": da_xoa, "remaining": st.count_messages(session_id), "threads": mach}
 
 
 @app.get("/slash/status")
@@ -23699,7 +27874,13 @@ async def reply_policy_forget(bot_id: str, chat_id: str = Form("")):
         return err
     if not chatbot_reply_policy_store.db_path().exists():
         return {"ok": True, "cases": 0, "lessons": 0}
-    return {"ok": True, **chatbot_reply_policy_store.forget(bot_id, chat_id)}
+    res = chatbot_reply_policy_store.forget(bot_id, chat_id)
+    try:
+        # Forgotten chat text must leave the brain folder now, not at the next mirror tick.
+        await asyncio.to_thread(learned_mirror.sync_bot, bot_id, True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[learned mirror] forget {bot_id}: {type(e).__name__}: {e}", file=sys.stderr)
+    return {"ok": True, **res}
 
 
 @app.get("/voice/brain-models")
@@ -23722,12 +27903,21 @@ async def voice_brain_models_route(provider: str = ""):
 async def share_rename(body: dict = Body(...)):
     """Đổi tên hiển thị của một link ở trang Chia sẻ (0.65.30). Tên rỗng thì quay về tên tự lấy
     theo tiêu đề file. Đặt sau route cuối để bảng route chỉ thêm một dòng."""
-    ban = share_store.doi_ten(body.get("token") or "", body.get("nhan") or "")
+    token = body.get("token") or ""
+    if "slug" in body:
+        # 2026-11-06: the same dialog edits the custom address. Checked first, so a taken address changes nothing.
+        try:
+            if share_store.set_slug(token, body.get("slug") or "") is None:
+                token = ""
+        except ValueError as e:
+            return {"ok": False, "error": str(e), "field": "slug"}
+    ban = share_store.rename(token, body.get("nhan") or "") if ("nhan" in body or "slug" not in body) \
+        else share_store.get(token)
     if not ban:
         return {"ok": False, "error": localefmt.chu("Link không tồn tại hoặc đã bị thu hồi.",
                                                     "The link does not exist or has been revoked.")}
-    return {"ok": True, "token": ban["token"], "nhan": ban.get("nhan") or "",
-            "ten": await asyncio.to_thread(_share_ten, ban)}
+    return {"ok": True, "token": ban["token"], "nhan": ban.get("nhan") or "", "slug": ban.get("slug") or "",
+            "url": share_store.public_path(ban), "ten": await asyncio.to_thread(_share_ten, ban)}
 
 
 @app.post("/chatbots/{bot_id}/try")
@@ -23878,6 +28068,15 @@ async def _warm_mcp_hub():
 async def _shutdown_mcp_pool():
     """Đóng các session MCP sống lâu (stdio subprocess, httpx client) khi server tắt."""
     try:
+        await _shutdown_improvement_candidates()
+    except Exception:
+        print("[improvement shutdown] candidate_shutdown_incomplete", file=__import__('sys').stderr)
+    try:
+        await _shutdown_improvement_trials()
+    except Exception:
+        # The service has drained workers before reporting unsettled storage.
+        print("[improvement shutdown] trial_shutdown_incomplete", file=__import__('sys').stderr)
+    try:
         await tasks_feature.shutdown()
     except Exception as e:
         print(f"[kanban shutdown] {e}", file=__import__('sys').stderr)
@@ -23919,7 +28118,7 @@ import team_engine  # noqa: E402
 import team_gate  # noqa: E402
 
 
-def _team_agent_info(root, agent_key):
+def _team_agent_info(root, agent_key, surface=None):
     """Thành viên theo mã bền: slug hiện tại, tên, lời nhắc hệ thống của agent (vai, bộ nhớ, luật chủ dặn, bài học) và
     model riêng. None khi mã đã nghỉ, file mất hay chưa có sổ danh tính: bộ chạy coi như thành viên đã rời."""
     try:
@@ -23930,7 +28129,9 @@ def _team_agent_info(root, agent_key):
         return None
     if not reg or reg.get("status") != "active" or not _agent_md_path(root, reg["slug"]):
         return None
-    name, system, model, provider = _workflow_agent_helpers(root, None)[1](reg["slug"])
+    # `surface="team"` only from the team runner: pulse scans and self-review reuse this persona and are not a
+    # surface the owner can choose for a procedure overlay (M5).
+    name, system, model, provider = _workflow_agent_helpers(root, None)[1](reg["slug"], surface, agent_key)
     role, reasoning = "", AGENT_REASONING_DEFAULT
     try:
         meta, _b = _read_md(_agent_md_path(root, reg["slug"]))
@@ -24005,6 +28206,48 @@ def _team_gate_support(provider):
                                       api_providers=tuple(aux_engine.API_PROVIDERS))
 
 
+def _team_gate_choices(current, settings):
+    """Labels of the connected providers a refused gated step can switch to on THIS machine, `current` left out: on
+    Docker (Codex without its sandbox) the advice must not send the owner back to Codex. Grok Build and Antigravity are
+    refused by team_gate.provider_support everywhere, so they are not probed."""
+    out = []
+    for prov in (aux_engine.CLAUDE, aux_engine.CODEX) + tuple(aux_engine.API_PROVIDERS):
+        if prov == current:
+            continue
+        try:
+            if not _team_gate_support(prov)["ok"] or not aux_engine.availability({"provider": prov}, settings)[0]:
+                continue
+        except Exception:  # noqa: BLE001 - a broken probe only drops that provider from the advice
+            continue
+        out.append(_TG_NHAN_NGAN.get(prov) or {"ollama-local": "Ollama Local"}.get(prov, prov))
+    return out
+
+
+def _team_record_usage(provider: str, model: str, outcome, *, execution=None, status=None, expected_requests=None) -> None:
+    """Count one team member turn in the usage ledger, like a chat turn (Settings > Usage, usage-events.jsonl).
+
+    Team turns used to write nothing there, so a team run on Claude Code or Codex was invisible on the Usage page.
+    API engines are skipped: `_ApiAuxEngine` already records each of their model calls itself, and counting here too
+    would double them. Best effort: a ledger error never fails the turn."""
+    try:
+        prov = str(provider or "")
+        if prov in aux_engine.API_PROVIDERS:
+            if execution:
+                usage_store.record(prov, model or "?", None, None, execution=execution,
+                                   event_kind="execution", status=status, expected_requests=expected_requests,
+                                   telemetry_errors=usage_store.telemetry_errors(execution["team_id"],
+                                       execution.get("task_id"), execution.get("execution_id")))
+            return
+        tin, tout = outcome.tokens_in, outcome.tokens_out
+        if not execution and not (tin or tout):
+            return
+        usage_store.record(prov, model or "?", tin, tout, getattr(outcome, "cost_usd", None),
+                           execution=execution, event_kind="cli_fallback", status=status)
+    except Exception as e:  # noqa: BLE001
+        usage_store.note_telemetry_error(execution)
+        print(f"[team usage] {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def _team_engine_for(team, agent_key, role):
     """Engine CHỈ CHỮ cho một lượt nhóm (phán quyết R3 của kế hoạch T1): thư mục trống, không MCP, cổng từ chối mọi công
     cụ. Model theo hợp đồng chat tương tác và giao việc (`team_engine`, 0.142.0): model riêng của trợ lý, thiếu hay chưa
@@ -24040,7 +28283,8 @@ def _team_engine_for(team, agent_key, role):
         if gate_id:
             sup = _team_gate_support(prov)
             if not sup["ok"]:
-                raise team_runner.EngineUnavailable(team_gate.unsupported_text(sup["reason"]))
+                raise team_runner.EngineUnavailable(team_gate.unsupported_text(
+                    sup["reason"], assistant=info.get("name") or "", choices=tuple(_team_gate_choices(prov, settings))))
         vault = str(_brain_root(root))
         cwd = ""
         try:
@@ -24097,7 +28341,7 @@ def _team_engine_for(team, agent_key, role):
             raise team_runner.EngineUnavailable(f"engine {spec['provider']} chưa sẵn sàng (kiểm tra trang Models)")
         return eng
 
-    async def run(req):
+    async def execute(req):
         # Tag riêng cho TỪNG lượt (0.142.0): lượt bị huỷ hay quá trần thời gian (team_runner.TURN_TIMEOUT_S) thì giết đúng
         # tiến trình engine của lượt này TRƯỚC khi khoá bận được nhả, để Thử lại không chạy song song với một tiến trình
         # cũ còn sống (review 0.142.0, #2).
@@ -24115,11 +28359,25 @@ def _team_engine_for(team, agent_key, role):
         else:
             await req["engine_started"]()
         outcome = team_runner.ToolTurnOutcome() if tools_on else team_runner.TextOnlyOutcome()
+        execution = dict((turn_context.current() or {}).get("execution") or {})
+        session_before = getattr(eng, "session_id", None)
         stream = eng.query(prompt)
+        usage_status = "error"
         try:
             async for ev in stream:
                 outcome.note(ev)
+            res = outcome.result()
+            usage_status = "completed"
+        except Exception as ex:
+            # 0.436.0 (team_retry): a failed turn tells the runner how many tools it called. Zero is the only count that
+            # lets a Work/Help step run again on its own; a text-only turn has no tools at all.
+            try:
+                ex.team_tool_calls = int(getattr(outcome, "tool_calls", 0) or 0)
+            except Exception:  # noqa: BLE001 - some exception types refuse new attributes: then it stays unknown
+                pass
+            raise
         except asyncio.CancelledError:
+            usage_status = "cancelled"
             try:
                 await asyncio.to_thread(claude_cli.cancel_all, tag)
             finally:
@@ -24128,7 +28386,13 @@ def _team_engine_for(team, agent_key, role):
                 except BaseException:  # noqa: BLE001 - generator đang bị huỷ
                     pass
             raise
-        res = outcome.result()
+        finally:
+            execution["cli_session_id"] = getattr(eng, "session_id", None)
+            execution["cli_session_new"] = not session_before
+            # Usage survives failure and cancellation; telemetry can never determine execution policy.
+            _team_record_usage(used["provider"], getattr(eng, "model", None) or used.get("model") or "", outcome,
+                               execution=execution, status=usage_status,
+                               expected_requests=getattr(eng, "usage_request_count", None))
         slug = info.get("slug") or ""
         # JAVIS_RULE trong lượt nhóm không có chủ nói trực tiếp với agent: hạ thành bài học (như bước workflow).
         rules, text = agent_rules.extract_rules(res["text"])
@@ -24153,7 +28417,22 @@ def _team_engine_for(team, agent_key, role):
             _log_agent_run(root, slug, "", clean)
 
         return {"text": clean, "tokens_in": res["tokens_in"], "tokens_out": res["tokens_out"],
+                "cost_usd": res.get("cost_usd"),
                 "lessons": lessons, "commit": commit, "engine_note": used.get("note") or ""}
+
+    async def run(req):
+        # Bind before asyncio.to_thread: constructors and CLI correlation inherit the host execution.
+        import uuid
+        ambient = turn_context.current() or turn_context.make("team", chat_id=req.get("team_id"))
+        ambient["execution"] = turn_context.execution_metadata({
+            "team_id": req.get("team_id"), "task_id": req.get("task_id"), "step_id": req.get("step_id"),
+            "turn_id": req.get("turn_id"), "attempt": req.get("attempt"), "job_revision": req.get("job_revision"),
+            "role": role, "purpose": req.get("purpose") or role, "execution_id": uuid.uuid4().hex})
+        token = turn_context.bind(ambient)
+        try:
+            return await execute(req)
+        finally:
+            turn_context.reset(token)
 
     run.marks_engine = True
     return spec["provider"], spec["model"], run
@@ -24244,9 +28523,17 @@ class _TeamAdmin:
         return {"enabled": bool(on) and a is not None}
 
 
+# 0.403.0: team notices that wait on the owner (called by name, acceptance, approval, still blocked on them) are urgent
+# questions; the rest (a job blocked, acceptance failed) are important team notices. Matched on team_runner's own words.
+_TEAM_ASKS_OWNER = re.compile(r"gọi bạn trong nhóm|called you in team|chờ bạn nghiệm thu|waits for your acceptance|"
+                              r"xin duyệt|asks for approval|vẫn đang chờ bạn|still waiting for you", re.I)
+
+
 async def _team_notify(session_id, text):
+    asks = bool(_TEAM_ASKS_OWNER.search(str(text or "")))
     await _bo_vao_hom_thu(f"{WEB_CHAT_PREFIX}{session_id}", text, kind="report",
-                          label=localefmt.chu("Team", "Team"), source="team")
+                          label=localefmt.chu("Team", "Team"), source="team",
+                          group="question" if asks else "team", level="urgent" if asks else "important")
 
 
 _FEEDBACK_PROJECTOR = [None]
@@ -24286,6 +28573,39 @@ def _agent_judge_store(create=True):
             if _AGENT_JUDGE_STORE[0] is None:
                 _AGENT_JUDGE_STORE[0] = agent_judge_store.JudgeStore(path)
     return _AGENT_JUDGE_STORE[0]
+
+
+# ── Learned-knowledge mirror (owner request 2026-10-25): what bots and agents learned also lives in the brain folder
+#    (`Javis/learned/`), so a copied, moved or GitHub-restored brain keeps it. See server/learned_mirror.py. ──
+import learned_mirror  # noqa: E402
+
+
+def _learned_resonance(create: bool):
+    """The resonance store for the mirror: never created just to read."""
+    if not create and _RESONANCE_STORE is None and not (Path(cfgmod.STATE_DIR) / "resonance.sqlite3").is_file():
+        return None
+    return _resonance_store()
+
+
+learned_mirror.configure(resonance=_learned_resonance, judge=lambda create: _agent_judge_store(create=create))
+_LEARNED_MIRROR_TASKS: set = set()
+
+
+@app.on_event("startup")
+async def _learned_mirror_loop():
+    """Export (and import on a fresh machine) the learned mirror shortly after startup, then every 10 minutes. Only
+    code, no model; a tick with nothing changed reads a few SQLite rows and writes nothing."""
+    async def _loop():
+        await asyncio.sleep(learned_mirror.FIRST_TICK_S)
+        while True:
+            try:
+                rep = await asyncio.to_thread(learned_mirror.sync_all)
+                if rep:
+                    print(f"[learned mirror] {rep}", file=sys.stderr)
+            except Exception as e:  # noqa: BLE001
+                print(f"[learned mirror] {type(e).__name__}: {e}", file=sys.stderr)
+            await asyncio.sleep(learned_mirror.TICK_S)
+    _LEARNED_MIRROR_TASKS.add(asyncio.create_task(_loop()))   # keep a reference, or the loop can be collected
 
 
 async def _agent_judge_ask(prompt: str, purpose: str = "", started=None) -> str:
@@ -24619,10 +28939,68 @@ def _team_docs_block(team, tools=False):
         store = get_store()
         files, links = store.list_session_files(sid), store.list_session_links(sid)
         listed, loaded = _liet_ke_tai_lieu(team.get("brain_id") or "brain", files, links) if (files or links) else ([], [])
-        return team_docs.block(listed, loaded, coding_store.cwd_cua_phien(sid), tools=bool(tools))
+        block = team_docs.block(listed, loaded, coding_store.cwd_cua_phien(sid), tools=bool(tools))
     except Exception as e:  # noqa: BLE001 - a broken document must not stop the team from answering
         print(f"[team docs] {type(e).__name__}: {e}", file=sys.stderr)
+        block = ""
+    if tools:
+        # 0.449.0: the GitHub repos attached to the team chat, like a private chat (github_repos.prompt_block). Only a
+        # Work/Help turn edits code; a text-only turn has nothing to do with a worktree.
+        try:
+            import github_repos
+            gh = github_repos.prompt_block(sid, team.get("brain_id") or "")
+            if gh:
+                block += gh + TEAM_GITHUB_NOTE + "\n"
+        except Exception as e:  # noqa: BLE001 - a GitHub hiccup must never cost the turn
+            print(f"[team github prompt] {type(e).__name__}: {e}", file=sys.stderr)
+    return block
+
+
+# 0.449.0: in a team the push happens once the whole JOB is done, not after each member's turn: several members can
+# work in the same worktree at once, and a half-done edit must not be committed. Prompt text stays Vietnamese.
+TEAM_GITHUB_NOTE = ("Trong nhóm: Javis kiểm tra, commit và đẩy lên GitHub khi CẢ VIỆC NHÓM xong (không phải sau từng "
+                    "lượt), nên mỗi thành viên để lại worktree ở trạng thái chạy được khi kết thúc phần của mình.")
+TEAM_SKILL_MAX_CHARS = 12000
+
+
+def _team_job_done(team, task):
+    """A team job closed as done (0.449.0): its GitHub repos go through the same pipeline as a private chat turn
+    (gate, commit, push, PR, CI watch; github_work.after_turn). Cheap when the team chat has no repo."""
+    sid = str(team.get("session_id") or "")
+    if not sid:
+        return
+    text = str((task or {}).get("intent") or (task or {}).get("description") or (task or {}).get("title") or "")
+    try:
+        import github_work
+        t = asyncio.get_running_loop().create_task(github_work.after_turn(sid, team.get("brain_id") or "", text))
+        _PUSH_TASKS.add(t)
+        t.add_done_callback(_PUSH_TASKS.discard)
+    except Exception as e:  # noqa: BLE001
+        print(f"[team github after job] {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def _team_skill_block(team, slugs):
+    """The skills the owner named with /skill in a team message (0.449.0), read from the team's brain. A team member's
+    chat turn has no tools to load a skill itself, so its text goes in the prompt. Unknown slugs are skipped."""
+    root = _brain_root(team.get("brain_id") or "brain")
+    parts = []
+    for slug in slugs or []:
+        if not skill_router.valid_slug(slug):
+            continue
+        asset = skill_router.read_skill_asset(root, slug)
+        if asset is None:
+            continue
+        meta, body = skill_router.split_frontmatter(asset.text)
+        body = str(body or "").strip()
+        if len(body) > TEAM_SKILL_MAX_CHARS:
+            body = body[:TEAM_SKILL_MAX_CHARS].rstrip() + "\n…"
+        name = str((meta or {}).get("name") or slug)
+        parts.append(f"## Skill {name} (`{slug}`)\n{body}")
+    if not parts:
         return ""
+    return ("\n\n# === SKILL CHỦ NHÓM GỌI BẰNG LỆNH /skill ===\n"
+            "Chủ nhóm gọi các skill dưới đây cho tin hay việc này. Làm theo hướng dẫn của skill trong phạm vi vai của bạn.\n"
+            + "\n\n".join(parts) + "\n")
 
 
 class _MandateDeps:
@@ -24676,7 +29054,8 @@ class _MandateDeps:
 _TEAM_API = team_api.register(app, team_api.TeamApiDeps(
     brain_key=lambda b: _brain_key(b), session_store=lambda: get_store(),
     task_store=lambda: tasks_feature.store, resonance_store=lambda: _resonance_store(),
-    agents_meta=_resonance_agents_meta, agent_info=_team_agent_info, engine_for=_team_engine_for,
+    agents_meta=_resonance_agents_meta, agent_info=lambda root, key: _team_agent_info(root, key, "team"),
+    engine_for=_team_engine_for,
     broadcast=lambda ev: _CHAT_RUNTIME.publish(ev), notify=_team_notify, admin=_TeamAdmin(),
     owner_name=lambda: ((cfgmod.read_settings().get("auth") or {}).get("username") or ""),
     ceiling=_team_ceiling, projector=_feedback_projector, judge=lambda: _agent_judge(),
@@ -24685,7 +29064,8 @@ _TEAM_API = team_api.register(app, team_api.TeamApiDeps(
     describe=_team_describe, mandate_deps=lambda: _MandateDeps(),
     check_command=lambda cmd, cwd: _MandateDeps().run_test(cmd, cwd),
     brain_root=lambda team: Path(_brain_root(team["brain_id"])),
-    work_dir=lambda team: coding_store.cwd_cua_phien(team.get("session_id") or "") if team.get("session_id") else ""))
+    work_dir=lambda team: coding_store.cwd_cua_phien(team.get("session_id") or "") if team.get("session_id") else "",
+    report=_notify_owner, job_done=_team_job_done, skill_block=_team_skill_block))
 
 
 # ============================================================
@@ -24881,6 +29261,12 @@ async def sessions_message_reaction(session_id: str, message_id: int, request: R
                                     agent_config_version=ver, goal_id=str(receipt.get("goal_id") or ""), **extra)
         if not got["replayed"] and not extra:
             _feedback_projector().project("dm", got["log_id"])
+        # 0.403.0 (owner, 2026-10-29): a notice opened in Javis Core is a chat message; the emoji the owner puts on it
+        # there is Javis Core's feedback on that notice (`notify_policy.react`). The marker names the bell item.
+        if not got["replayed"] and javis_core.is_core_channel(sess.get("channel")):
+            m = _CITE_INBOX_RE.search(str(msg.get("content") or ""))
+            if m:
+                got = dict(got, notice=m.group(1), notice_value=n["value"] or "", notice_axis=n["axis"] or "")
         return got, store.dm_reaction_of(session_id, int(message_id))
 
     try:
@@ -24888,6 +29274,8 @@ async def sessions_message_reaction(session_id: str, message_id: int, request: R
     except sessions.DmReactionError as ex:
         return JSONResponse({"ok": False, "error": localefmt.chu(ex.vi, ex.en)}, status_code=ex.code)
     r = reaction_values.public(state)
+    if got.get("notice"):
+        await _notice_feedback_from_chat(got["notice"], got.get("notice_value") or "", got.get("notice_axis") or "")
     if not got["replayed"]:
         try:
             await _CHAT_RUNTIME.publish({"type": "chat_reaction", "session_id": session_id,
@@ -24898,6 +29286,26 @@ async def sessions_message_reaction(session_id: str, message_id: int, request: R
 
 
 _FEEDBACK_PULSE_BUSY = [False]
+_CITE_INBOX_RE = re.compile(r"<!-- javis-cite:inbox:([0-9a-f]{6,32}) -->")
+# The chat's speak/silent axis on a notice means "should have rung" / "should have stayed quiet".
+_NOTICE_AXIS = {"should_speak": "needed", "should_silent": "not_needed"}
+
+
+async def _notice_feedback_from_chat(item_id: str, value: str, axis: str) -> None:
+    """An emoji (and the speak/silent axis) the owner put on a notice inside Javis Core's chat, passed to Javis Core's
+    judge like the bell's buttons (0.403.0). Taking a reaction back changes nothing. Never raises."""
+    try:
+        ax = _NOTICE_AXIS.get(axis, "")
+        if not (value or ax):
+            return
+        item = inbox.lay(item_id)
+        if not item:
+            return
+        changes = notify_policy.react(item, value, ax)
+        if changes:
+            await _core_say(item.get("brain") or "", "\n".join(notify_policy.describe(c) for c in changes))
+    except Exception as e:  # noqa: BLE001 - feedback must never cost the reaction itself
+        print(f"[notify policy] chat feedback: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def _dm_resolve_pending_authors(limit: int = 200) -> int:
@@ -24992,12 +29400,22 @@ def _agent_persona(root, slug, agent_key=None):
             return ""
         if not reg or reg.get("slug") != slug or reg.get("status") != "active":
             return ""
-    name, sysprompt, _model, _prov = _workflow_agent_helpers(root, None)[1](slug)
+    name, sysprompt, _model, _prov = _workflow_agent_helpers(root, None)[1](slug, "kanban", agent_key)
     return (f"# VAI CỦA VIỆC NÀY\nViệc này được giao cho trợ lý \"{name}\". Làm đúng vai dưới đây, báo kết quả bằng "
             f"giọng của trợ lý đó.\n\n{sysprompt}")
 
 
 tasks_feature.deps.agent_persona = _agent_persona
+
+
+def _agent_roster(root):
+    """0.411.0: the brain's assistants for the Kanban specifier to route a job to (slug, name, role, durable key)."""
+    keys = _agent_jobs_keys(root)
+    return [{"slug": a["slug"], "name": a.get("name") or a["slug"], "role": a.get("role") or "",
+             "key": keys.get(a["slug"], "")} for a in agents_index(root, kem_prompt=False)]
+
+
+tasks_feature.deps.agent_roster = _agent_roster
 
 
 def _agent_jobs_key(root, slug, register=False):
@@ -25141,12 +29559,7 @@ async def agent_jobs_list(slug: str, brain: str = "brain", source: str = "all", 
     """Việc của một trợ lý, đọc thẳng bản ghi gốc (không sao chép): việc nhóm (kể cả bước con, hỗ trợ), việc từ chat
     riêng, mục tiêu Auto. Lọc theo nguồn và ngăn, phân trang bằng `cursor`. Chỉ đọc, không tạo gì."""
     root = _brain_key(brain)
-    if slug == javis_core.SLUG:
-        # 0.191.0 (owner, 16/10/2026): Javis Core has no agent file, no team seat and no Auto, so it has no jobs of its
-        # own. The tab must say "no jobs yet", not "could not load jobs".
-        return {"ok": True, "jobs": [], "counts": {"running": 0, "waiting": 0, "needs_you": 0, "done": 0},
-                "source_counts": {"team": 0, "chat": 0, "auto": 0}, "total": 0, "next": None,
-                "counts_partial": {"done": False}, "errors": [], "at": time.time(), "teams": [], "agent_key": ""}
+    # 2026-11-05: Javis Core has its own file and Auto now, so its Jobs tab lists its work like any agent's.
     if not _agent_md_path(root, slug):
         return JSONResponse({"ok": False, "error": localefmt.chu("Không tìm thấy trợ lý", "Assistant not found")},
                             status_code=404)
@@ -25448,7 +29861,14 @@ def _pulse_persona(key):
 def _pulse_engine_for(key, ctx, purpose):
     """Engine CHỈ CHỮ cho lượt quét: cùng hợp đồng với lượt nhóm (`_team_engine_for`: thư mục trống, không công cụ, model
     riêng của trợ lý hay model chính). Test thay hàm này để chứng minh không có engine thật nào được dựng."""
-    return _team_engine_for({"brain_id": _pulse_brain_of(key), "team_id": str(ctx).replace(":", "-")}, key, "work")
+    team_id = str(ctx).split(":", 1)[1] if str(ctx).startswith("team:") else str(ctx)
+    provider, model, execute = _team_engine_for({"brain_id": _pulse_brain_of(key), "team_id": team_id}, key, purpose)
+
+    async def run(req):
+        return await execute({**req, "team_id": team_id, "task_id": None, "purpose": purpose})
+
+    run.marks_engine = True
+    return provider, model, run
 
 
 def _pulse_can_enqueue(key, ctx):
@@ -25932,6 +30352,29 @@ async def model_fast_state():
     return {"states": fast_mode.states()}
 
 
+# Hộp đen lỗi giao diện (0.416.0): đăng ký SAU route cuối để bảng route cũ giữ nguyên thứ tự.
+@app.post("/client-errors")
+async def client_errors_post(request: Request, payload: dict = Body(None)):
+    """Hộp đen lỗi giao diện (0.416.0): dashboard/loi-may-khach.js gửi lỗi JS của trình duyệt về đây, xem loi_may_khach."""
+    import loi_may_khach
+    n = await asyncio.to_thread(loi_may_khach.ghi, payload or {}, request.headers.get("user-agent", ""))
+    return {"ok": True, "saved": n}
+
+
+@app.get("/client-errors")
+async def client_errors_get():
+    import loi_may_khach
+    return {"errors": await asyncio.to_thread(loi_may_khach.danh_sach)}
+
+
+@app.post("/client-errors/clear")
+async def client_errors_clear():
+    import loi_may_khach
+    await asyncio.to_thread(loi_may_khach.xoa_het)
+    return {"ok": True}
+
+
+
 if __name__ == "__main__":
     import uvicorn
     # 127.0.0.1: chỉ máy này truy cập được (an toàn - tránh người khác trong mạng LAN
@@ -25960,17 +30403,56 @@ async def share_chat(body: dict = Body(...)):
     cuoi = tin[-1]
     moc = [float(cuoi.get("ts") or 0), int(cuoi.get("id") or 0)]
     try:
-        ban = share_store.tao_hoi_thoai(sid, sess.get("brain") or "brain", "", moc)
+        ban = share_store.create_conversation(sid, sess.get("brain") or "brain", "", moc)
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
-    return {"ok": True, "token": ban["token"], "path": "/s/" + ban["token"]}
+    return {"ok": True, "token": ban["token"], "path": share_store.public_path(ban)}
 
 
 @app.get("/share/chat/of")
 async def share_chat_of(session_id: str = Query(...)):
     """Hội thoại này đã có link chưa? Nút Chia sẻ trong khung chat hỏi câu này."""
-    ban = share_store.cua_hoi_thoai(session_id)
-    return {"ok": True, "share": ({"token": ban["token"], "path": "/s/" + ban["token"]} if ban else None)}
+    ban = share_store.for_conversation(session_id)
+    return {"ok": True, "share": ({"token": ban["token"], "path": share_store.public_path(ban)} if ban else None)}
+
+
+_QR_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.\-]+(?::\d{1,5})?$")
+
+
+@app.get("/share/qr")
+async def share_qr(token: str = Query(...), origin: str = Query(...), fmt: str = Query("svg"), dl: int = Query(0)):
+    """QR code of a share link (owner, 2026-11-06), for the Share links page.
+
+    Drawn here with segno (already a dependency for 2FA, pure Python, PNG without Pillow), so the dashboard ships no
+    QR library. The dashboard sends its own `origin` (location.origin): building the address from the Host header would
+    trust what this repo notes must not be trusted. The QR always encodes the link's CURRENT address (slug if set), so
+    changing the address means printing a new code; the random-token link keeps working for old prints.
+    """
+    ban = share_store.get(token)
+    if not ban or ban.get("token") != str(token or "").strip():
+        return JSONResponse({"ok": False, "error": localefmt.chu("Link không tồn tại hoặc đã bị thu hồi.",
+                                                                 "The link does not exist or has been revoked.")},
+                            status_code=404)
+    o = str(origin or "").strip().rstrip("/")
+    if not _QR_ORIGIN.match(o):
+        return JSONResponse({"ok": False, "error": "bad origin"}, status_code=400)
+    try:
+        import io
+        import segno
+        buf = io.BytesIO()
+        png = fmt == "png"
+        # border=4 is the QR standard quiet zone; white background so it scans on a dark theme too (see totp.qr_svg).
+        segno.make(o + share_store.public_path(ban), error="m").save(
+            buf, kind="png" if png else "svg", scale=12 if png else 8, border=4, dark="#111", light="#fff")
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
+    resp = Response(buf.getvalue(), media_type="image/png" if png else "image/svg+xml")
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    if dl:
+        name = share_store.slugify(_share_ten(ban)) or ban.get("slug") or "link"
+        resp.headers["Content-Disposition"] = f'attachment; filename="qr-{name}.{"png" if png else "svg"}"'
+    return resp
 
 
 # ── Event loop watchdog (0.194.0, owner 17/10/2026: "Mất kết nối tới máy chủ" more and more often) ──
@@ -25986,6 +30468,12 @@ async def _start_loop_watch():
 @app.on_event("shutdown")
 async def _stop_loop_watch():
     loop_watch.stop()
+
+
+@app.on_event("shutdown")
+async def _close_warm_engines():
+    """0.382.0: close the engine processes kept warm between chat turns (warm_pool)."""
+    await warm_pool.POOL.close_all()
 
 
 @app.get("/health/loop")
@@ -26023,3 +30511,670 @@ async def voice_elevenlabs_voices():
             res.get("reason"), "Không tải được danh sách giọng ElevenLabs."),
         {"no_key": "No ElevenLabs API key yet.", "bad_key": "ElevenLabs refused this API key."}.get(
             res.get("reason"), "Could not load the ElevenLabs voices."))}
+
+
+# Improvement M0 is metadata-only: importing or reading status never starts a trial.
+import improvement_api  # noqa: E402
+from improvement_blobs import RevisionBlobs  # noqa: E402
+from improvement_store import ImprovementStore, read_existing as _read_improvement_existing  # noqa: E402
+
+
+def _improvement_write_store():
+    return ImprovementStore(_resonance_store(), RevisionBlobs(Path(cfgmod.STATE_DIR) / "improvement"))
+
+
+def _improvement_read_store():
+    return _read_improvement_existing(Path(cfgmod.STATE_DIR) / "resonance.sqlite3",
+                                      RevisionBlobs(Path(cfgmod.STATE_DIR) / "improvement"))
+
+
+improvement_api.register(app, improvement_api.ImprovementApiDeps(
+    read_store=_improvement_read_store,
+    write_store=_improvement_write_store,
+    resolve_brain=lambda value: improvement_api.strict_brain(value,
+        default_root=Path(BRAINS_DIR) / "Brain Default", brains_root=Path(BRAINS_DIR)),
+    agent_key=lambda root, slug: _agent_jobs_key(root, slug, register=True),
+))
+
+# M2E manual activation: owner applies an authorized candidate to one assistant chat. Read time
+# resolves the pointer for in-process engines only; nothing here writes a canonical skill file.
+import improvement_activation  # noqa: E402
+import improvement_activation_api  # noqa: E402
+
+improvement_activation.configure(Path(cfgmod.STATE_DIR) / "resonance.sqlite3",
+                                 RevisionBlobs(Path(cfgmod.STATE_DIR) / "improvement"))
+def _improvement_activation_agent(root, slug):
+    # Only an assistant that has its file in this brain gets (or keeps) an identity here.
+    if not skill_router.valid_file_slug(slug) or not (_agents_dir(root) / f"{slug}.md").is_file():
+        return ""
+    return _agent_jobs_key(root, slug, register=True) or ""
+
+
+def _improvement_read_team(root, team_id):
+    """(team, active members) of this brain for an M7 pin; another brain's or an unknown team is unavailable."""
+    if not _TEAM_API.exists():
+        raise PermissionError("team_unavailable")
+    teams = _TEAM_API.teams()
+    team = teams.get(team_id)
+    if not team or team.get("brain_id") != root or team.get("status") != "active":
+        raise PermissionError("team_unavailable")
+    return team, teams.members(team_id)
+
+
+def _improvement_team_contract(root, team_id, task_id):
+    """The named job's acceptance criteria (team_acceptance), the contract both arms are judged against."""
+    import team_acceptance
+    row = team_acceptance.AcceptanceStore(_TEAM_API.teams().path).get(task_id)
+    if not row or row.get("team_id") != team_id:
+        raise PermissionError("team_task_unavailable")
+    return __import__("improvement_store")._hash({k: row.get(k) for k in ("criteria", "expected_outputs", "fix_rounds")})
+
+
+def _improvement_team_member(root, agent_key):
+    """What the team runner really uses for one member (M7 pin): agent file and owner-rule hashes, the procedure
+    overlay on the team surface, each granted skill's content hash, and the provider/model `_team_engine_for`
+    would pick (main-model fallback included). The whole prompt is not hashed: it carries lessons that grow."""
+    import improvement_agent
+    import improvement_store
+    info = _team_agent_info(root, agent_key)
+    path = _agent_md_path(root, (info or {}).get("slug") or "") if info else None
+    if not info or path is None:
+        return None
+    agent_text = path.read_text(encoding="utf-8")
+    mem = _brain_memory_dir(root) / "agents" / info["slug"] / "MEMORY.md"
+    meta, _body = _read_md(path)
+    skills = {}
+    for name in (meta or {}).get("skills") or []:
+        asset = skill_router.read_skill_asset(Path(root), str(name))
+        skills[str(name)] = asset.content_hash if asset else ""
+    settings = cfgmod.read_settings() or {}
+    spec = team_engine.choose_spec(info.get("model") or "", info.get("model_provider") or "", _effective_main(settings),
+                                   _agent_model_provider, lambda sp: aux_engine.availability(sp, settings))
+    return {"slug": info["slug"], "agent_hash": improvement_store._hash(agent_text),
+            "owner_rules_hash": improvement_agent.owner_rules_hash(agent_text, mem.read_text(encoding="utf-8")
+                                                                   if mem.is_file() else ""),
+            "procedure": _agent_overlay(root, info["slug"], "team", agent_key)[0], "skills": skills,
+            "provider": spec.get("provider") or "", "model": spec.get("model") or "", "reasoning": info.get("reasoning") or ""}
+
+
+def _improvement_text_call(system, prompt, tag, spec=None):
+    """One text-only answer from the brain's selected engine (or `spec`): empty folder, no MCP, every tool refused (the
+    same sandbox as judges and text-only team turns). Works for every provider the user already set up."""
+    settings = cfgmod.read_settings() or {}
+    spec = spec or team_engine.choose_spec("", "", _effective_main(settings), _agent_model_provider,
+                                           lambda sp: aux_engine.availability(sp, settings))
+    base = _reply_policy_sandbox_engine(system, tag, cwd_name="improvement_loop_cwd")
+    eng = team_engine.build(spec, base, tag, settings)
+    prompt = _team_reasoning(eng, (settings.get("model") or {}).get("reasoning") or AGENT_REASONING_DEFAULT, prompt)
+
+    async def run():
+        outcome = team_runner.TextOnlyOutcome()
+        async for ev in eng.query(prompt):
+            outcome.note(ev)
+        res = outcome.result()
+        return str(res.get("text") if isinstance(res, dict) else res or "")
+
+    async def bounded():
+        try:
+            return await asyncio.wait_for(run(), timeout=300)  # a hung engine must not hold the run forever
+        except asyncio.TimeoutError:
+            await asyncio.to_thread(claude_cli.cancel_all, tag)
+            raise
+    return asyncio.run(bounded())
+
+
+def _improvement_loop_engines(root):
+    """(solve, improve) for one self-learning run on the brain's selected engine, text only. Raises before any run
+    when that engine cannot answer text-only (e.g. Grok Build, Antigravity), so no fake verdict is reported."""
+    settings = cfgmod.read_settings() or {}
+    spec = team_engine.choose_spec("", "", _effective_main(settings), _agent_model_provider,
+                                   lambda sp: aux_engine.availability(sp, settings))
+    try:
+        team_engine.build(spec, _reply_policy_sandbox_engine("probe", "improvement-loop-probe",
+                                                             cwd_name="improvement_loop_cwd"), "improvement-loop-probe", settings)
+    except team_engine.TeamEngineUnavailable as error:
+        raise PermissionError(f"engine_unavailable: {error.reason}") from None
+    def solve(skill, prompt):
+        system = ("You are a Javis assistant. Follow the skill below exactly.\n\n<skill>\n" + skill +
+                  "\n</skill>\n\nAnswer only in the format the skill asks for.")
+        return _improvement_text_call(system, prompt, "improvement-loop-solve-" + __import__("secrets").token_hex(4))
+
+    def improve(instructions):
+        return _improvement_text_call("You improve skills for the Javis assistant. Keep the skill's language and "
+                                      "style.", instructions, "improvement-loop-improve-" + __import__("secrets").token_hex(4))
+    return solve, improve
+
+
+def _improvement_skill_protected(root, slug):
+    """System and pack skills belong to their maintainers: a run may read them but never applies to them."""
+    import improvement_assets
+    import system_sync
+    if system_sync.is_system_skill(slug):
+        return True
+    try:
+        improvement_assets.capture_source(Path(root), "skill", slug, pack_state_dir=Path(cfgmod.STATE_DIR) / "packs-state")
+    except Exception:  # noqa: BLE001 - unknown ownership is treated as not ours
+        return True
+    return False
+
+
+_IMPROVEMENT_LOOP_RUNS = [None]
+_IMPROVEMENT_LOOP_RUNS_LOCK = __import__("threading").Lock()
+
+
+def _improvement_loop_runs():
+    with _IMPROVEMENT_LOOP_RUNS_LOCK:  # one service, one lock: two first requests cannot start two runs
+        if _IMPROVEMENT_LOOP_RUNS[0] is None:
+            import improvement_loop_runs
+            _IMPROVEMENT_LOOP_RUNS[0] = improvement_loop_runs.LoopRuns(
+                Path(cfgmod.STATE_DIR), engines=_improvement_loop_engines, protected=_improvement_skill_protected)
+        return _IMPROVEMENT_LOOP_RUNS[0]
+
+
+# -- Automatic learning from chat (0.341.0): skills, agents and workflows learn from real mistakes ------------------
+
+_AUTO_LEARNER = [None]
+_AUTO_LEARNER_LOCK = __import__("threading").Lock()
+_AUTO_LEARNING_BUSY = [False]
+
+
+def _auto_learning_policy_on(root):
+    """Learning follows the brain's improvement policy: mode "off" stops it. No schema yet means the default (on)."""
+    try:
+        store = _improvement_read_store()
+        if store is None:
+            return True
+        principal = resonance_store.Principal("owner", "owner", str(Path(root).resolve(strict=True)))
+        return store.get_policy(principal).get("mode") != "off"
+    except Exception as _e:  # noqa: BLE001 - unknown policy: do not learn
+        print(f"[auto-learning policy] {type(_e).__name__}: {_e}", file=sys.stderr)
+        return False
+
+
+def _auto_learning_spec():
+    """Learning runs on the brain's selected engine. When that engine has no text-only path (Grok Build, Antigravity),
+    it falls back to the background model the Models page sets for "tự học", so nobody has to change anything."""
+    settings = cfgmod.read_settings() or {}
+    main = _effective_main(settings)
+    if team_engine.text_only_supported(main.get("provider")):
+        return None  # _improvement_text_call's own choice: the main engine
+    background = aux_engine.read_spec(settings)
+    if team_engine.text_only_supported(background.get("provider")) and aux_engine.availability(background, settings)[0]:
+        return {"provider": background["provider"], "model": background.get("model") or "", "source": "aux", "note": ""}
+    return None
+
+
+def _auto_learning_background_spec():
+    """Judging, writing cases, grading and writing revisions run on the background model ("Mô hình nền", the one
+    the Models page sets for loops, Kanban and learning); when it cannot run text-only, on the learning engine."""
+    settings = cfgmod.read_settings() or {}
+    background = aux_engine.read_spec(settings)
+    if team_engine.text_only_supported(background.get("provider")) and aux_engine.availability(background, settings)[0]:
+        return {"provider": background["provider"], "model": background.get("model") or "", "source": "aux", "note": ""}
+    return _auto_learning_spec()
+
+
+def _auto_learning_engine_ready(root):
+    spec = _auto_learning_spec()
+    if spec is None:
+        _improvement_loop_engines(root)  # raises engine_unavailable when the main engine cannot run text-only
+        return
+    settings = cfgmod.read_settings() or {}
+    try:
+        team_engine.build(spec, _reply_policy_sandbox_engine("probe", "auto-learning-probe", cwd_name="improvement_loop_cwd"),
+                          "auto-learning-probe", settings)
+    except team_engine.TeamEngineUnavailable as error:
+        raise PermissionError(f"engine_unavailable: {error.reason}") from None
+
+
+def _auto_learning_settings(root):
+    """The "Tự học" page drives learning from chat: on/off, write mode, and the Skill/Agent/Workflow switches."""
+    cfg = learn_feature.read_config()
+    caps = cfg.get("capabilities") or {}
+    return {"enabled": bool(cfg.get("enabled")), "mode": str(cfg.get("mode") or "auto"),
+            "kinds": {kind for kind in ("skill", "agent", "workflow") if caps.get(kind)}}
+
+
+def _auto_learning_principal(root):
+    return resonance_store.Principal("owner", "owner", str(Path(root).resolve(strict=True)))
+
+
+def _auto_learning_agent_procedure(root, slug):
+    """The assistant's active learned/owner procedure: text, overlay id, generation; {} when none."""
+    service = _improvement_agents()
+    principal = _auto_learning_principal(root)
+    key = service.key(principal, slug)
+    if not key:
+        return {}
+    active = [o for o in service.overlays(principal, agent_key=key) if o["state"] == "active"]
+    if not active:
+        return {}
+    overlay = active[0]
+    row = service.procedure(principal, overlay["procedure_id"])
+    if row is None:
+        import auto_learning
+        raise auto_learning.ConflictError("agent_procedure_unreadable")
+    return {"text": row["text"], "overlay_id": overlay["overlay_id"],
+            "procedure_id": overlay["procedure_id"], "generation": overlay["generation"], "surfaces": overlay["surfaces"]}
+
+
+def _auto_learning_swap(root, slug, out_overlay, in_procedure, surfaces, tag):
+    """Revert `out_overlay` (may be {}) and apply `in_procedure` on `surfaces`; if the apply fails, the reverted overlay's
+    procedure is put back so the assistant never ends up with nothing. Returns the new overlay."""
+    import auto_learning
+    import improvement_agent
+    service, principal = _improvement_agents(), _auto_learning_principal(root)
+    # Revert has no policy gate but apply has, and a procedure written for older owner rules cannot be applied:
+    # check both before touching anything, so the assistant never loses its procedure halfway.
+    if not _auto_learning_policy_on(root):
+        raise PermissionError("improvement_disabled")
+    rules = improvement_agent.owner_rules_hash(*_improvement_read_agent(root, slug))
+    for procedure_id in [in_procedure] + ([out_overlay["procedure_id"]] if out_overlay else []):
+        row = service.procedure(principal, procedure_id)
+        if row is None or row["owner_rules_hash"] != rules:
+            raise auto_learning.ConflictError("agent_owner_rules_changed")
+    if out_overlay:
+        service.revert(principal, out_overlay["overlay_id"], expected_generation=out_overlay["generation"],
+                       event_key=f"auto-learn-revert-{tag}")
+    try:
+        return service.apply(principal, in_procedure, surfaces, owner_confirmed=True, event_key=f"auto-learn-apply-{tag}")
+    except Exception:
+        if out_overlay:
+            service.apply(principal, out_overlay["procedure_id"], out_overlay["surfaces"], owner_confirmed=True,
+                          event_key=f"auto-learn-putback-{tag}")
+        raise
+
+
+def _auto_learning_agent_apply(root, slug, text, started_from):
+    """Learned procedure goes live as the assistant's overlay, on the surfaces the current one had (all when none);
+    the current one is reverted first and remembered for undo. If the owner changed the procedure while the run
+    worked, nothing is applied. The owner authorised automatic learning (26/10/2026), so it is applied as confirmed."""
+    import auto_learning
+    import improvement_agent
+    previous = _auto_learning_agent_procedure(root, slug)
+    if previous.get("overlay_id") != (started_from or {}).get("overlay_id") or \
+            previous.get("generation") != (started_from or {}).get("generation"):
+        raise auto_learning.ConflictError("target_changed")
+    tag = __import__("secrets").token_hex(8)
+    staged = _improvement_agents().stage(_auto_learning_principal(root), slug, text, source="learn",
+                                         event_key=f"auto-learn-stage-{tag}")
+    surfaces = previous.get("surfaces") or sorted(improvement_agent.SURFACES)
+    overlay = _auto_learning_swap(root, slug, previous, staged["procedure_id"], surfaces, tag)
+    return {"slug": slug, "overlay_id": overlay["overlay_id"], "procedure_id": staged["procedure_id"],
+            "surfaces": surfaces, "previous": previous.get("procedure_id"), "previous_surfaces": previous.get("surfaces")}
+
+
+def _auto_learning_agent_undo(root, info):
+    """Back to the procedure before the learned one (or none). If restoring fails, the learned one stays live."""
+    import auto_learning
+    current = _auto_learning_agent_procedure(root, info["slug"])
+    if current.get("overlay_id") != info["overlay_id"]:
+        raise auto_learning.ConflictError("changed_since")
+    tag = __import__("secrets").token_hex(8)
+    if info.get("previous"):
+        _auto_learning_swap(root, info["slug"], current, info["previous"], info.get("previous_surfaces") or current["surfaces"], tag)
+    else:
+        _improvement_agents().revert(_auto_learning_principal(root), info["overlay_id"],
+                                     expected_generation=current["generation"], event_key=f"auto-learn-undo-{tag}")
+
+
+def _auto_learning_reaction(session_id, message_id):
+    try:
+        row = get_store().dm_reaction_of(session_id, int(message_id))
+    except Exception:  # noqa: BLE001
+        return ""
+    if not row:
+        return ""
+    reasons = row.get("reasons") or []
+    return f"{row.get('value', '')} " + (", ".join(str(r) for r in reasons) if reasons else "") + (
+        f" ({row.get('comment')})" if row.get("comment") else "")
+
+
+def _auto_learning_workflow_run(run_id):
+    import workflow_runs
+    row = workflow_runs.get_store().lay(run_id) if run_id else None
+    if not row:
+        return None
+    steps = row.get("steps") if isinstance(row.get("steps"), list) else json.loads(row.get("steps_json") or "[]")
+    return {**row, "steps": steps}
+
+
+def _auto_learner():
+    with _AUTO_LEARNER_LOCK:
+        if _AUTO_LEARNER[0] is None:
+            import auto_learning
+            state = Path(cfgmod.STATE_DIR) / "improvement"
+            host = auto_learning.Host(
+                text_call=lambda system, prompt: _improvement_text_call(
+                    system, prompt, "auto-learning-" + __import__("secrets").token_hex(4), _auto_learning_spec()),
+                background_call=lambda system, prompt: _improvement_text_call(
+                    system, prompt, "auto-learning-bg-" + __import__("secrets").token_hex(4),
+                    _auto_learning_background_spec()),
+                engine_ready=_auto_learning_engine_ready,
+                policy_on=_auto_learning_policy_on,
+                skill_protected=_improvement_skill_protected,
+                workflows_dir=_workflows_dir,
+                agent_text=lambda root, slug: (lambda p: p.read_text(encoding="utf-8") if p is not None else "")(
+                    _agent_md_path(root, slug)),
+                agent_procedure=_auto_learning_agent_procedure,
+                agent_apply=_auto_learning_agent_apply,
+                agent_undo=_auto_learning_agent_undo,
+                reaction=_auto_learning_reaction,
+                workflow_run=_auto_learning_workflow_run,
+                backups=state / "auto-learning-backups",
+                settings=_auto_learning_settings)
+            _AUTO_LEARNER[0] = auto_learning.AutoLearner(auto_learning.Store(state / "auto_learning.sqlite3"), host)
+            auto_learning.SKILL_USE_HOOK[0] = lambda root, session_id, slug: _AUTO_LEARNER[0].note_skill_use(
+                _brain_key(root), session_id, slug)
+        return _AUTO_LEARNER[0]
+
+
+def _auto_learning_note_tool(brain, conv_sid, event):
+    """Claude Code loads skills natively (Skill tool, or reading SKILL.md): those loads never reach the hub."""
+    try:
+        import auto_learning
+        slug = auto_learning.skill_from_tool(event.get("name") or "", event.get("input") or {})
+        if slug:
+            _auto_learner().note_skill_use(_brain_key(brain), conv_sid, slug)
+    except Exception as _e:  # noqa: BLE001 - learning never breaks a turn
+        print(f"[auto-learning note] {type(_e).__name__}: {_e}", file=sys.stderr)
+
+
+async def _auto_learning_tick():
+    """Scheduler: one unit of learning work (judge a few turns, or one learning run) in a worker thread."""
+    if _AUTO_LEARNING_BUSY[0] or os.environ.get("JAVIS_AUTO_LEARNING_PAUSED") == "1":
+        return
+    _AUTO_LEARNING_BUSY[0] = True
+    try:
+        await asyncio.to_thread(_auto_learner().step)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[auto-learning tick] {type(_e).__name__}: {_e}", file=sys.stderr)
+    finally:
+        _AUTO_LEARNING_BUSY[0] = False
+
+
+def _improvement_activations():
+    return improvement_activation.Activations(_improvement_write_store(), agent_key=_improvement_activation_agent)
+
+
+def _improvement_canaries():
+    import improvement_canary
+    return improvement_canary.Canaries(_improvement_activations())
+
+
+def _improvement_after_report(principal, report_id):
+    # M3: a qualified final opens canaries only in scopes the owner granted; otherwise nothing happens.
+    return _improvement_canaries().auto_apply_for_report(principal, report_id)
+
+
+def _improvement_suspend_skill(brain, slug):
+    """A disabled or deleted skill invalidates its applied overlays now, so re-enabling never revives them."""
+    try:
+        root = str(Path(_brain_root(brain)).resolve(strict=True))
+        if _improvement_read_store() is not None:
+            _improvement_activations().suspend_source(resonance_store.Principal("owner", "owner", root), slug)
+    except Exception as error:  # noqa: BLE001 - bookkeeping must never fail the skill toggle
+        print(f"[improvement activation] suspend {slug}: {type(error).__name__}: {error}", file=sys.stderr)
+
+
+improvement_activation_api.register(app, improvement_activation_api.ActivationApiDeps(
+    activations=_improvement_activations,
+    read_store=_improvement_read_store,
+    owner_session=_doi_phien_that,
+    canaries=_improvement_canaries,
+    routing=lambda: __import__("improvement_routing").Routing(_improvement_write_store(), registry=_CAPABILITY_REGISTRY),
+    agents=_improvement_agents,
+    bundles=lambda: __import__("improvement_bundle").Bundles(
+        _improvement_write_store(), activations=_improvement_activations(), procedures=_improvement_agents()),
+    team_trials=lambda: __import__("improvement_team").TeamTrials(
+        _improvement_write_store(), read_team=_improvement_read_team,
+        member_info=_improvement_team_member, contract=_improvement_team_contract),
+    recipe_transfers=lambda: __import__("improvement_team").RecipeTransfers(_improvement_write_store()),
+    governance=lambda: __import__("improvement_library").Governance(
+        _improvement_write_store(), activations=_improvement_activations(), procedures=_improvement_agents(),
+        routing=__import__("improvement_routing").Routing(_improvement_write_store(), registry=_CAPABILITY_REGISTRY),
+        bundles=__import__("improvement_bundle").Bundles(
+            _improvement_write_store(), activations=_improvement_activations(), procedures=_improvement_agents()),
+        canaries=_improvement_canaries()),
+    imports=lambda: __import__("improvement_library").Imports(_improvement_write_store()),
+    loop_runs=_improvement_loop_runs,
+    auto_learning=_auto_learner,
+    export=lambda principal, ids: __import__("improvement_library").export_procedures(
+        _improvement_write_store(), principal, ids, version=_read_version()),
+    review_proposals=_agent_review_proposals,
+    resolve_brain=lambda value: improvement_api.strict_brain(value,
+        default_root=Path(BRAINS_DIR) / "Brain Default", brains_root=Path(BRAINS_DIR)),
+))
+
+
+# Explicit owner trials are lazy; importing routes does not start or recover work.
+import improvement_trial_api  # noqa: E402
+import improvement_trial_service  # noqa: E402
+
+_IMPROVEMENT_TRIAL_SERVICE = None
+_IMPROVEMENT_EXPERIMENT_SERVICE = None
+_IMPROVEMENT_TRIAL_SHUTTING_DOWN = False
+
+
+def _improvement_trial_host(source_selections=None):
+    with _LAZY_LOCK:
+        if _IMPROVEMENT_TRIAL_SHUTTING_DOWN:
+            raise RuntimeError("trial_service_closed")
+        return improvement_trial_service.dashboard_host(__import__(__name__), _improvement_write_store(),
+                                                       source_selections=source_selections)
+
+
+def _improvement_trial_service():
+    global _IMPROVEMENT_TRIAL_SERVICE
+    with _LAZY_LOCK:
+        if _IMPROVEMENT_TRIAL_SHUTTING_DOWN:
+            raise RuntimeError("trial_service_closed")
+        if _IMPROVEMENT_TRIAL_SERVICE is None:
+            _IMPROVEMENT_TRIAL_SERVICE = improvement_trial_service.OwnerTrialService(_improvement_trial_host())
+        return _IMPROVEMENT_TRIAL_SERVICE
+
+
+def _improvement_trial_active_service():
+    with _LAZY_LOCK:
+        return _IMPROVEMENT_TRIAL_SERVICE
+
+
+def _improvement_experiment_service():
+    global _IMPROVEMENT_EXPERIMENT_SERVICE
+    with _LAZY_LOCK:
+        if _IMPROVEMENT_TRIAL_SHUTTING_DOWN:
+            raise RuntimeError("experiment_service_closed")
+        if _IMPROVEMENT_EXPERIMENT_SERVICE is None:
+            from improvement_comparison_plans import ExperimentPlans
+            from improvement_experiment_service import ExperimentService
+            from improvement_skill_candidates import SkillCandidates
+            trials = _improvement_trial_service()
+            authoring = SkillCandidates(trials.assets, pack_state_dir=Path(cfgmod.STATE_DIR) / "packs-state")
+            _IMPROVEMENT_EXPERIMENT_SERVICE = ExperimentService(ExperimentPlans(trials.host, authoring), trials)
+        return _IMPROVEMENT_EXPERIMENT_SERVICE
+
+
+async def _shutdown_improvement_trials():
+    from improvement_trial_runner import _drain
+
+    def mark_closing():
+        global _IMPROVEMENT_TRIAL_SHUTTING_DOWN
+        # A worker may still hold this lock while constructing dependencies.
+        # Never wait for that filesystem/store lifetime on the server loop.
+        with _LAZY_LOCK:
+            _IMPROVEMENT_TRIAL_SHUTTING_DOWN = True
+            return _IMPROVEMENT_EXPERIMENT_SERVICE, _IMPROVEMENT_TRIAL_SERVICE
+
+    async def finish():
+        experiments, service = await asyncio.to_thread(mark_closing)
+        try:
+            if experiments is not None:
+                await experiments.close()
+        finally:
+            if service is not None:
+                await service.close()
+
+    closing = asyncio.create_task(finish())
+    values, cancelled = await _drain(asyncio.gather(closing, return_exceptions=True))
+    if cancelled is not None:
+        raise cancelled
+    if isinstance(values[0], BaseException):
+        raise values[0]
+
+
+improvement_trial_api.register(app, improvement_trial_api.TrialApiDeps(
+    read_store=_improvement_read_store,
+    write_store=_improvement_write_store,
+    resolve_brain=lambda value: improvement_api.strict_brain(value,
+        default_root=Path(BRAINS_DIR) / "Brain Default", brains_root=Path(BRAINS_DIR)),
+    owner_session=_doi_phien_that,
+    capture_host=_improvement_trial_host,
+    service=_improvement_trial_service,
+    active_service=_improvement_trial_active_service,
+))
+
+
+# Candidate authoring is lazy and has no engine dependency or startup recovery.
+import improvement_candidate_api  # noqa: E402
+
+_IMPROVEMENT_CANDIDATE_OPERATIONS = None
+_IMPROVEMENT_CANDIDATE_SHUTTING_DOWN = False
+
+
+def _improvement_candidate_operations():
+    global _IMPROVEMENT_CANDIDATE_OPERATIONS
+    with _LAZY_LOCK:
+        if _IMPROVEMENT_CANDIDATE_SHUTTING_DOWN:
+            raise RuntimeError("candidate_operations_closed")
+        if _IMPROVEMENT_CANDIDATE_OPERATIONS is None:
+            _IMPROVEMENT_CANDIDATE_OPERATIONS = improvement_candidate_api.CandidateOperations()
+        return _IMPROVEMENT_CANDIDATE_OPERATIONS
+
+
+async def _shutdown_improvement_candidates():
+    from improvement_trial_runner import _drain
+
+    def mark_closing():
+        global _IMPROVEMENT_CANDIDATE_SHUTTING_DOWN
+        with _LAZY_LOCK:
+            _IMPROVEMENT_CANDIDATE_SHUTTING_DOWN = True
+            return _IMPROVEMENT_CANDIDATE_OPERATIONS
+
+    async def finish():
+        operations = await asyncio.to_thread(mark_closing)
+        if operations is not None:
+            await operations.close()
+
+    closing = asyncio.create_task(finish())
+    values, cancelled = await _drain(asyncio.gather(closing, return_exceptions=True))
+    if cancelled is not None:
+        raise cancelled
+    if isinstance(values[0], BaseException):
+        raise values[0]
+
+
+improvement_candidate_api.register(app, improvement_candidate_api.CandidateApiDeps(
+    read_store=_improvement_read_store,
+    write_store=_improvement_write_store,
+    resolve_brain=lambda value: improvement_api.strict_brain(value,
+        default_root=Path(BRAINS_DIR) / "Brain Default", brains_root=Path(BRAINS_DIR)),
+    owner_session=_doi_phien_that,
+    operations=_improvement_candidate_operations,
+    pack_state_dir=lambda: Path(cfgmod.STATE_DIR) / "packs-state",
+))
+
+
+# Append to the established route order. History does not capture sources or
+# construct services; explicit writes reuse the one actual trial dispatcher.
+import improvement_experiment_api  # noqa: E402
+
+improvement_experiment_api.register(app, improvement_experiment_api.ExperimentApiDeps(
+    read_store=_improvement_read_store,
+    write_store=_improvement_write_store,
+    resolve_brain=lambda value: improvement_api.strict_brain(value,
+        default_root=Path(BRAINS_DIR) / "Brain Default", brains_root=Path(BRAINS_DIR)),
+    owner_session=_doi_phien_that,
+    service=_improvement_experiment_service,
+    after_report=_improvement_after_report,
+))
+
+
+# Plugins page "Install from .zip" (owner request 2026-10-25). Same auth rule as the pack routes
+# (it brings foreign code onto the machine), see server/routes/plugin_zip.py. Registered LAST so
+# route_table.json only grows at the end instead of renumbering every later route.
+import routes.plugin_zip as plugin_zip_routes   # noqa: E402
+
+
+def _after_plugin_install(brain: str) -> None:
+    """The refresh /plugins/toggle does: hub route cache, then the operations index."""
+    mcp_hub.invalidate_cache()
+    try:
+        rebuild_javis_index(brain)
+    except Exception as e:      # noqa: BLE001
+        print(f"[plugin-zip] index rebuild: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+plugin_zip_routes.register(app, plugin_zip_routes.PluginZipDeps(
+    co_phien=lambda r: cfgmod.valid_session(r.cookies.get("javis_session", "")),
+    brain_root=lambda b: _brain_root(b),
+    after_install=_after_plugin_install,
+))
+
+
+# Invitation to star Javis on GitHub (0.324.0, owner request 2026-10-25), see server/star_nudge.py.
+# Registered LAST so route_table.json only grows at the end.
+import routes.star_nudge as star_nudge_routes   # noqa: E402
+
+star_nudge_routes.register(app, star_nudge_routes.StarNudgeDeps(
+    read_settings=cfgmod.read_settings,
+    update_settings=cfgmod.update_settings,
+    read_sql=lambda sql, params=(): get_store()._read(sql, params),
+    state_dir=Path(cfgmod.STATE_DIR),
+    version=_app_version,
+))
+
+
+# Usage page, hourly view (0.329.0): last 24 hours, the 5-hour window over time, busy hours of the
+# last 7 days. Registered LAST so route_table.json only grows at the end.
+@app.get("/usage/theo-gio")
+async def usage_theo_gio():
+    """Ba goc nhin theo gio cua trang Muc dung (usage_index.theo_gio) kem MOC so sanh cua so 5 gio:
+    tran nguoi dung tu khai, khong thi muc cao nhat tung cham trong 60 ngay (giong /usage/tong-quan)."""
+    d = await asyncio.to_thread(usage_index.theo_gio, 5.0)
+    mcfg = cfgmod.read_settings().get("model", {}) or {}
+    tran = int(mcfg.get("tran_5h") or 0)
+    dinh = {}
+    if not tran:
+        try:
+            dinh = await asyncio.to_thread(usage_index.dinh_cua_so, 5.0)
+        except Exception:  # noqa: BLE001
+            dinh = {}
+    d["moc"] = {"tokens": tran or int(dinh.get("tokens") or 0), "loai": "tran" if tran else "dinh",
+                "luc": dinh.get("hour") or ""}
+    return d
+
+
+@app.get("/plan-limits")
+async def plan_limits_get(goi: int = 0):
+    """0.329.0: the composer ring. The 5-hour and weekly meters of each brain that runs on a plan
+    (Claude Code on its signed-in session, ChatGPT through Codex), as the CLIs last reported them.
+    Grok Build and Antigravity report no meter, so theirs only turns red once a turn was refused.
+    `goi=1` (the popover opening) also names each plan: Claude by the name Anthropic gives it now
+    (the profile copy Claude Code keeps in `.claude.json`, falling back to `claude auth status`), ChatGPT
+    from the sign-in Javis holds, Grok from its own auth file. Antigravity keeps no plan name."""
+    import plan_limits
+    await asyncio.to_thread(plan_limits.quet_codex)
+    d = await asyncio.to_thread(plan_limits.doc)
+    # On an API key a brain bills per token: no plan, so no ring for it.
+    grok_k = await asyncio.to_thread(grok_cli.auth_status)
+    co_goi = {"anthropic-cli": not claude_auth.env_cho_cli(), "openai-oauth": True,
+              "grok-cli": grok_k.get("method") != "xai-api-key", "antigravity-cli": True}
+    ten = {}
+    if goi:
+        cl = await asyncio.to_thread(claude_auth_status)
+        oa = (cfgmod.read_settings().get("model", {}) or {}).get("openai_oauth") or {}
+        ten = {"claude": cl.get("goi_ten") or plan_limits.ten_goi(cl.get("goi") or "", "claude"),
+               "codex": plan_limits.ten_goi((d.get("codex") or {}).get("goi") or oa.get("plan") or "", "codex"),
+               "grok": plan_limits.ten_goi(grok_k.get("plan") or "", "grok"), "agy": ""}
+    return {"claude": d.get("claude"), "codex": d.get("codex"), "grok": d.get("grok"), "agy": d.get("agy"),
+            "plan": co_goi, "ten_goi": ten, "nguong": {"canh_bao": plan_limits.CANH_BAO, "sat": plan_limits.SAT}}

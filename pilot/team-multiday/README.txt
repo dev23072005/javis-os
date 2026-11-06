@@ -1,6 +1,10 @@
 GÓI PILOT: TEAM LÀM VIỆC NHIỀU NGÀY (0.207.0 tới 0.210.0)
 TRẠNG THÁI: ĐÃ CHUẨN BỊ, CHƯA CHẠY. Không có kết quả pilot nào trong thư mục này.
 
+Bổ sung 0.283.0: xem quality_first_guide.md cho chính sách chất lượng, nghiệm thu mặc định,
+  phép thử đối chứng 20 cặp và phạm vi số đo. paired_evaluation.py chỉ chạy thử khô qua dòng lệnh;
+  không phải kết quả nghiệp vụ thật hay thay thế hướng dẫn bản cũ bên dưới.
+
 Mục đích
   Chạy thử 3 nhóm trong 3 tới 7 ngày trên một bản Javis riêng để xem ba thứ có đứng vững với model thật không:
   1. Cổng chờ duyệt: bước cần chủ thì dừng thật, hành động ra ngoài chỉ chạy đúng lời gọi đã duyệt, một lần.

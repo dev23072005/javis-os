@@ -90,7 +90,8 @@ async def main():
         "javis_ui_plugin", ROOT / "system" / "plugins" / "javis-ui" / "plugin.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
-    check("resolve_page: bí danh 'việc' -> kanban", m.resolve_page("việc") == "kanban")
+    check("resolve_page: alias 'việc' -> tasks (0.422.0)", m.resolve_page("việc") == "tasks")
+    check("resolve_page: old ids kanban/selfimprove -> tasks", m.resolve_page("kanban") == "tasks" and m.resolve_page("selfimprove") == "tasks")
     check("resolve_page: 'trang Cài đặt' -> settings", m.resolve_page("trang Cài đặt") == "settings")
     check("resolve_page: id chuẩn giữ nguyên", m.resolve_page("models") == "models")
     check("resolve_page: lạ -> rỗng", m.resolve_page("trang lạ hoắc") == "")
@@ -106,6 +107,10 @@ async def main():
     check("resolve_page: 'agents' -> workspace", m.resolve_page("agents") == "workspace")
     check("resolve_page: 'workflows' -> workspace", m.resolve_page("workflows") == "workspace")
     check("resolve_group: 'mở mục Năng lực' -> nang_luc", m.resolve_group("mở mục Năng lực") == "nang_luc")
+    # 0.347.0: the Code group is gone; Terminal sits in Capabilities, so the old words open it.
+    check("resolve_group: 'nhóm code' / 'lập trình' -> nang_luc (Code group removed)",
+          m.resolve_group("nhóm code") == "nang_luc" and m.resolve_group("lập trình") == "nang_luc"
+          and "code" not in m.GROUPS)
     check("open_file chặn ..", bool(m.check_target("open_file", "../x.md")))
     check("open_file chặn tuyệt đối", bool(m.check_target("open_file", "C:/x.md")) and bool(m.check_target("open_file", "/etc/passwd")))
     check("open_file nhận tương đối", m.check_target("open_file", "Wiki/a.md") == "")
@@ -128,7 +133,7 @@ async def main():
     rt2 = ChatRuntime()
     ui_bridge.attach(rt2)
     out = await m._ui({"action": "open_page", "target": "trang lạ"}, None)
-    check("handler: trang lạ -> ERROR nêu trang hợp lệ", out.startswith("ERROR") and "kanban" in out)
+    check("handler: trang lạ -> ERROR nêu trang hợp lệ", out.startswith("ERROR") and "tasks" in out)
     out = await m._ui({"action": "open_page", "target": "việc"}, None)
     check("handler: không tab -> ERROR không có dashboard", out.startswith("ERROR") and "dashboard" in out)
 
@@ -138,7 +143,7 @@ async def main():
             ui_bridge.resolve(ev["id"], True, "")
     rt2.add_client("x", w)
     out = await m._ui({"action": "open_page", "target": "việc", "session_id": "web:s1"}, None)
-    check("handler: thành công nói 'Đã mở trang kanban'", out.startswith("[done] Đã mở trang kanban"))
+    check("handler: success says it opened the tasks page", out.startswith("[done] Đã mở trang tasks"))
 
     # Câu thuật lại phải lấy từ thứ dashboard THẬT SỰ cuộn, không đoán "khung chat" như trước:
     # model đọc câu này rồi nói lại cho người dùng, đoán sai là nói sai.

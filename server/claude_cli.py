@@ -64,9 +64,19 @@ def cancel_all(tag=None):
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
                                capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
             else:
-                p.terminate()
+                # Every registrant starts its child with start_new_session, so the child leads its own process group:
+                # signal the whole group so a CLI's own children (agy, codex tools) do not outlive Stop. Checked first,
+                # because a child sharing Javis's group would take Javis down with it.
+                import signal as _signal
+                if os.getpgid(p.pid) == p.pid:
+                    os.killpg(p.pid, _signal.SIGTERM)
+                else:
+                    p.terminate()
         except Exception:
-            pass
+            try:
+                p.terminate()
+            except Exception:
+                pass
     n = len(procs)
     try:
         import claude_sdk_engine
@@ -157,6 +167,12 @@ _THU_MUC_BIN_WINDOWS = (
     r"%USERPROFILE%\.local\bin",              # installer chính chủ của claude / grok / agy
     r"%LOCALAPPDATA%\Programs\antigravity",
     r"%LOCALAPPDATA%\Programs\grok",
+    # Where the official Windows installers really put them (seen on a clean windows-latest
+    # runner, 0.439.0): agy.exe under %LOCALAPPDATA%\agy\bin, grok.exe under ~\.grok\bin. Both
+    # only add themselves to the USER PATH in the registry, which a Javis started right after
+    # the install (setup wizard, "Open now") does not have yet.
+    r"%LOCALAPPDATA%\agy\bin",
+    r"%USERPROFILE%\.grok\bin",
     r"%LOCALAPPDATA%\Volta\bin",
     r"%USERPROFILE%\.bun\bin",
     r"%LOCALAPPDATA%\pnpm",
@@ -616,6 +632,23 @@ _AUTH_LOI = {"ts": 0.0}
 _AUTH_TTL_LOI = 30.0
 
 
+def _ten_goi_dong(goi: str, email: str = "", folder=None, chi_ten_that: bool = False) -> str:
+    """Name a Claude plan the way Anthropic names it now, never from a table Javis keeps.
+
+    `claude auth status` only gives a CODE ("max" covers both Max and the renamed Ultra since
+    2026-10-30). The CLI also stores the profile's `plan_display_name` in `.claude.json`; that wins.
+    Without it, javis-store's plan-name catalog, then the code tidied ("max" -> "Max"). `chi_ten_that`: return "" rather than the
+    tidied code, so a caller can tell a vendor name from a guess."""
+    if not goi:
+        return ""
+    try:
+        import plan_limits
+        ten = plan_limits.ten_goi_claude(folder, email)
+        return ten or ("" if chi_ten_that else plan_limits.ten_goi(goi, "claude"))
+    except Exception:  # noqa: BLE001
+        return "" if chi_ten_that else goi
+
+
 def auth_status(bo_qua_cache: bool = False):
     """Trạng thái đăng nhập Claude Code: {connected, email, plan, org}.
 
@@ -656,8 +689,13 @@ def auth_status(bo_qua_cache: bool = False):
                            encoding="utf-8", errors="replace",
                            timeout=25 if bo_qua_cache else 8, creationflags=_no_window())
         d = json.loads((r.stdout or "").strip() or "{}")
+        goi = d.get("subscriptionType", "") or ""
         ra = {"connected": bool(d.get("loggedIn")), "email": d.get("email", ""),
-              "plan": d.get("subscriptionType", "") or d.get("authMethod", ""), "org": d.get("orgName", "")}
+              "plan": _ten_goi_dong(goi, d.get("email", "")) or d.get("authMethod", ""), "org": d.get("orgName", ""),
+              # The plan CODE alone (pro, max...), never the auth method: the usage ring names the plan (0.329.0).
+              "goi": goi,
+              # The plan's name as Anthropic names it today ("Ultra"), read from the CLI's own profile copy.
+              "goi_ten": _ten_goi_dong(goi, d.get("email", ""), chi_ten_that=True)}
         cu = _AUTH_CACHE["val"] or {}
         if cu.get("connected") and not ra["connected"]:
             # Đang đăng nhập mà CLI báo mất - in dấu vết CÓ GIỜ để lần sau chủ báo "thi thoảng
@@ -674,6 +712,23 @@ def auth_status(bo_qua_cache: bool = False):
             ra["stale"] = True
             ra["error"] = f"{type(e).__name__}: {e}"
             return ra
+        return {"connected": False, "unknown": True, "error": f"{type(e).__name__}: {e}"}
+
+
+def auth_status_folder(folder) -> dict:
+    """Sign-in state of an extra Claude account (its own CLAUDE_CONFIG_DIR). No cache: called only while
+    that account is signing in, and by the Models page through plan_accounts (which reads the folder first)."""
+    cli = find_claude_cli()
+    if not cli or not folder:
+        return {"connected": False}
+    try:
+        r = subprocess.run([cli, "auth", "status", "--json"], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=15, creationflags=_no_window(),
+                           env={**os.environ, "CLAUDE_CONFIG_DIR": str(folder)})
+        d = json.loads((r.stdout or "").strip() or "{}")
+        return {"connected": bool(d.get("loggedIn")), "email": d.get("email", ""),
+                "plan": _ten_goi_dong(d.get("subscriptionType", "") or "", d.get("email", ""), folder=folder)}
+    except Exception as e:  # noqa: BLE001
         return {"connected": False, "unknown": True, "error": f"{type(e).__name__}: {e}"}
 
 
@@ -817,11 +872,71 @@ def auth_login():
 # Chạy `claude auth login --claudeai` với pipe: đọc LINK nó in cho user mở, nhận CODE user dán rồi
 # ghi vào stdin. Trạng thái giữ ở _LOGIN (1 phiên 1 lúc là đủ). KHÔNG mở browser trên server.
 import re as _re_login
-_LOGIN = {"proc": None, "url": "", "done": False, "error": "", "lines": []}
+_LOGIN = {"proc": None, "url": "", "done": False, "error": "", "lines": [], "env": None, "verified": None,
+          "finalized": False}
 _LOGIN_URL_RE = _re_login.compile(r"https?://\S+")
+# Lines the CLI prints for a code it will not take. It keeps waiting after them, so the user can paste again.
+_LOGIN_BAD_CODE = ("invalid code", "wasn't accepted", "login failed", "oauth error")
 
 
-def auth_login_ui_start():
+def _login_line_done(low: str) -> bool:
+    """Only the CLI's own success line counts. Matching a bare "logged in" (as before 0.383.0) also matched
+    "you are not logged in"."""
+    return "login successful" in low
+
+
+def _login_line_error(low: str) -> bool:
+    return any(x in low for x in _LOGIN_BAD_CODE) or low.startswith("error")
+
+
+def _login_tail(n: int = 3) -> str:
+    """The last lines the CLI printed, minus the sign-in link: the real reason when it says no."""
+    keep = [x for x in _LOGIN.get("lines", []) if not _LOGIN_URL_RE.search(x)
+            and not x.lower().startswith("opening browser") and not _login_line_done(x.lower())]
+    return " ".join(keep[-n:])[:400]
+
+
+def _login_verify() -> dict:
+    """Ask `claude auth status` whether the sign-in really landed.
+
+    `claude auth login` prints "Login successful." and exits 0 even when it could not SAVE the credentials (it
+    only fails on a transient storage error). On a Mac the store is the Keychain; a locked or unreachable one
+    leaves the CLI signed out while the login flow said yes, and the Models card went straight back to
+    "Not signed in" with no word of why (customer report 28/10/2026, MacBook, 4-5 attempts).
+    """
+    env = _LOGIN.get("env") or {}
+    folder = env.get("CLAUDE_CONFIG_DIR")
+    if folder:
+        st = auth_status_folder(folder)
+    else:
+        auth_quen_cache()
+        st = auth_status(bo_qua_cache=True)
+    if st.get("connected") or st.get("unknown"):
+        # Unknown (the check timed out) is not a no: the CLI said yes, the card's own check will settle it.
+        return {"ok": True}
+    print("[claude auth] login flow said success but `claude auth status` reports signed out. CLI output: "
+          + " | ".join(_LOGIN.get("lines", [])[-6:]), file=sys.stderr)
+    if sys.platform == "darwin":
+        msg = localefmt.chu(
+            "Claude báo đăng nhập xong nhưng không lưu được phiên vào Keychain của Mac, nên máy vẫn chưa đăng nhập. "
+            "Mở Terminal trên máy chạy Javis, gõ: claude auth login (nếu Keychain đang khoá thì mở khoá trước: "
+            "security unlock-keychain), xong bấm Kiểm tra lại.",
+            "Claude said the sign-in worked but could not save it to the Mac Keychain, so this machine is still "
+            "signed out. Open Terminal on the machine running Javis and run: claude auth login (if the Keychain is "
+            "locked, unlock it first: security unlock-keychain), then click Check again.")
+    else:
+        msg = localefmt.chu(
+            "Claude báo đăng nhập xong nhưng không lưu được phiên đăng nhập, nên máy vẫn chưa đăng nhập. Mở terminal "
+            "trên máy chạy Javis, gõ: claude auth login, xong bấm Kiểm tra lại.",
+            "Claude said the sign-in worked but could not save it, so this machine is still signed out. Open a "
+            "terminal on the machine running Javis and run: claude auth login, then click Check again.")
+    tail = _login_tail()
+    return {"ok": False, "error": msg + (f" ({tail})" if tail else "")}
+
+
+def auth_login_ui_start(env: Optional[dict] = None):
+    """`env`: extra variables for the login process; an extra Claude account passes its CLAUDE_CONFIG_DIR
+    (plan_accounts, 0.353.0) so the login lands in that account's folder."""
     cli = find_claude_cli()
     if not cli:
         return {"ok": False, "error": cau_thieu_cli("claude", "Claude")}
@@ -830,13 +945,15 @@ def auth_login_ui_start():
             _kill_tree(_LOGIN["proc"])
     except Exception:
         pass
-    _LOGIN.update({"proc": None, "url": "", "done": False, "error": "", "lines": []})
+    _LOGIN.update({"proc": None, "url": "", "done": False, "error": "", "lines": [], "env": dict(env or {}),
+                   "verified": None, "finalized": False})
     try:
         proc = subprocess.Popen(
             [cli, "auth", "login", "--claudeai"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
             creationflags=_no_window(), start_new_session=(os.name != "nt"),
+            env=({**os.environ, **env} if env else None),
         )
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
@@ -845,7 +962,9 @@ def auth_login_ui_start():
     def _reader():
         try:
             for line in proc.stdout:
-                line = line.rstrip()
+                # The prompt "Paste code here if prompted > " has no newline, so the CLI's answer lands on the
+                # same line after it. Drop the prompt so the line reads as the answer.
+                line = line.replace("Paste code here if prompted >", "").strip()
                 if not line:
                     continue
                 _LOGIN["lines"].append(line)
@@ -853,10 +972,11 @@ def auth_login_ui_start():
                     m = _LOGIN_URL_RE.search(line)
                     if m:
                         _LOGIN["url"] = m.group(0)
+                        continue
                 low = line.lower()
-                if "success" in low or "logged in" in low:
+                if _login_line_done(low):
                     _LOGIN["done"] = True
-                elif "error" in low or "failed" in low or "invalid" in low:
+                elif _login_line_error(low):
                     _LOGIN["error"] = line
         except Exception as e:
             _LOGIN["error"] = f"{type(e).__name__}: {e}"
@@ -877,28 +997,76 @@ def auth_login_ui_start():
     return {"ok": True, "url": _LOGIN["url"], "done": _LOGIN["done"], "error": _LOGIN["error"]}
 
 
+def auth_login_ui_poll() -> dict:
+    """Has the sign-in started by auth_login_ui_start finished WITHOUT a pasted code?
+
+    `claude auth login` opens the browser itself on a machine that has one, with a link whose answer goes back to
+    the CLI over localhost. Signing in there ends on platform.claude.com/oauth/code/success ("You're all set up"),
+    which shows NO code, and the CLI saves the login and exits. The card used to wait for a code that never comes
+    and asked `/claude/status`, whose 90 s cache kept saying "signed out" (owner report 02/11/2026, Windows: success
+    page in Edge, the card in Chrome still asking for a code until the page was reloaded).
+
+    Returns {connected: True} once (it verifies with a fresh `claude auth status`), {waiting: True} while the CLI
+    is still waiting, or {ended: True, error} when it exited without signing in.
+    """
+    proc = _LOGIN.get("proc")
+    if not proc:
+        return {"ok": True, "waiting": False, "connected": False}
+    if _LOGIN.get("verified"):
+        return dict(_LOGIN["verified"])
+    if not _LOGIN["done"] and proc.poll() is not None:
+        time.sleep(0.3)   # let the reader take the last line
+        if proc.returncode == 0:
+            _LOGIN["done"] = True
+    if _LOGIN["done"]:
+        v = _login_verify()
+        res = ({"ok": True, "connected": True} if v.get("ok")
+               else {"ok": False, "connected": False, "ended": True, "error": v.get("error", "")})
+        _LOGIN["verified"] = res
+        return dict(res)
+    if proc.poll() is not None:
+        tail = _login_tail()
+        return {"ok": False, "connected": False, "ended": True,
+                "error": localefmt.chu("Phiên đăng nhập này đã kết thúc. Bấm Đăng nhập Claude để lấy link mới.",
+                                       "This sign-in has ended. Click Sign in to Claude for a new link.")
+                + (f" ({tail})" if tail else "")}
+    return {"ok": True, "waiting": True, "connected": False}
+
+
 def auth_login_ui_code(code):
     proc = _LOGIN.get("proc")
     if not proc:
         return {"ok": False, "error": localefmt.chu("Chưa bắt đầu đăng nhập (bấm Đăng nhập trước).",
                                                     "Sign-in has not started (click Sign in first).")}
-    try:
-        proc.stdin.write((code or "").strip() + "\n")
-        proc.stdin.flush()
-    except Exception as e:
-        return {"ok": False, "error": localefmt.chu(f"Không gửi được code: {e}", f"Could not send the code: {e}")}
+    if proc.poll() is not None and not _LOGIN["done"]:
+        return {"ok": False, "error": localefmt.chu(
+            "Phiên đăng nhập này đã kết thúc. Bấm Đăng nhập Claude để lấy link mới.",
+            "This sign-in has ended. Click Sign in to Claude for a new link.")
+            + (f" ({_login_tail()})" if _login_tail() else "")}
+    # A wrong code leaves the CLI waiting for another one; the old error must not answer the new code.
+    _LOGIN["error"] = ""
+    if not _LOGIN["done"]:
+        try:
+            proc.stdin.write((code or "").strip() + "\n")
+            proc.stdin.flush()
+        except Exception as e:
+            return {"ok": False, "error": localefmt.chu(f"Không gửi được code: {e}", f"Could not send the code: {e}")}
     for _ in range(120):   # ~24s
         if _LOGIN["done"]:
-            auth_quen_cache()   # đăng nhập xong thẻ phải xanh NGAY, không chờ hết hạn nhớ
-            return {"ok": True}
+            return _login_verify()
         if _LOGIN["error"]:
             return {"ok": False, "error": _LOGIN["error"]}
         if proc.poll() is not None:
-            return {"ok": proc.returncode == 0,
-                    "error": "" if proc.returncode == 0 else localefmt.chu("Đăng nhập thất bại - thử lại.",
-                                                                           "Sign-in failed - try again.")}
+            time.sleep(0.3)   # let the reader take the last line
+            if proc.returncode == 0 or _LOGIN["done"]:
+                return _login_verify()
+            tail = _login_tail()
+            return {"ok": False, "error": localefmt.chu("Đăng nhập thất bại - thử lại.", "Sign-in failed - try again.")
+                    + (f" ({tail})" if tail else "")}
         time.sleep(0.2)
-    return {"ok": _LOGIN["done"], "error": _LOGIN.get("error", "")}
+    return {"ok": False, "error": _LOGIN.get("error") or localefmt.chu(
+        "Claude chưa trả lời sau 24 giây. Bấm Kiểm tra lại, hoặc lấy link mới.",
+        "Claude has not answered after 24 seconds. Click Check again, or get a new link.")}
 
 
 # ---- MCP native (cho server OAuth - Claude Code tự lo OAuth; scope user = dùng chung mọi cwd) ----
@@ -1021,8 +1189,115 @@ def claude_engine(system_prompt=None, cwd=None, tag="chat", allowed_tools=None, 
         print(f"[claude engine] JAVIS_CLAUDE_ENGINE={mode} đã gỡ từ v0.9.37 - engine Claude "
               "luôn chạy Agent SDK. Gặp lỗi hãy báo issue kèm log.", file=sys.stderr)
     from claude_sdk_engine import ClaudeSDK
-    return ClaudeSDK(system_prompt=system_prompt, cwd=cwd, tag=tag,
-                     allowed_tools=allowed_tools, model=model)
+    # 0.329.0: Claude Code's rate_limit_event -> the plan usage ring. Hooked here, when the SDK is loaded
+    # anyway, not at server import (that would load the whole SDK at startup; test_khoi_dong_nhe).
+    # 0.345.0: token cache count on the turn's final event. Installed BEFORE plan_limits so its
+    # own "already wrapped?" check keeps seeing itself on top (no stacked wrappers per turn).
+    # 0.438.4: answer text streams piece by piece (StreamEvent text_delta), like Codex. Lowest in the chain,
+    # installed first, so the two wrappers below keep their own "already wrapped?" checks on top.
+    try:
+        import claude_stream_text
+        claude_stream_text.cai_vao_claude_sdk()
+    except Exception:  # noqa: BLE001 - streaming must never stop a turn
+        pass
+    try:
+        _cai_dem_cache()
+    except Exception:  # noqa: BLE001 - a counter must never stop a turn
+        pass
+    try:
+        import plan_limits
+        plan_limits.cai_vao_claude_sdk()
+    except Exception:  # noqa: BLE001 - a meter must never stop a turn
+        pass
+    eng = ClaudeSDK(system_prompt=system_prompt, cwd=cwd, tag=tag,
+                    allowed_tools=allowed_tools, model=model)
+    # Every run (chat, loops, reminders, bots) skips the repo CLAUDE.md and compacts at ~180k;
+    # main._cli_fast keeps both.
+    eng.fast_settings = javis_claude_settings()
+    return eng
+
+
+def _claude_md_repo() -> list:
+    """The repo's own CLAUDE.md, in both spellings Claude Code may compare against."""
+    p = Path(__file__).resolve().parent.parent / "CLAUDE.md"
+    return list(dict.fromkeys([str(p), p.as_posix()]))
+
+
+# 0.345.0: Claude Code compacts a thread natively once it nears this many tokens. Its "auto" default
+# follows the model's context window, which measured 980,000 on a 1M-context model: a long chat then
+# re-reads close to a million tokens on every turn. 200k is the classic Claude window, so a 200k
+# model behaves exactly as before and a 1M model compacts at ~180k (Claude Code keeps a 20k buffer)
+# with its own summary, keeping the thread. `JAVIS_CLAUDE_COMPACT_WINDOW=auto` restores the default.
+CLAUDE_COMPACT_WINDOW = 200_000
+
+
+def _compact_window():
+    v = os.getenv("JAVIS_CLAUDE_COMPACT_WINDOW", "").strip().lower()
+    if v in ("auto", "0", "off"):
+        return None
+    try:
+        n = int(v.rstrip("k")) * (1000 if v.endswith("k") else 1) if v else CLAUDE_COMPACT_WINDOW
+    except ValueError:
+        return CLAUDE_COMPACT_WINDOW
+    # Claude Code accepts 100k to 1M and rejects anything else.
+    return max(100_000, min(n, 1_000_000))
+
+
+def javis_claude_settings(settings: str = None) -> str:
+    """Claude Code settings JSON for every Javis run (0.345.0), merged over `settings`.
+
+    - `claudeMdExcludes`: a native install keeps brains under the repo (BRAINS_DIR defaults to
+      <repo>/brains), and Claude Code walks up from its cwd loading every CLAUDE.md it meets. The
+      repo one IS the Javis system prompt, which Javis already appends, so each turn paid for it
+      twice (about 12k tokens, measured on a plain "chào em").
+    - `autoCompactWindow`: see CLAUDE_COMPACT_WINDOW. Must be a number: "200k" is ignored here.
+    - `fastMode` stays explicit false unless the caller set it.
+    Older Claude Code versions ignore keys they do not know."""
+    try:
+        d = json.loads(settings) if settings else {}
+    except (TypeError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("fastMode", False)
+    cu = d.get("claudeMdExcludes")
+    cu = cu if isinstance(cu, list) else []
+    d["claudeMdExcludes"] = list(dict.fromkeys([*cu, *_claude_md_repo()]))
+    w = _compact_window()
+    if w:
+        d.setdefault("autoCompactWindow", w)
+    return json.dumps(d, ensure_ascii=False)
+
+
+def _cai_dem_cache() -> bool:
+    """Add `tokens_cache_read` to Claude Code's final event without editing claude_sdk_engine.py.
+
+    That file is pinned by the native qualification evidence (see plan_limits.cai_vao_claude_sdk),
+    so this wraps its module-level `map_message` the same way. Idempotent across the whole wrapper
+    chain, whichever order the wrappers went on."""
+    import claude_sdk_engine as eng
+    f = eng.map_message
+    while f is not None:
+        if getattr(f, "_dem_cache", False):
+            return True
+        f = getattr(f, "__wrapped__", None)
+    goc = eng.map_message
+
+    def map_message(msg):
+        out = goc(msg)
+        if type(msg).__name__ == "ResultMessage":
+            try:
+                n = int((getattr(msg, "usage", None) or {}).get("cache_read_input_tokens") or 0)
+                for ev in out[0]:
+                    if isinstance(ev, dict) and ev.get("type") == "final":
+                        ev.setdefault("tokens_cache_read", n)
+            except Exception:  # noqa: BLE001 - a counter must never break a turn
+                pass
+        return out
+    map_message._dem_cache = True
+    map_message.__wrapped__ = goc
+    eng.map_message = map_message
+    return True
 
 
 # ============================================================
@@ -1394,9 +1669,23 @@ def _codex_home() -> Path:
 # tài khoản không có hồ sơ là Codex mù home, không thấy auth.json, trong khi Javis (đọc
 # USERPROFILE/HOME qua `_home_dir`) vẫn thấy đăng nhập ChatGPT đầy đủ. Đặt CODEX_HOME thì Codex
 # bỏ qua hẳn bước hỏi Windows, và cả hai bên nhìn cùng một thư mục.
-def codex_env() -> dict:
-    """Biến môi trường cho MỌI tiến trình Codex mà Javis bật."""
+def _mark_env(env, tag):
+    """`env` plus the background-work mark of turn `tag` (tien_trinh_nen.mark_env). Never fails a turn."""
+    try:
+        import tien_trinh_nen
+        return tien_trinh_nen.mark_env(env, tag)
+    except Exception:  # noqa: BLE001
+        return env
+
+
+def codex_env(codex_home: Optional[str] = None) -> dict:
+    """Biến môi trường cho MỌI tiến trình Codex mà Javis bật.
+
+    `codex_home`: the folder of an extra ChatGPT account (plan_accounts, 0.353.0). None = account 1, as before."""
     env = dict(os.environ)
+    if codex_home:
+        env["CODEX_HOME"] = str(codex_home)
+        return env
     if str(env.get("CODEX_HOME") or "").strip():
         return env                      # người dùng tự trỏ chỗ khác: tôn trọng
     home = _home_dir()
@@ -1528,6 +1817,34 @@ _CODEX_TOOL_ITEMS = ("mcp_tool_call", "command_execution", "function_call",
                      "tool_call", "local_shell_call", "web_search_call")
 
 
+# A message Codex writes right before it works ("Let me check the class list.") is a lead-in, not part of the answer.
+# Codex sends it as its own agent message, and both readers used to join every message of the turn into the answer, so
+# a customer bot sent the lead-in too (LDA report, 31/10/2026). Longer text before a step is kept: it may be content.
+CODEX_LEAD_IN_MAX = 280
+
+
+def codex_answer_text(messages: list) -> str:
+    """The turn's answer from its agent messages, lead-ins left out. Each message: {"text", "phase", "before_step"}.
+
+    `phase` comes from app-server ("commentary" / "final_answer"); `codex exec` and some models send none, and then a
+    short message followed by a work step in the same turn counts as a lead-in. If that would leave nothing, every
+    message is kept: an answer with a lead-in beats an empty reply."""
+    def lead_in(m):
+        if m.get("phase") == "final_answer":
+            return False
+        if m.get("phase") == "commentary":
+            return True
+        return bool(m.get("before_step")) and len(str(m.get("text") or "").strip()) <= CODEX_LEAD_IN_MAX
+    keep = [m for m in messages if not lead_in(m)] or list(messages)
+    return "\n".join(str(m.get("text") or "") for m in keep)
+
+
+def codex_mark_step(messages: list) -> None:
+    """A work step started: every message so far came before a step."""
+    for m in messages:
+        m["before_step"] = True
+
+
 def _codex_tool_name(it: dict) -> str:
     """Tên bước: LOẠI việc, không phải nguyên câu lệnh. Trước 0.64.77 lệnh shell lấy `command` làm
     tên, nên Telegram in nguyên `/bin/sh -lc "sed -n ..."` lên dòng vết. mcp_tool_call của Codex
@@ -1563,6 +1880,8 @@ class CodexCLI:
         # True only on the main engine of a chat turn (web or chat channel, set by main.py): the turn then runs on
         # `codex app-server` and takes the owner's messages mid-way (codex_steer.py, 0.213.0).
         self.steer = False
+        # Folder of an extra ChatGPT account (plan_accounts.use, 0.353.0). None = account 1 (~/.codex).
+        self.codex_home = None
 
     def is_available(self) -> bool:
         return self.cli_path is not None
@@ -1666,7 +1985,7 @@ class CodexCLI:
                     args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     cwd=self.cwd, text=True, encoding="utf-8", errors="replace", bufsize=1,
                     creationflags=creationflags, start_new_session=(os.name != "nt"),
-                    env=codex_env(),
+                    env=_mark_env(codex_env(getattr(self, "codex_home", None)), self.tag),
                 )
                 with _PROC_LOCK:
                     _ACTIVE_PROCS[proc] = self.tag
@@ -1768,6 +2087,7 @@ class CodexCLI:
         threading.Thread(target=reader_thread, daemon=True).start()
 
         final_text = ""
+        messages = []   # this turn's agent messages, joined into `final_text` when the turn ends (codex_answer_text)
         sandbox_hong = False
         while True:
             item = await queue.get()
@@ -1806,6 +2126,7 @@ class CodexCLI:
                 it = ev.get("item") or {}
                 itype = it.get("type")
                 if itype in _CODEX_TOOL_ITEMS:
+                    codex_mark_step(messages)
                     yield {"type": "progress", "name": _codex_tool_name(it), "item": it,
                            "id": str(it.get("id") or "")}
             elif t == "item.completed":
@@ -1818,9 +2139,11 @@ class CodexCLI:
                     # "turn4view0" là một nguồn có thật để trích dẫn tiếp.
                     txt = engine.strip_provider_markers(it.get("text") or "")
                     if txt.strip():
-                        final_text += (("\n" if final_text else "") + txt)
+                        # Shown live as before; the answer (`final`) leaves lead-ins out (codex_answer_text).
+                        messages.append({"text": txt, "phase": it.get("phase")})
                         yield {"type": "text", "content": txt}
                 elif itype in _CODEX_TOOL_ITEMS:
+                    codex_mark_step(messages)
                     # Câu lệnh đi kèm trong `item` để tool_label.chi_tiet rút ra khi cần.
                     name = _codex_tool_name(it)
                     # Kèm `item` THÔ. Codex không có trường file_path chuẩn hoá như Claude:
@@ -1836,11 +2159,14 @@ class CodexCLI:
                         ghi_codex_ws_hong(msg)
                     yield {"type": "retry", "content": msg}
                 elif itype:
+                    if itype == "file_change":
+                        codex_mark_step(messages)
                     # Item lạ (vd bản vá file) - KHÔNG dựng thành "đang gọi tool" để khỏi ồn,
                     # nhưng vẫn đẩy payload lên cho caller moi đường dẫn file vừa ghi.
                     yield {"type": "item", "item": it}
             elif t == "turn.completed":
                 u = ev.get("usage") or {}
+                final_text = codex_answer_text(messages)
                 # Dán lời giải thích vào chính bản báo cáo. Không dán thì thứ tới tay chủ là
                 # một bài dài model tự kể lại nỗi bối rối của nó, và không ai đọc ra được là
                 # phải đi sửa ở tầng container.
@@ -1860,6 +2186,7 @@ class CodexCLI:
                 yield {"type": "final", "content": final_text, "session_id": self.session_id,
                        # Codex đã tính cached_input_tokens trong input_tokens.
                        "tokens_in": u.get("input_tokens") or 0,
+                       "tokens_cache_read": u.get("cached_input_tokens") or 0,
                        "tokens_out": u.get("output_tokens") or 0}
             elif t in ("error", "stream.error") and la_thong_bao_ket_noi_lai(ev.get("message")):
                 # "Reconnecting... 2/5 (...)": Codex đang tự thử lại, lượt CHƯA hỏng. Đẩy lên thành

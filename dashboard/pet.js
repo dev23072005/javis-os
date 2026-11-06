@@ -480,7 +480,7 @@
     var mic = micDangBat();
     var muc = [
       { id: "chat", ic: icon("message-circle"), nhan: t("pet.menu.chat", "Chat") },
-      { id: "agent", ic: icon("bot"), nhan: t("pet.menu.agent", "Assistants") },
+      { id: "agent", ic: icon("bot"), nhan: t("pet.menu.agent", "Partners") },
       { id: "workflow", ic: icon("workflow"), nhan: t("pet.menu.workflow", "Workflows") },
       // Mic là CÔNG TẮC, nên nhãn phải nói việc sắp xảy ra chứ không phải trạng thái hiện tại:
       // đang tắt thì mời "Bật mic", đang bật thì mời "Tắt mic". Nhãn tính lại mỗi lần mở menu
@@ -491,12 +491,27 @@
       // JavisNav.go branch of the click handler opens it with no extra case.
       { id: "teams", ic: icon("users"), nhan: t("pet.menu.teams", "Team chat") },
     ];
+    // The owner's own menu (pet-menu.js, Settings > Mascot > Mascot menu): their order, plus the features they
+    // added. The list above stays as the fallback when pet-menu.js did not load (an old cached index.html).
+    // A feature that cannot run right now stays in its place, greyed out, with the reason under its name.
+    var PM = window.JavisPetMenu;
+    if (PM && PM.menuEntries) {
+      try {
+        // May be EMPTY: the owner can remove every item (2026-11-05), and then the pet opens no menu at all.
+        muc = PM.menuEntries({ mic: mic }).map(function (m) { return { id: m.id, ic: m.icon, nhan: m.label, why: m.why }; });
+      } catch (e) {}
+    }
     menu.innerHTML = muc.map(function (m) {
-      return '<button type="button" data-pet-go="' + m.id + '"><span aria-hidden="true">' + m.ic + '</span>' +
-             '<b></b></button>';
+      return '<button type="button" data-pet-go="' + esc(m.id) + '"' + (m.why ? ' disabled aria-disabled="true"' : "") +
+             '><span aria-hidden="true">' + m.ic + '</span>' +
+             '<b></b>' + (m.why ? '<small></small>' : "") + '</button>';
     }).join("");
     // Nhãn gán bằng textContent chứ không nối chuỗi: nó tới từ từ điển, và từ điển là dữ liệu.
-    menu.querySelectorAll("button").forEach(function (b, i) { b.querySelector("b").textContent = muc[i].nhan; });
+    menu.querySelectorAll("button").forEach(function (b, i) {
+      b.querySelector("b").textContent = muc[i].nhan;
+      var lyDo = b.querySelector("small");
+      if (lyDo) { lyDo.textContent = muc[i].why; b.title = muc[i].why; }
+    });
   }
 
   // ---- Diện mạo ----
@@ -605,7 +620,13 @@
   function nhip(now) {
     raf = 0;
     if (!el || el.hidden) return;
-    var dt = Math.min((now - (truoc || now)) / 1000, 0.05);
+    // 0.415.0: lúc NGHỈ thì vẽ thưa. Mỗi khung hình pet ghi transform lên nhóm SVG, trình duyệt phải tính lại kiểu và
+    // bố cục: đo trên điện thoại giả lập, riêng pet giữ luồng chính bận 26% (không có pet: 12%) trong lúc app để yên,
+    // tức là nóng máy, hao pin và giật khi cuộn. Thở, liếc và vành quay đều là chuyển động chậm, 30 khung/giây (ngủ gật
+    // 15) nhìn không khác; có chuột, có cú gật hay đang làm việc thì vẫn đủ 60.
+    var khoang = nguGat ? 66 : (state === "idle" && now - chuotLuc > 1600 && gatLuc <= now ? 33 : 0);
+    if (khoang && truoc && now - truoc < khoang) { raf = requestAnimationFrame(nhip); return; }
+    var dt = Math.min((now - (truoc || now)) / 1000, 0.1);
     truoc = now;
 
     if (giamChuyenDong && giamChuyenDong.matches) {
@@ -680,14 +701,98 @@
     }
     if (vuiDen && now > vuiDen) { vuiDen = 0; apDungTrangThai(); }
 
+    if (coTheNghi(now)) { vaoNghi(now); return; }
     raf = requestAnimationFrame(nhip);
   }
   function chay() {
+    if (nghiYen) raNghi();
     if (raf || !el || el.hidden) return;
     truoc = 0;
     raf = requestAnimationFrame(nhip);
   }
-  function dung_lai() { if (raf) cancelAnimationFrame(raf); raf = 0; }
+  function dung_lai() { if (nghiYen) raNghi(); if (raf) cancelAnimationFrame(raf); raf = 0; }
+
+  // ---- NGHỈ YÊN (0.418.0): đứng yên thì để CSS diễn, JS ngủ ----
+  // Đo trên điện thoại giả lập (trang Cộng sự, app để yên): vòng vẽ JS 30 khung/giây của pet giữ luồng chính bận khoảng
+  // 26% thời gian và bắt trình duyệt tính lại bố cục mỗi khung; không có pet là 13%. Lúc pet ngồi yên (rảnh, không ai rê
+  // chuột hay chạm, không phản ứng gì) chỉ còn vành quay chậm, mắt thỉnh thoảng liếc, chớp mắt và ngủ gật. Khi đó vòng JS
+  // dừng hẳn: vành quay bằng hoạt ảnh CSS 10 nhịp mỗi giây (steps, petVanh trong style.css), mắt liếc bằng transition CSS,
+  // chớp mắt và ngủ gật hẹn bằng setTimeout. Đo lại: 16%. Có động tĩnh gì (rê chuột, chạm, đổi trạng thái, phản ứng, chữ
+  // mới) là chay() gọi raNghi() và vòng JS chạy lại đủ nhịp như cũ.
+  var nghiYen = false, nghiHen = [];
+
+  function coTheNghi(now) {
+    return state === "idle" && !phanUngTen && !vuiDen && !dangChop && !keo && now - chuotLuc > 1600 && gatLuc <= now
+      && Math.abs(px) < 0.01 && Math.abs(py) < 0.01 && Math.abs(tocDo - tocDoDich) < 0.5
+      && Math.abs(liecX - liecDichX) < 0.02 && Math.abs(liecY - liecDichY) < 0.02   // mắt đã liếc tới nơi, không giật
+      && el.dataset.menu !== "1" && !(giamChuyenDong && giamChuyenDong.matches);
+  }
+
+  // Đặt dáng đứng yên (không thở, không nhún) theo hướng liếc hiện tại; transition CSS lo phần trượt mượt.
+  function datDangNghi() {
+    var nhinX = kep(liecX, -1, 1), nhinY = kep(liecY, -1, 1);
+    var ghim = el.dataset.out === "1" ? 1 : 0.45;
+    gRig.style.transform = "translate(" + (nhinX * 3.4).toFixed(2) + "px," + (nhinY * 2.4).toFixed(2) + "px)";
+    gEyes.style.transform = "translate(" + (nhinX * TAM_X * ghim).toFixed(2) + "px," + (nhinY * TAM_Y * ghim).toFixed(2) + "px)";
+  }
+  function quayVanhCss() {
+    var tg = 360 / Math.max(tocDoDich, 0.5);
+    pRing.style.setProperty("--vanh0", String((-gocRing).toFixed(2)));
+    pRing.style.animation = "petVanh " + tg.toFixed(1) + "s steps(" + Math.max(1, Math.round(tg * 10)) + ") infinite";
+  }
+  function hen(fn, ms) { nghiHen.push(setTimeout(fn, ms)); }
+
+  function vaoNghi(now) {
+    nghiYen = true;
+    raf = 0;
+    el.classList.add("pet-nghi");
+    quayVanhCss();
+    datDangNghi();
+    (function liec() {
+      hen(function () {
+        if (!nghiYen) return;
+        liecX = kep(nghiX() + (Math.random() * 2 - 1) * 0.17, -1, 1);
+        liecY = kep(NGHI_Y + (Math.random() * 2 - 1) * 0.13, -1, 1);
+        liecDichX = liecX; liecDichY = liecY;
+        datDangNghi();
+        liec();
+      }, 3600 + Math.random() * 3200);
+    })();
+    (function chop() {
+      if (nguGat) return;
+      hen(function () {
+        if (!nghiYen || nguGat) return;
+        dangChop = true; veMat("blink");
+        setTimeout(function () { dangChop = false; veMat(mood); }, 130);
+        chop();
+      }, Math.max(400, chopLuc - now) + (chopLuc < now ? Math.random() * 3200 : 0));
+      chopLuc = 0;
+    })();
+    if (!nguGat && hoatDongLuc) {
+      hen(function () {
+        if (!nghiYen || nguGat || state !== "idle") return;
+        nguGat = true; mood = "sleepy"; if (!dangChop) veMat(mood);
+        tocDoDich = 2; tocDo = 2; pRing.style.opacity = "0.3";
+        el.dataset.ngu = "1";
+        quayVanhCss();
+      }, Math.max(0, hoatDongLuc + NGU_SAU - now));
+    }
+  }
+
+  function raNghi() {
+    nghiYen = false;
+    nghiHen.forEach(clearTimeout);
+    nghiHen = [];
+    // Vành quay tiếp từ đúng chỗ CSS đang dừng, không giật về chỗ cũ.
+    var o = NaN;
+    try { o = parseFloat(getComputedStyle(pRing).strokeDashoffset); } catch (e) { /* không có trình duyệt (test) */ }
+    if (!isNaN(o)) gocRing = ((-o % 360) + 360) % 360;
+    pRing.style.animation = "";
+    pRing.style.strokeDashoffset = (-gocRing).toFixed(2);
+    el.classList.remove("pet-nghi");
+    var bay = typeof performance !== "undefined" ? performance.now() : 0;
+    if (!chopLuc || chopLuc < bay) chopLuc = bay + 2800 + Math.random() * 3200;
+  }
 
   function apDungTrangThai() {
     var s = STATES[state] || STATES.idle;
@@ -756,6 +861,7 @@
     // Vẽ lại MỖI LẦN mở, không chỉ lần đầu: nhãn mục mic đổi theo trạng thái mic, mà mic thì
     // bật tắt được từ chỗ khác (nút dưới ô nhập, phím Space, phiên Live đóng lại).
     if (mo) veMenu();
+    if (mo && menu.children.length === 0) mo = false;   // an emptied menu: the pet still comes out, no box opens
     menu.hidden = !mo;
     el.dataset.menu = mo ? "1" : "0";
     if (mo) ghimMenuTrongMan();
@@ -836,7 +942,7 @@
 
     menu.addEventListener("click", function (e) {
       var b = e.target.closest("[data-pet-go]");
-      if (!b) return;
+      if (!b || b.disabled) return;
       var id = b.dataset.petGo;
       moMenu(false);
       // Mic: BẤM HỘ cái nút mic thật chứ không gọi lại API giọng nói. Nút đó còn kéo theo cả
@@ -876,6 +982,7 @@
       ty = kep((e.clientY - cy) / 320, -1, 1);
       chuotLuc = performance.now();
       thucDay();
+      if (nghiYen) chay();   // đang nghỉ yên thì vòng vẽ đã dừng: đánh thức để mắt nhìn theo
     }, { passive: true });
 
     // Con trỏ nằm TRÊN thân: đang rảnh thì tò mò nhìn lại (mắt to hơn một chút).
@@ -916,7 +1023,7 @@
     vuiDen = 0;
     if (s === "error") choXong = false;
     if (s !== "idle" && nguGat) { nguGat = false; if (el) delete el.dataset.ngu; }
-    if (el) apDungTrangThai();
+    if (el) { apDungTrangThai(); chay(); }   // chay(): pet đang nghỉ yên (vòng vẽ dừng) thì thức dậy diễn trạng thái mới
     // Trả lời xong trong lúc còn đang đọc thành tiếng: đợi đọc xong (về nghỉ / chờ nghe) mới
     // vui, không thì cú nhảy chen ngang giữa câu đang nói.
     if (choXong && (s === "idle" || s === "listening")) { choXong = false; dienPhanUng("xong"); }
@@ -969,6 +1076,9 @@
     veDauAn();
     try { window.javisTheme && window.javisTheme.on(function () { apDung(); veDauAn(); }); } catch (e) {}
     window.addEventListener("javis:i18n", function () { veMenu(); });
+    // The mascot menu was saved (here or in another window): close it if open, so no row moves under the pointer.
+    // moMenu(true) builds it again from the new list the next time.
+    window.addEventListener("javis:pet-menu", function () { if (el && el.dataset.menu === "1") moMenu(false); });
     // Logo riêng của người dùng thắng linh vật, nên phải hỏi máy chủ một lượt. Hỏi SAU khi
     // đã vẽ bằng localStorage: chờ mạng xong mới vẽ thì thanh bên nháy một nhịp lúc mở trang.
     fetch("/settings").then(function (r) { return r.json(); }).then(function (j) {

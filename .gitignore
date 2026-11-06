@@ -60,6 +60,7 @@ server/packs.json*
 server/packs-state/
 server/packs-staging/
 server/packs-store-cache.json
+server/plan-names-cache.json
 # Artifact chạy của các bản 0.5x: trạng thái hội thoại, chỉ mục bộ nhớ, và prompt Antigravity
 # ghi ra để gỡ lỗi. Sinh ra lúc chạy nên không thuộc về repo lẫn image.
 server/conversation_state.db*
@@ -98,6 +99,8 @@ server/kanban.sqlite3*
 server/once_ledger.sqlite3*
 # web_watch.sqlite3 (0.239.0): các trang đang theo dõi, cùng lớp với kanban.sqlite3.
 server/web_watch.sqlite3*
+# improvement/ (0.333.0, 0.337.0): self-learning runs, automatic learning from chat, their backups.
+server/improvement/
 # login_vault.sqlite3 (0.251.0): the owner's encrypted sign-ins. Never commit it.
 server/login_vault.sqlite3*
 # workflow_runs.sqlite3: kho lịch sử chạy quy trình (Task 2 Cộng sự), cùng lớp với
@@ -198,3 +201,15 @@ server/channel_accounts.json
 
 # Bộ đo tai nghe (tools/stt_bench): clip âm thanh và kết quả, không lên git
 server/stt_bench/
+# Loop watchdog heartbeat and restart log (server/loop_watch.py): runtime state written to the default state dir server/.
+server/loop_beat.json
+server/loop_restarts.json
+# 0.402.0 / 0.403.0: Javis Core's notice rules and the engine-down notice state (STATE_DIR defaults to server/).
+server/notify_policy.json
+server/engine_down_notified.json
+server/client_errors.json
+server/client_errors.tmp
+
+# Desktop installers built by packaging/ (CI publishes them on the "desktop" release)
+/dist/
+packaging/windows/Vietnamese.isl

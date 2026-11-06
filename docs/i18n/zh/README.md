@@ -1,13 +1,15 @@
 <!-- translated-from: README.md sha256:2e10ad3d2a86 -->
 <div align="center">
 
-<img src="../../../dashboard/logo.svg" width="88" alt="Javis OS 标志">
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI."></a>
 
 # Javis OS
 
-### 自托管的 AI Agent：大脑可以随时更换，Second Brain 每天都在变得更聪明。
+### 你的 AI 团队。永远不错过最好的 AI。
 
-在你的笔记本或一台小型 VPS 上运行。用语音和它对话。接入 Claude、ChatGPT、Grok、Gemini 或 12 家提供商中的任意一家，切换模型时所有工具都保留，还能在你睡觉时于后台继续工作。
+Javis OS 把 **Claude、ChatGPT、Gemini、Grok** 以及你选择的模型，变成在你自己的电脑或服务器上 24/7 工作的团队。每位同事都有自己的角色，共享同一份记忆和工具，并在后台持续工作。更好的模型一出，切换过去，团队学到的一切都会保留。
+
+**🌐 官网: [javisos.com](https://javisos.com)** · 开源 · 自托管 · 14 家 AI 提供商
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](../../../LICENSE)
@@ -149,7 +151,7 @@ Javis OS **不是**聊天机器人。它是一个运行在你自己的机器或 
 每个大脑都可以调用你已连接的 MCP 服务器、读写 Brain、运行 Skill、排入 Kanban 任务，以及创建 Agent、Workflow、Loop 和提醒。CLI 引擎还额外能运行 **shell 命令**、**抓取和搜索网页**，以及**启动并行的子 Agent**。
 
 > [!WARNING]
-> **在让订阅账号运行后台任务之前，请先读这一段。** Anthropic 将 Claude Pro/Max 限定为 Claude Code 的**普通个人使用**。持续的后台执行（Loop、提醒、Kanban 任务、聊天机器人）、在 VPS 上运行，或多人共用一个账号，都超出了这个范围，已经有账号因此**被封禁**。Javis 从不读取你的登录令牌：它运行的是真正的 `claude` 程序，但这并不能让全天候的后台使用变得合规。稳妥起见，请在 Models 页面把 Claude Code 设置为使用 **API key** 运行，或把**后台任务模型**指向其他提供商。同样的注意事项也适用于 xAI 订阅。参见 `server/claude_auth.py`。
+> **让订阅账号运行后台任务之前的提示。** Anthropic 将 Claude Pro/Max 限定为 Claude Code 的**普通个人使用**。持续的后台执行（Loop、提醒、Kanban 任务、聊天机器人）、在 VPS 上运行，或多人共用一个账号，都超出了这个范围，因此存在账号**被锁定**的风险，不过到目前为止 Javis 尚未收到任何此类案例。如果你遇到了，请通过 [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose) 告诉开发者。Javis 从不读取你的登录令牌：它运行的是真正的 `claude` 程序，但这并不能让全天候的后台使用变得合规。稳妥起见，请在 Models 页面把 Claude Code 设置为使用 **API key** 运行，或把**后台任务模型**指向其他提供商。同样的注意事项也适用于 xAI 订阅。参见 `server/claude_auth.py`。
 
 ---
 
@@ -507,5 +509,6 @@ Javis OS 免费且开源，目前仍是一个人在写代码、支付测试服�
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 由 <b><a href="https://minhquy.vn">Minh Quý</a></b> 在越南用 ☕ 制作
 </div>

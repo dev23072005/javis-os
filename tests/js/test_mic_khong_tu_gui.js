@@ -77,8 +77,13 @@ check("onTranscript vẫn gửi thẳng, không qua bước xác nhận",
 // Chỗ thứ 10 (0.65.28) VẪN là hoãn: trong cuộc gọi, câu nói lúc Javis đang trả lời không dừng
 // lượt cũ nữa mà xếp hàng, gửi khi lượt xong và loa đọc xong (guiCauChoLuot).
 const goiGui = (app.match(/(?<!function )\bsendMessage\(/g) || []).length;
-check("có 10 chỗ gọi sendMessage (giọng nói, thử lại, Enter, nút gửi, sau khi tải file xong, sau khi dừng lượt cũ, sau khi nối lại mạng, sau khi mở agent/workflow, adaptive commit, câu chờ lượt trong cuộc gọi, bấm Nghe cuộc gọi hẹn giờ)",
+// 0.349.0: nút "Gửi lại câu này" nhường chỗ cho nút Tua lại, vốn chỉ đưa câu hỏi về ô nhập, không tự gửi: bớt một chỗ.
+// 06/11/2026: thêm một chỗ HOÃN, không phải đường mới: câu người dùng vừa nói cho ChatGPT Live lúc nó hết lượt
+// được gửi qua đường Cơ bản (chuyenSangCoBan), thay vì mất. Chỉ chạy khi máy chủ báo hết lượt (code quota/use_basic).
+check("có 11 chỗ gọi sendMessage (giọng nói, Enter, nút gửi, sau khi tải file xong, sau khi dừng lượt cũ, sau khi nối lại mạng, sau khi mở agent/workflow, adaptive commit, câu chờ lượt trong cuộc gọi, bấm Nghe cuộc gọi hẹn giờ, câu dở khi Live hết lượt)",
   goiGui === 11, goiGui);
+check("chỗ thứ 11 chỉ gửi câu đã nói dở, khi chuyển đường Cơ bản",
+  /function chuyenSangCoBan\(cauDangNoi = ""[\s\S]{0,500}if \(cauDangNoi\) sendMessage\(cauDangNoi\);/.test(app));
 // Chỗ thứ 11 (0.203.0) KHÔNG phải mic tự gửi: người dùng bấm Nghe trên thẻ cuộc gọi hẹn giờ, đường giọng cơ bản
 // gửi câu mở đầu nhờ Javis đọc nhắc hẹn (goiDenTheoLich, test_incoming_call_0203.js).
 // Reconnect sends and cancellation across chats execute in test_voice_app_session.js.
@@ -108,7 +113,10 @@ const ghiUser = (server.match(/append_message\([^)]*"user"/g) || []).length;
 // session when that turn reads it (steer_inbox sink in _tg_answer). Typed and sent by the owner, never the mic.
 // 0.236.0 adds the ninth, inside voice_live_ws: a message with files TYPED in the chat during a Live call (the "ask"
 // frame) is stored there instead of by an ordinary chat turn. Typed and sent by the owner, never the mic.
-check("chỉ 9 chỗ ghi vai user (web + bot + 3 Live + duyệt quy trình + nối tiếp việc nền + gửi thêm lúc đang chạy, web và kênh)", ghiUser === 9, ghiUser);
+// 0.441.0 adds the tenth, main._gate_luu_luot: a Javis Gate note (chat_bridge.ghi_chep) in which ChatGPT or Claude
+// records what the OWNER said in that outside chat. It carries the Gate block naming its source, and no engine runs on
+// it. Written by an outside AI the owner connected and allowed (Draft or Full level), never the mic.
+check("chỉ 10 chỗ ghi vai user (web + bot + 3 Live + duyệt quy trình + nối tiếp việc nền + gửi thêm lúc đang chạy, web và kênh + ghi chép Javis Gate)", ghiUser === 10, ghiUser);
 check("chỗ thứ sáu nằm TRONG _start_followup_turn",
   /async def _start_followup_turn[\s\S]{0,1600}store\.append_message\(conv_sid, "user", text\)/.test(server));
 const approvalBody = server.slice(server.indexOf('if action == "wf_resume":'), server.indexOf('if action == "resume_now":'));

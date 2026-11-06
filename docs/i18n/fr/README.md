@@ -1,13 +1,15 @@
 <!-- translated-from: README.md sha256:2e10ad3d2a86 -->
 <div align="center">
 
-<img src="../../../dashboard/logo.svg" width="88" alt="Logo de Javis OS">
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI."></a>
 
 # Javis OS
 
-### Votre agent IA auto-hébergé, avec un cerveau interchangeable et un Second Brain qui devient plus intelligent chaque jour.
+### Votre équipe IA. Ne ratez jamais la meilleure IA.
 
-Lancez-le sur votre ordinateur portable ou sur un petit VPS. Parlez-lui à voix haute. Branchez Claude, ChatGPT, Grok, Gemini ou n'importe lequel de 12 fournisseurs, gardez tous vos outils quand vous en changez, et laissez-le travailler en arrière-plan pendant que vous dormez.
+Javis OS transforme **Claude, ChatGPT, Gemini, Grok** et les modèles de votre choix en une équipe qui travaille 24 h/24, 7 j/7 sur votre propre machine ou serveur. Chaque collègue a un rôle, partage la même mémoire et les mêmes outils, et continue de travailler en arrière-plan. Un meilleur modèle sort ? Changez et gardez tout ce que l'équipe a appris.
+
+**🌐 Site web: [javisos.com](https://javisos.com)** · Open source · Auto-hébergé · 14 fournisseurs d'IA
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](../../../LICENSE)
@@ -149,7 +151,7 @@ Choisissez le cerveau sur la page **Models** et changez-en quand vous voulez. Ja
 Chaque cerveau peut appeler vos serveurs MCP connectés, lire et écrire dans le Brain, exécuter des skills, mettre du travail en file dans le Kanban, et créer des agents, des workflows, des loops et des rappels. Les moteurs CLI peuvent en plus exécuter des **commandes shell**, **récupérer des pages et chercher sur le web**, et **lancer des sous-agents en parallèle**.
 
 > [!WARNING]
-> **Lisez ceci avant de laisser un abonnement exécuter du travail en arrière-plan.** Anthropic limite Claude Pro/Max à un **usage personnel ordinaire** de Claude Code. L'exécution continue en arrière-plan (loops, rappels, tâches Kanban, chatbots), l'exécution sur un VPS ou le partage d'un même compte entre plusieurs personnes sortent de ce cadre, et des comptes **ont déjà été suspendus** pour cette raison. Javis ne lit jamais votre jeton de connexion : il exécute le vrai binaire `claude`, mais cela ne rend pas légitime un usage en arrière-plan 24 h sur 24. Par précaution, configurez Claude Code pour qu'il tourne avec une **clé d'API** sur la page Models, ou dirigez le **modèle de travail en arrière-plan** vers un autre fournisseur. La même prudence s'applique à l'abonnement xAI. Voir `server/claude_auth.py`.
+> **Une remarque avant de laisser un abonnement exécuter du travail en arrière-plan.** Anthropic limite Claude Pro/Max à un **usage personnel ordinaire** de Claude Code. L'exécution continue en arrière-plan (loops, rappels, tâches Kanban, chatbots), l'exécution sur un VPS ou le partage d'un même compte entre plusieurs personnes sortent de ce cadre, il existe donc un risque que le compte **soit bloqué**, même si Javis n'a recensé aucun cas jusqu'ici. Si cela vous arrive, prévenez le développeur via [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose). Javis ne lit jamais votre jeton de connexion : il exécute le vrai binaire `claude`, mais cela ne rend pas légitime un usage en arrière-plan 24 h sur 24. Par précaution, configurez Claude Code pour qu'il tourne avec une **clé d'API** sur la page Models, ou dirigez le **modèle de travail en arrière-plan** vers un autre fournisseur. La même prudence s'applique à l'abonnement xAI. Voir `server/claude_auth.py`.
 
 ---
 
@@ -507,5 +509,6 @@ Vous ne pouvez pas faire de don ? Utiliser Javis, envoyer vos retours ou ouvrir 
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 Fait avec ☕ au Vietnam par <b><a href="https://minhquy.vn">Minh Quý</a></b>
 </div>

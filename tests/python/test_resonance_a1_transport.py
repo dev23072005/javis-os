@@ -18,6 +18,9 @@ from _paths import ROOT, SERVER  # noqa: E402,F401
 import asyncio
 import json
 import os
+# 0.438.5: vòng tool mặc định gọi model dạng stream. File này thử logic vòng tool trên đường non-stream
+# (giả lập client.post / máy chủ trả JSON), đường đó vẫn là đường lui. Đường stream: test_api_stream_vong.py.
+os.environ["JAVIS_API_STREAM_TOOLS"] = "0"
 import sys
 import tempfile
 import time
@@ -227,7 +230,7 @@ _fns = {n.name: ast.get_source_segment(_src, n) for n in ast.walk(ast.parse(_src
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in ("_legacy_system_prompt",
                                                                                   "_subscription_system_prompt")}
 check("1 mọi nhánh engine của phiên trợ lý dùng _agent_chat_prompt (gói thuê bao qua _legacy_system_prompt)",
-      "_agent_chat_prompt(brain, _persona[1])" in _fns.get("_legacy_system_prompt", "")
+      "_agent_chat_prompt(brain, _persona[1], conv_sid=conv_sid, skill_served=skill_served)" in _fns.get("_legacy_system_prompt", "")
       and "if _persona:\n                    return _legacy_system_prompt(), None" in _fns.get("_subscription_system_prompt", ""))
 
 # ───────────── Claude SDK: server MCP trong tiến trình, gọi qua bộ điều phối của chính nó ─────────────

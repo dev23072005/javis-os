@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional
 
 import localefmt
-from claude_cli import _home_dir, _no_window, tim_binary
+from claude_cli import _ACTIVE_PROCS, _PROC_LOCK, _home_dir, _kill_tree, _no_window, tim_binary
 
 # Model mặc định khi người dùng chưa chọn gì. KHÔNG phải bảng model: chỉ là hạt giống để lượt
 # đầu chạy được nếu `agy models` chưa kịp trả lời. Danh sách thật luôn lấy từ CLI.
@@ -86,6 +86,7 @@ def find_antigravity_cli() -> Optional[str]:
         Path("/usr/local/bin/agy"),
         Path("/opt/homebrew/bin/agy"),
         Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "antigravity" / "agy.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "agy" / "bin" / "agy.exe",   # official Windows installer
         Path(os.environ.get("APPDATA", "")) / "npm" / "agy.cmd",
     ]
     for p in ung_vien:
@@ -484,10 +485,17 @@ def _do_stdin(cli: str, timeout: float = 75.0) -> str:
 
 # Dấu hiệu "prompt không tới nơi" trong thứ CLI in ra. Nhận ra thì phải đổi đường ngay chứ không
 # được đưa nguyên câu tiếng Anh cho người dùng rồi bỏ mặc - họ không sửa được gì với nó.
+#
+# Chỉ khớp những câu nói về CHÍNH prompt đầu vào. Bản trước khớp "prompt" + "required"/"missing"
+# ở bất kỳ đâu trong câu lỗi, nên một lỗi kiểu "permission prompt required" (tool cần duyệt khi
+# chạy nền) cũng bị đọc thành "CLI từ chối stdin" - và cả máy bị hạ xuống đường file ngữ cảnh,
+# đúng cảnh chủ repo gặp 2026-11-03 trên agy 1.4.12 dù bản đó nhận stdin hoàn toàn bình thường.
 def _la_loi_thieu_prompt(loi: str) -> bool:
     l = (loi or "").lower()
     return (("empty prompt" in l) or ("no prompt" in l)
-            or ("prompt" in l and ("usage:" in l or "required" in l or "missing" in l))
+            or ("prompt" in l and "usage:" in l)
+            or ("prompt is required" in l) or ("prompt required" in l and "permission" not in l)
+            or ("missing prompt" in l) or ("as its prompt" in l)
             or ("flag needs an argument" in l))
 
 
@@ -506,12 +514,16 @@ def duong_prompt_dai(cli: Optional[str] = None) -> str:
     ep = (os.environ.get("JAVIS_AGY_PROMPT_DAI") or "").strip().lower()
     if ep in ("file", "argv"):
         return ep
+    nho = _doc_nho_duong()
     if ep == "stdin":
-        return "stdin:rong"
+        # Ép stdin thì dùng công thức đã đo dương tính nếu có, không thì "trong" (không `-p`):
+        # đúng câu CHANGELOG 1.1.1 và đo được trên 1.4.12. "rong" (`-p ""`) thì 1.4.12 chối
+        # bằng "Error: empty prompt", nên mặc định cũ "stdin:rong" làm cửa thoát này hỏng hẳn.
+        d = str(nho.get("duong") or "")
+        return d if d.startswith("stdin:") and d != "stdin:" else "stdin:trong"
     cli = cli or find_antigravity_cli()
     if not cli:
         return "file"
-    nho = _doc_nho_duong()
     if nho.get("chu_ky") == _chu_ky_cli(cli):
         duong = str(nho.get("duong") or "")
         if duong.startswith("stdin"):
@@ -726,13 +738,54 @@ _CANH_BAO_HONG_DAU_EN = (
 _CANH_BAO_DOC_HONG = (
     "\n\n_(Lưu ý của Javis: `agy` có thử mở file ngữ cảnh nhưng KHÔNG đọc được (thường là do mức "
     "quyền hoặc sandbox chặn), nên lượt vừa rồi trả lời mà chưa có system prompt và bộ nhớ của "
-    "Javis. Nâng cấp `agy` lên bản nhận prompt qua stdin là hết hẳn đường vòng này.)_"
+    "Javis. `agy` từ bản 1.1.1 nhận prompt qua stdin và Javis tự đo lại đường đó mỗi ngày; muốn "
+    "ép ngay thì đặt biến môi trường JAVIS_AGY_PROMPT_DAI=stdin.)_"
 )
 _CANH_BAO_DOC_HONG_EN = (
     "\n\n_(Note from Javis: `agy` tried to open the context file but could NOT read it (usually blocked by "
     "the permission level or sandbox), so the last answer was given without Javis's system prompt and "
-    "memory. Upgrading `agy` to a version that takes the prompt over stdin removes this detour.)_"
+    "memory. `agy` 1.1.1 and later takes the prompt over stdin, and Javis re-measures that route daily; "
+    "to force it now, set the environment variable JAVIS_AGY_PROMPT_DAI=stdin.)_"
 )
+
+
+_TU_LOI_DOC = ("error", "fail", "denied", "not found", "no such", "permission",
+               "cannot", "can't", "unable")
+
+
+def _su_kien_doc_file(ev: dict, ten_ngan: str) -> str:
+    """Một sự kiện của `agy` nói gì về chuyện đọc file ngữ cảnh: "doc_duoc", "da_thu" hay "".
+
+    Phải nhận HAI hình dạng stream. Bản đầu chỉ biết `{"type": "tool_result", ...}`, còn `agy`
+    1.x (đo 2026-11-04 trên 1.4.12) phát mọi thứ dưới dạng
+    `{"event": "step_update", "step_update": {"step_type": "tool", "state": "DONE",
+    "tool_info": {"name": "read_file", "parameters": {"Path": ...}, "output": "1 lines, 34 bytes"}}}`.
+    Không có chữ `tool_result` nào, nên MỌI sự kiện nhắc tên file bị tính là "đã thử mà hỏng" và
+    mọi lượt đi đường file bị dán câu "KHÔNG đọc được" - trong khi model đọc trọn file. Người
+    dùng thấy cảnh báo, tin rằng Javis quên luật, mà thật ra không quên gì.
+    """
+    if not ten_ngan or ten_ngan not in str(ev):
+        return ""
+    su = ev.get("step_update") if isinstance(ev.get("step_update"), dict) else None
+    if su is not None:
+        if str(su.get("step_type") or "").lower() != "tool":
+            return "da_thu"       # câu trả lời nhắc tên file: chưa chứng minh được gì
+        ti = su.get("tool_info") if isinstance(su.get("tool_info"), dict) else {}
+        if ten_ngan not in str(ti.get("parameters") or ""):
+            return "da_thu"
+        trang_thai = str(su.get("state") or "").upper()
+        if trang_thai != "DONE":
+            return "da_thu"       # ACTIVE (đang chạy) hoặc ERROR/CANCELED
+        tt = (str(ti.get("output") or "") + " " + str(su.get("error") or ti.get("error") or ""))
+        if any(k in tt[:300].lower() for k in _TU_LOI_DOC):
+            return "da_thu"
+        return "doc_duoc"
+    t = str(ev.get("type") or ev.get("event") or "").lower()
+    if t in ("tool_result", "tool_output"):
+        tt = (str(ev.get("status") or "") + " "
+              + str(ev.get("output") or ev.get("content") or "")[:300]).lower()
+        return "da_thu" if any(k in tt for k in _TU_LOI_DOC) else "doc_duoc"
+    return "da_thu"
 
 
 # ---------------------------------------------------------------------------
@@ -875,6 +928,67 @@ _AUTH_CACHE: dict = {"ts": 0.0, "val": None}
 _AUTH_TTL = 60.0
 
 
+# ---- Disconnect from the Models page ----
+#
+# `agy` keeps its Google session in the OS keyring, which Javis cannot touch. Until 05/11/2026 the card had no Disconnect
+# button at all for that reason, so an owner whose Google plan ran out had no way to tell Javis "stop using this one"
+# (owner's report, 05/11/2026). Disconnect now does what it honestly can: it runs the CLI's own sign-out when the
+# binary on this machine lists one in `--help`, and otherwise switches the card off IN JAVIS (`model.antigravity_off`).
+# The keyring session stays; "Connect again" on the card switches it back on.
+_OFF_KEY = "antigravity_off"
+
+
+def javis_off() -> bool:
+    """The owner switched this card off in Javis. Read from settings (cached by mtime, so cheap on every call)."""
+    try:
+        import config as cfgmod
+        return bool((cfgmod.read_settings().get("model") or {}).get(_OFF_KEY))
+    except Exception:
+        return False
+
+
+def _off_status() -> dict:
+    return {"connected": False, "method": "", "email": "", "javis_off": True,
+            "error": localefmt.chu("Đã ngắt khỏi Javis. Bấm Kết nối lại để dùng tiếp.",
+                                   "Disconnected from Javis. Tap Connect again to use it.")}
+
+
+def logout_argv() -> Optional[list]:
+    """The sign-out command of the `agy` on this machine, or None when its `--help` lists none.
+
+    Measured, not guessed (see the top of this file): a subcommand the binary does not list is never run."""
+    cli = find_antigravity_cli()
+    txt = _help_text() if cli else ""
+    if not txt:
+        return None
+    for words in (("auth", "logout"), ("logout",), ("signout",), ("sign-out",)):
+        if re.search(r"(?m)^\s*" + r"\s+".join(map(re.escape, words)) + r"\b", txt):
+            return [cli, *words]
+    return None
+
+
+def forget_status() -> None:
+    """Drop the cached sign-in answer so the next look asks again."""
+    _AUTH_CACHE.update(ts=0.0, val=None)
+
+
+def logout() -> dict:
+    """Run the CLI's own sign-out when there is one. {ok, cli_logout, error}. Never raises."""
+    argv = logout_argv()
+    if not argv:
+        return {"ok": True, "cli_logout": False}
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=30, creationflags=_no_window(), stdin=subprocess.DEVNULL)
+    except Exception as e:
+        return {"ok": True, "cli_logout": False, "error": f"{type(e).__name__}: {e}"}
+    forget_status()
+    if r.returncode != 0:
+        return {"ok": True, "cli_logout": False,
+                "error": ((r.stderr or r.stdout or "").strip()[:300] or f"exit {r.returncode}")}
+    return {"ok": True, "cli_logout": True}
+
+
 def auth_status(bo_qua_cache: bool = False) -> dict:
     """Đã đăng nhập chưa: {connected, method, email, error}.
 
@@ -890,6 +1004,8 @@ def auth_status(bo_qua_cache: bool = False) -> dict:
     if not cli:
         return {"connected": False, "method": "", "email": "",
                 "error": _chua_cai()}
+    if javis_off():
+        return _off_status()
     now = time.time()
     if not bo_qua_cache and _AUTH_CACHE["val"] and now - _AUTH_CACHE["ts"] < _AUTH_TTL:
         return _hien_auth(_AUTH_CACHE["val"])
@@ -963,6 +1079,8 @@ def auth_status_nen() -> dict:
     if not cli:
         return {"connected": False, "method": "", "email": "",
                 "error": _chua_cai()}
+    if javis_off():
+        return _off_status()
     now = time.time()
     cu = _AUTH_CACHE["val"]
     if cu and now - _AUTH_CACHE["ts"] < _AUTH_TTL:
@@ -1003,7 +1121,7 @@ def login_huong_dan() -> dict:
         "cai": lenh_cai(),
         "dang_nhap": "agy",
         "ghi_chu": localefmt.chu(
-            "Dùng trang Code (Terminal) NGAY TRONG Javis - nó mở shell bằng đúng user "
+            "Dùng trang Terminal (nhóm Năng lực) NGAY TRONG Javis - nó mở shell bằng đúng user "
             "đang chạy Javis, đăng nhập ở đó là Javis nhận liền. (SSH bằng user khác, "
             "vd root, đăng nhập xong Javis vẫn không thấy - đây là lý do hay gặp nhất "
             "của cảnh 'cài rồi mà không nhận'.) Gõ `agy`: nó in ra một đường link. Mở "
@@ -1230,6 +1348,7 @@ class AntigravityCLI:
                  instructions: Optional[str] = None):
         self.cli_path = find_antigravity_cli()
         self.cwd = cwd or os.getcwd()
+        self.agy_home = None   # an extra Google account's HOME (plan_accounts); None = the machine's own login
         self.tag = tag
         self.model = model
         self.instructions = instructions
@@ -1287,7 +1406,7 @@ class AntigravityCLI:
         else:
             # Đi stdin: cú pháp lấy từ công thức đã ĐO được trên chính máy này, không phải công
             # thức đoán. Xem `_CT_STDIN` và `_do_stdin`.
-            args += list(dict(_CT_STDIN).get(ct_stdin or "rong", ["-p", ""]))
+            args += list(dict(_CT_STDIN).get(ct_stdin or "trong", []))
         return args
 
     def _chon_duong(self, full: str) -> str:
@@ -1509,15 +1628,55 @@ class AntigravityCLI:
         loop = asyncio.get_running_loop()
         hang: asyncio.Queue = asyncio.Queue()
         HET = object()
+        stop_requested = threading.Event()
+        reader_finished = threading.Event()
+        deadline_expired = threading.Event()
+
+        # agy stops itself at --print-timeout and still prints a partial answer; the watchdog only steps in after
+        # that, so it does not win the race and lose the partial output (its clock starts earlier, at Popen).
+        deadline = self.timeout + (60 if co_co("--print-timeout") else 0)
+
+        def publish(event):
+            # Cancellation can close the consumer's loop before the reader exits.
+            try:
+                loop.call_soon_threadsafe(hang.put_nowait, event)
+            except RuntimeError:
+                pass
 
         def doc_luong():
             proc = None
             try:
+                try:   # what agy's shell leaves running is adopted after the turn (tien_trinh_nen.ENV_MARK)
+                    import tien_trinh_nen
+                    _env = tien_trinh_nen.mark_env(None, self.tag)
+                except Exception:  # noqa: BLE001
+                    _env = None
+                # An extra Google account (plan_accounts, Linux only): agy runs with that account's own HOME and keeps
+                # its token in a file there instead of the machine's one keyring login.
+                if getattr(self, "agy_home", None):
+                    _env = dict(_env if _env is not None else os.environ)
+                    _env["HOME"] = self.agy_home
+                    _env["GEMINI_FORCE_FILE_STORAGE"] = "true"
                 proc = subprocess.Popen(
                     args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     cwd=self.cwd, text=True, encoding="utf-8", errors="replace", bufsize=1,
-                    creationflags=_no_window(), start_new_session=(os.name != "nt"),
+                    creationflags=_no_window(), start_new_session=(os.name != "nt"), env=_env,
                 )
+                with _PROC_LOCK:
+                    _ACTIVE_PROCS[proc] = self.tag
+
+                def watch_stop():
+                    # Keep cleanup independent of the cancelled asyncio task, including
+                    # a cancellation that arrives before Popen returns.
+                    # The deadline must run while stdout.readline or stdin.write is
+                    # blocked, rather than only after stdout has reached EOF.
+                    if not stop_requested.wait(deadline):
+                        deadline_expired.set()
+                    if proc.poll() is None:
+                        _kill_tree(proc)
+
+                threading.Thread(target=watch_stop, daemon=True,
+                                 name=f"javis-agy-watch-{self.tag}").start()
                 try:   # lệnh chạy ngầm agy bỏ lại sẽ được theo dõi sau lượt (tien_trinh_nen)
                     import tien_trinh_nen
                     tien_trinh_nen.ghi_nhom(self.tag, proc.pid)
@@ -1549,18 +1708,21 @@ class AntigravityCLI:
                     if not line:
                         continue
                     try:
-                        loop.call_soon_threadsafe(hang.put_nowait, json.loads(line))
+                        publish(json.loads(line))
                     except json.JSONDecodeError:
-                        loop.call_soon_threadsafe(hang.put_nowait, {"_raw": line})
+                        publish({"_raw": line})
                 ma = proc.wait(timeout=self.timeout)
                 luong_loi.join(timeout=5)
                 err = "".join(phan_loi).strip()
-                if ma != 0 or err:
-                    loop.call_soon_threadsafe(hang.put_nowait, {"_exit": ma, "_err": err})
+                if deadline_expired.is_set():
+                    # Reuse the existing time-cap classification: never retry a turn
+                    # that may already have performed outside actions.
+                    publish({"_exit": -1, "_err":
+                             f"[agy] print timeout after {self.timeout:g}s with turn in progress"})
+                elif ma != 0 or err:
+                    publish({"_exit": ma, "_err": err})
             except subprocess.TimeoutExpired:
-                loop.call_soon_threadsafe(
-                    hang.put_nowait,
-                    {"_exit": -1, "_err": localefmt.chu(
+                publish({"_exit": -1, "_err": localefmt.chu(
                         f"Antigravity CLI chạy quá {int(self.timeout)}s nên bị "
                         f"cắt. Nếu việc thật sự dài thì nâng biến môi trường "
                         f"JAVIS_AGY_TIMEOUT.",
@@ -1574,18 +1736,21 @@ class AntigravityCLI:
                 # chạy lại bằng stdin/file thay vì ném "OSError: [Errno 7] Argument list too
                 # long" thẳng vào mặt người dùng - câu đó họ không sửa được gì (báo 2026-08-30).
                 qua_tran = getattr(e, "errno", None) in (errno.E2BIG, errno.ENAMETOOLONG)
-                loop.call_soon_threadsafe(
-                    hang.put_nowait,
-                    {"_exit": -1, "_err": f"{type(e).__name__}: {e}", "_qua_tran": qua_tran})
+                publish({"_exit": -1, "_err": f"{type(e).__name__}: {e}", "_qua_tran": qua_tran})
             except Exception as e:
-                loop.call_soon_threadsafe(hang.put_nowait,
-                                          {"_exit": -1, "_err": f"{type(e).__name__}: {e}"})
+                publish({"_exit": -1, "_err": f"{type(e).__name__}: {e}"})
             finally:
+                stop_requested.set()
                 try:
                     if proc and proc.poll() is None:
-                        proc.terminate()
+                        _kill_tree(proc)
+                    if proc:
+                        proc.wait(timeout=5)
                 except Exception:
                     pass
+                if proc:
+                    with _PROC_LOCK:
+                        _ACTIVE_PROCS.pop(proc, None)
                 # Dọn file ngữ cảnh ở ĐÂY chứ không ở vòng đọc sự kiện: luồng này luôn chạy hết,
                 # kể cả khi người dùng đóng tab giữa chừng và không ai đọc nốt hàng đợi nữa.
                 # Để sót là rác tích dần trong brain của người dùng.
@@ -1594,7 +1759,8 @@ class AntigravityCLI:
                         os.unlink(tep_ngu_canh)
                     except Exception:
                         pass
-                loop.call_soon_threadsafe(hang.put_nowait, HET)
+                reader_finished.set()
+                publish(HET)
 
         threading.Thread(target=doc_luong, name=f"javis-agy-{self.tag}", daemon=True).start()
 
@@ -1622,34 +1788,41 @@ class AntigravityCLI:
         co_json = False
         qua_tran_argv = False
         co_tool = False
-        while True:
-            ev = await hang.get()
-            if ev is HET:
-                break
-            if ev.get("_qua_tran"):
-                qua_tran_argv = True      # query() sẽ chạy lại bằng stdin/file
-            if duong == "file" and not doc_duoc:
-                t = str(ev.get("type") or ev.get("event") or "").lower()
-                if "_raw" not in ev and "_exit" not in ev:
-                    co_json = True
-                if ten_ngan and ten_ngan in str(ev):
-                    if t in ("tool_result", "tool_output"):
-                        tt = (str(ev.get("status") or "") + " "
-                              + str(ev.get("output") or ev.get("content") or "")[:300]).lower()
-                        if not any(k in tt for k in ("error", "fail", "denied", "not found",
-                                                     "no such", "permission")):
-                            doc_duoc = True
-                    else:
+        try:
+            while True:
+                ev = await hang.get()
+                if ev is HET:
+                    break
+                if ev.get("_qua_tran"):
+                    qua_tran_argv = True      # query() sẽ chạy lại bằng stdin/file
+                if duong == "file" and not doc_duoc:
+                    if "_raw" not in ev and "_exit" not in ev:
+                        co_json = True
+                    _kq = _su_kien_doc_file(ev, ten_ngan)
+                    if _kq == "doc_duoc":
+                        doc_duoc = True
+                    elif _kq == "da_thu":
                         da_thu_doc = True
-            for ra in self._doi_su_kien(ev, cac_manh, chan):
-                if ra.get("type") == "tool_call":
-                    co_tool = True      # đã đụng thế giới bên ngoài -> KHÔNG được chạy lại
-                if ra.get("type") == "error":
-                    da_loi = True
-                    cac_loi.append(str(ra.get("content") or ""))
-                    if giu_loi:
-                        continue      # lượt này còn có thể thử lại bằng đường khác
-                yield ra
+                _n = len(cac_manh)
+                for ra in self._doi_su_kien(ev, cac_manh, chan):
+                    if ra.get("type") == "tool_call":
+                        co_tool = True      # đã đụng thế giới bên ngoài -> KHÔNG được chạy lại
+                    if ra.get("type") == "error":
+                        da_loi = True
+                        cac_loi.append(str(ra.get("content") or ""))
+                        if giu_loi:
+                            continue      # lượt này còn có thể thử lại bằng đường khác
+                    yield ra
+                # 0.438.6: chữ xem trước, ra ngay từng mẩu. Câu trả lời thật vẫn là `final` cuối lượt
+                # (đã qua `_chot_van`); nơi nào không biết `delta` thì bỏ qua. Dòng `_raw` không hiện trước.
+                if len(cac_manh) > _n and "_raw" not in ev:
+                    for _m in cac_manh[_n:]:
+                        if _m:
+                            yield {"type": "delta", "content": _m}
+        finally:
+            stop_requested.set()
+            # A second Stop may interrupt this wait; the worker still owns cleanup.
+            await asyncio.to_thread(reader_finished.wait, 5)
         ket.update(text=_chot_van("".join(cac_manh).strip(), chan.get("toan_van", "")),
                    loi=da_loi, cac_loi=cac_loi,
                    ten_ngu_canh=ten_ngu_canh, qua_tran_argv=qua_tran_argv,

@@ -15,6 +15,9 @@ from unittest.mock import patch
 
 os.environ["JAVIS_STATE_DIR"] = tempfile.mkdtemp(prefix="javis-team-gate-f-")
 TEMP = Path(tempfile.mkdtemp(prefix="javis-team-gate-fw-"))
+# Keep the real config reader, but give it a test-owned home instead of the host's MCP servers.
+CODEX_CONFIG_HOME = TEMP / "codex-home"
+CODEX_CONFIG_HOME.mkdir()
 
 import main  # noqa: E402
 import aux_engine  # noqa: E402
@@ -100,6 +103,7 @@ def one_job(label, provider, work_mode=None):
     r, tm, ts, t = world(label, work_mode)
     spec = {"provider": provider, "model": "m", "source": "agent", "note": ""}
     with patch.object(main, "_team_agent_info", side_effect=ident), \
+            patch.object(main.claude_cli, "_codex_home", return_value=CODEX_CONFIG_HOME), \
             patch.object(team_engine, "choose_spec", return_value=spec), \
             patch.multiple(team_engine, build=lambda *a, **k: Engine(), build_tools=fake_build_tools):
         job = r.submit(t["team_id"], "Làm phần việc", mentions=["agent-two"], as_job=True,
@@ -150,6 +154,12 @@ with patch.object(main.claude_cli, "codex_sandbox_cho_mode", return_value=None):
     seen, task, tm, t = one_job("codex-nosandbox", aux_engine.CODEX)
 check("codex gated without its sandbox: refused before the engine, with the reason",
       not seen and task["status"] == "team_blocked" and "sandbox" in (task["block_reason"] or ""), task["block_reason"])
+# PR #904: this is the stock Docker case. The recovery survives the runner's 300-character cut and never sends the
+# owner back to Codex or to full mode.
+why = task["block_reason"] or ""
+check("codex gated without its sandbox: recovery kept, points to Claude Code, not Codex or full mode",
+      "Thử lại" in why and "Claude Code" in why and "sang Codex" not in why and "ChatGPT" not in why
+      and "Nhóm tự làm hành động ra ngoài" not in why, why)
 
 # API engines: every tool through the hub in-process, at gated
 with patch.object(aux_engine, "availability", return_value=(True, "")):
@@ -170,13 +180,27 @@ check("codex gated with the user's own MCP servers: refused, named", not seen an
 seen, task, tm, t = one_job("agy", aux_engine.ANTIGRAVITY)
 check("antigravity gated: refused before the engine, job stopped with the reason",
       not seen and task["status"] == "team_blocked" and "Antigravity" in (task["block_reason"] or "")
-      and "Claude, Codex" in (task["block_reason"] or ""), task["block_reason"])
+      and "Claude Code" in (task["block_reason"] or "") and "Thử lại" in (task["block_reason"] or ""),
+      task["block_reason"])
 
 # Full: the owner's switch gives the 0.194.0 private-chat level, no gate
 seen, task, tm, t = one_job("full", "anthropic-cli", work_mode="full")
 b = seen[0]["base"] if seen else None
-check("full: Claude at full, no gate id, no team turn bound", b is not None and b.javis_mode == "full"
-      and not b.team_gate and SEEN_TURN == [None], (getattr(b, "javis_mode", None), SEEN_TURN))
+full_turn = (SEEN_TURN[0] or {}) if len(SEEN_TURN) == 1 else {}
+full_execution = full_turn.get("execution") or {}
+stored_turn = tm.turn(full_execution.get("turn_id") or "") or {}
+stored_step = next((s for s in tm.steps(task["id"]) if s["step_id"] == full_execution.get("step_id")), {})
+check("full: Claude at full with a bound team turn and no tool gate", b is not None and b.javis_mode == "full"
+      and not b.team_gate and full_turn.get("kenh") == "team" and not full_turn.get("team_gate"),
+      (getattr(b, "javis_mode", None), SEEN_TURN))
+check("full: usage context carries the actual host execution identifiers", stored_turn and stored_step
+      and full_execution.get("team_id") == stored_turn["team_id"] == t["team_id"]
+      and full_execution.get("task_id") == stored_turn["task_id"] == task["id"]
+      and full_execution.get("step_id") == stored_turn["step_id"] == stored_step["step_id"]
+      and full_execution.get("role") == stored_turn["role"] == "work" and full_execution.get("purpose") == "work"
+      and full_execution.get("job_revision") == stored_step["job_revision"] == task["team_rev"]
+      and full_execution.get("attempt") == task["attempts"] and full_execution.get("execution_id"), full_execution)
+check("full: execution context is released after the turn", turn_context.current() is None)
 seen, task, tm, t = one_job("agy-full", aux_engine.ANTIGRAVITY, work_mode="full")
 check("full: Antigravity runs (the owner chose full)", seen and seen[0]["mode"] == "full")
 

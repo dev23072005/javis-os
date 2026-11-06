@@ -59,7 +59,8 @@ async def main():
     h, token, err = feat.create("/brains/shop", name="Lead mới", target="task", text="Gọi lại cho khách",
                                 chat_id="web:abc")
     check("create a task hook", h is not None and token and not err)
-    raw = (STATE / "webhooks.json").read_text(encoding="utf-8")
+    # 0.274.0: hooks live in the durable store (spec §13); the token is still kept only as its hash.
+    raw = json.dumps([dict(r) for r in feat.store()._db.execute("SELECT * FROM hooks")], default=str)
     check("token is not stored in clear", token not in raw and wt.hash_token(token) in raw)
     check("view never shows the token hash", "token_hash" not in feat.view(h, "https://x"))
     check("view gives the full URL", feat.view(h, "https://x")["url"] == f"https://x/hooks/{h['id']}")
@@ -110,7 +111,8 @@ async def main():
     await feat.wait_idle()
     check("[SILENT] result is not delivered", len(sent) == before)
     stored = feat._find(feat._load(), h["id"])
-    check("history keeps runs, newest last", stored["count"] == 2 and stored["history"][-1]["status"] == "silent")
+    hist = feat.view(stored)["history"]
+    check("history keeps runs, newest first", stored["count"] == 2 and hist[0]["status"] == "silent")
 
     # failure
     task_answer["value"] = ("", "engine timeout")
@@ -143,14 +145,69 @@ async def main():
 
     # rate limit
     r, rtok, _ = feat.create("/b", name="r", target="task", text="t")
-    feat._rate[r["id"]] = __import__("collections").deque([__import__("time").time()] * wt.RATE_PER_HOUR)
+    # 0.274.0: the limits are counted from the durable store, so fill it with events received this hour.
+    st = feat.store()
+
+    def fill(hid, n, status="done", lease=0.0):
+        now = __import__("time").time()
+        for i in range(n):
+            st._db.execute("INSERT INTO events(id, hook_id, received_at, body, body_sha, status, lease_until,"
+                           " finished_at) VALUES(?,?,?,?,?,?,?,?)",
+                           (f"ev_fill_{hid}_{status}_{i}", hid, now, b"", "", status, lease, now))
+
+    def unfill(hid):
+        st._db.execute("DELETE FROM events WHERE id LIKE ?", (f"ev_fill_{hid}_%",))
+
+    # Spec §11: the ingress rate is per minute now (300 by default, the hook may lower it); 30/hour no longer caps
+    # code-only processing. The 429 regression below is the same bug either way.
+    feat.update(r["id"], {"limits": {"per_minute": 3}})
+    fill(r["id"], 3)
     code, _ = await feat.accept(r["id"], rtok, b"{}", "application/json")
-    check("over the hourly rate -> 429", code == 429)
+    check("over the ingress rate -> 429", code == 429)
+
+    # 0.274.0: an event refused with 429 must not leave its idempotency key behind, or the sender's retry
+    # (which is what a 429 asks for) is answered "duplicate" and the event never runs.
+    before = len(task_calls)
+    code, _ = await feat.accept(r["id"], rtok, b'{"order": 7}', "application/json", idem_key="evt-429")
+    check("rate-limited event with a key -> 429", code == 429)
+    check("a refused event does not keep its key",
+          st._db.execute("SELECT 1 FROM dedup WHERE hook_id=? AND idem_key LIKE '%evt-429'", (r["id"],)).fetchone()
+          is None)
+    unfill(r["id"])
+    code, resp = await feat.accept(r["id"], rtok, b'{"order": 7}', "application/json", idem_key="evt-429")
+    await feat.wait_idle()
+    check("the retry after 429 is accepted and runs, not reported as duplicate",
+          code == 202 and not resp.get("duplicate") and len(task_calls) == before + 1)
+    code, resp = await feat.accept(r["id"], rtok, b'{"order": 7}', "application/json", idem_key="evt-429")
+    await feat.wait_idle()
+    check("a second copy after it ran is a duplicate", code == 200 and resp.get("duplicate")
+          and len(task_calls) == before + 1)
+
+    # queue full: same rule
+    q, qtok, _ = feat.create("/b", name="q", target="task", text="t", limits={"backlog": 6})
+    # one event running under a live lease of another worker, the rest waiting: nothing here can drain them
+    fill(q["id"], 1, status="running", lease=__import__("time").time() + 600)
+    fill(q["id"], 5, status="queued")
+    st._db.execute("UPDATE events SET received_at=? WHERE hook_id=?", (__import__("time").time() - 120, q["id"]))
+    code, _ = await feat.accept(q["id"], qtok, b"{}", "application/json", idem_key="evt-full")
+    check("backlog full -> 429 and the key is not kept",
+          code == 429 and st._db.execute("SELECT 1 FROM dedup WHERE hook_id=? AND idem_key LIKE '%evt-full'",
+                                         (q["id"],)).fetchone() is None)
+    unfill(q["id"])
+
+    # two copies arriving at the same time run once
+    c, ctok, _ = feat.create("/b", name="c", target="task", text="t")
+    before = len(task_calls)
+    res = await asyncio.gather(*[feat.accept(c["id"], ctok, b"{}", "application/json", idem_key="evt-same")
+                                 for _ in range(5)])
+    await feat.wait_idle()
+    check("five concurrent copies with one key: one accepted, four duplicates, one run",
+          sorted(x[0] for x in res) == [200, 200, 200, 200, 202] and len(task_calls) == before + 1)
 
     # token sources
     check("bearer header read", wt.token_from_request({"authorization": "Bearer abc"}, "") == "abc")
     check("X-Javis-Token read", wt.token_from_request({"x-javis-token": "def"}, "") == "def")
-    check("query token read", wt.token_from_request({}, "token=ghi&x=1") == "ghi")
+    check("query token read (older hooks only: see the security tests)", wt.token_from_request({}, "token=ghi&x=1") == "ghi")
 
 
 asyncio.run(main())

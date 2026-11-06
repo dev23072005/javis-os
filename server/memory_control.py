@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import fastyaml
+import main_prompt_rendering
 
 _LOCK = threading.RLock()
 FORGOTTEN = "forgotten.json"
@@ -142,14 +143,17 @@ LEARNING_OFF_NOTE = ("\n\n# === GHI NHỚ MỚI ĐANG TẮT ===\n"
 # ── list / edit / forget ──────────────────────────────────────────────────────
 
 def _index_titles(mem_dir: Path) -> Dict[str, str]:
+    """slug -> title from MEMORY.md and the secondary indexes (memory_index_files, #934). MEMORY.md wins a tie."""
+    import memory_index_files
     out = {}
-    try:
-        for line in (Path(mem_dir) / "MEMORY.md").read_text(encoding="utf-8").splitlines():
-            m = re.match(r"\s*-\s*\[([^\]]+)\]\(facts/([^)]+?)\.md\)\s*(?:[-:]\s*(.*))?$", line)
-            if m:
-                out[m.group(2)] = m.group(1).strip()
-    except OSError:
-        pass
+    for f in memory_index_files.index_files(mem_dir):
+        try:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                m = re.match(r"\s*-\s*\[([^\]]+)\]\(facts/([^)]+?)\.md\)\s*(?:[-:]\s*(.*))?$", line)
+                if m and m.group(2) not in out:
+                    out[m.group(2)] = m.group(1).strip()
+        except OSError:
+            continue
     return out
 
 
@@ -254,10 +258,9 @@ def write_profile(text: str) -> str:
 
 def profile_block() -> str:
     """The person's profile for the prompt, before the brain's own memory (which wins where they differ)."""
-    t = read_profile()
-    return ("\n\n# === HỒ SƠ NGƯỜI DÙNG (chung mọi brain, do người dùng tự viết) ===\n"
-            "Cách xưng hô, ngôn ngữ, cách trình bày và mức chi tiết người dùng muốn. Bộ nhớ riêng của brain bên dưới "
-            "thắng khi hai bên khác nhau.\n" + t) if t else ""
+    # read_profile already strips and caps. Preserve that prepared string exactly,
+    # including whitespace at the cap boundary; do not normalize it a second time.
+    return main_prompt_rendering.render_profile_block(read_profile(), preserve_full_protected=True)
 
 
 # ── 0.188.0: hard block for Claude Code, and a source on every new memory ─────────────────────────────────────────

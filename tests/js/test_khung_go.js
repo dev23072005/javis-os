@@ -17,7 +17,7 @@ function check(name, cond) { console.log((cond ? "ok   " : "FAIL ") + name); if 
 const card = (html.match(/<div class="hud-voice" id="hudVoice">[\s\S]*?<!-- \/hudVoice -->/) || [""])[0];
 check("the #hudVoice card is found (ends with the <!-- /hudVoice --> marker)", !!card);
 ["voiceFocusResume", "attachBar", "fileInput", "chatInput", "cpRow", "plusBtn", "cpChips",
- "mbOpen", "effBtn", "effTxt", "fastBtn", "voiceBtn", "stopBtn", "sendBtn", "mbPop", "effPop", "plusMenu"].forEach(id => {
+ "mbOpen", "effBtn", "effTxt", "limitBtn", "voiceBtn", "stopBtn", "sendBtn", "mbPop", "effPop", "limitPop", "plusMenu"].forEach(id => {
   check("the card contains #" + id, card.indexOf('id="' + id + '"') !== -1);
 });
 const order = ["attachBar", "chatInput", "cpRow"].map(id => card.indexOf('id="' + id + '"'));
@@ -38,7 +38,7 @@ check("CSS: an empty #modelBar is hidden", css.indexOf(".model-bar:empty { displ
 check("CSS: no old phone order rules left", css.indexOf(".hud-voice .attach-btn { order: 1;") === -1);
 
 check("CHAT_NODE_IDS drops attachBar (it lives inside the card)",
-  consoleJs.indexOf('const CHAT_NODE_IDS = ["callBar", "chatArea", "bgStrip", "modelBar", "hudVoice"];') !== -1);
+  consoleJs.indexOf('const CHAT_NODE_IDS = ["callBar", "chatArea", "bgStrip", "goalBar", "modelBar", "hudVoice"];') !== -1);
 check("Chat page cp-css uses 24px corners", consoleJs.indexOf(".chatpage-slot .hud-voice{ background:var(--bg2); border:1px solid var(--border); border-radius:24px; }") !== -1);
 
 check("phone to desktop: the model chip goes back into #cpChips before #effBtn",

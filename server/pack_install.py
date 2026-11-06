@@ -222,47 +222,24 @@ def _giai_nen(zf, infos, goc, dich: Path) -> None:
 
 # ─────────────────────────── soi rồi cài ───────────────────────────
 
-def don_staging(ttl: int = STAGING_TTL) -> int:
-    """Dọn thứ đã soi mà không cài. Trả về số mục đã dọn."""
-    if not STAGING.is_dir():
-        return 0
-    # ttl <= 0 nghĩa là "không giữ gì", nên phải dọn CẢ thứ vừa tạo xong. So sánh chặt với
-    # `_now() - 0` thì một thư mục tạo cùng nhịp đồng hồ lại thoát - đúng ca mà người gọi
-    # `don_staging(0)` muốn dọn nhất.
-    han, n = (_now() + 1 if ttl <= 0 else _now() - ttl), 0
-    for p in list(STAGING.iterdir()):
-        try:
-            if p.stat().st_mtime < han:
-                shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink()
-                n += 1
-        except OSError:
-            continue
-    return n
+def zip_too_large(du_lieu: bytes) -> dict:
+    """The upload size cap, as the error dict both installers return; {} when it fits."""
+    if len(du_lieu) <= MAX_ZIP:
+        return {}
+    return {"ok": False, "stage": "verify",
+            "error": localefmt.chu(f"tệp quá lớn ({len(du_lieu) // 1024 // 1024}MB, trần "
+                                   f"{MAX_ZIP // 1024 // 1024}MB)",
+                                   f"file too large ({len(du_lieu) // 1024 // 1024}MB, limit "
+                                   f"{MAX_ZIP // 1024 // 1024}MB)")}
 
 
-def soi(du_lieu: bytes, ten_tep: str = "") -> dict:
-    """Mở zip, kiểm mọi luật, giải nén vào staging. KHÔNG đặt gì vào kho.
+def extract_checked(du_lieu: bytes, kho: Path, tam_zip: Path) -> dict:
+    """Apply every zip rule above, then extract into `kho` with modes WE set.
 
-    Trả về đúng cái sẽ hiện lên màn hình xác nhận, kèm `sha256` để `cai()` đối chiếu."""
-    don_staging()
-    if len(du_lieu) > MAX_ZIP:
-        return {"ok": False, "stage": "verify",
-                "error": localefmt.chu(f"tệp quá lớn ({len(du_lieu) // 1024 // 1024}MB, trần "
-                                       f"{MAX_ZIP // 1024 // 1024}MB)",
-                                       f"file too large ({len(du_lieu) // 1024 // 1024}MB, limit "
-                                       f"{MAX_ZIP // 1024 // 1024}MB)")}
-    sha = hashlib.sha256(du_lieu).hexdigest()
-    # Bố cục staging: STAGING/<sha>/<pid>/. Lớp <sha> là thư mục BỌC, còn <pid> mới là thư mục
-    # gói - `packs._nap_mot` lấy TÊN THƯ MỤC làm id, nên nó phải đúng bằng id trong manifest,
-    # y hệt lúc đã cài thật. Thiếu lớp bọc thì tên thư mục thành `<sha>` và mọi gói đều bị báo
-    # "tên thư mục không hợp lệ làm id".
-    boc = STAGING / sha
-    kho = boc / "_giai-nen"
-    STAGING.mkdir(parents=True, exist_ok=True)
-    if boc.is_dir():
-        shutil.rmtree(boc, ignore_errors=True)
-
-    tam_zip = STAGING / f"{sha}.zip"
+    Shared by the pack installer and the plugin-zip installer (`plugin_install.py`) so there is
+    exactly one zip extractor to keep safe. Returns {"ok": True, "root": <stripped wrapper
+    folder or "">} or the error dict to hand straight back to the caller."""
+    tam_zip.parent.mkdir(parents=True, exist_ok=True)
     tam_zip.write_bytes(du_lieu)
     try:
         with zipfile.ZipFile(tam_zip) as zf:
@@ -281,6 +258,53 @@ def soi(du_lieu: bytes, ten_tep: str = "") -> dict:
             tam_zip.unlink()
         except OSError:
             pass
+    return {"ok": True, "root": goc}
+
+
+def don_staging(ttl: int = STAGING_TTL, root: Path = None) -> int:
+    """Dọn thứ đã soi mà không cài. Trả về số mục đã dọn.
+
+    `root` lets the plugin-zip installer (`plugin_install.py`) clean its own staging folder with
+    the same rule; omitted, it is the pack staging folder."""
+    base = root if root is not None else STAGING
+    if not base.is_dir():
+        return 0
+    # ttl <= 0 nghĩa là "không giữ gì", nên phải dọn CẢ thứ vừa tạo xong. So sánh chặt với
+    # `_now() - 0` thì một thư mục tạo cùng nhịp đồng hồ lại thoát - đúng ca mà người gọi
+    # `don_staging(0)` muốn dọn nhất.
+    han, n = (_now() + 1 if ttl <= 0 else _now() - ttl), 0
+    for p in list(base.iterdir()):
+        try:
+            if p.stat().st_mtime < han:
+                shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink()
+                n += 1
+        except OSError:
+            continue
+    return n
+
+
+def soi(du_lieu: bytes, ten_tep: str = "") -> dict:
+    """Mở zip, kiểm mọi luật, giải nén vào staging. KHÔNG đặt gì vào kho.
+
+    Trả về đúng cái sẽ hiện lên màn hình xác nhận, kèm `sha256` để `cai()` đối chiếu."""
+    don_staging()
+    qua = zip_too_large(du_lieu)
+    if qua:
+        return qua
+    sha = hashlib.sha256(du_lieu).hexdigest()
+    # Bố cục staging: STAGING/<sha>/<pid>/. Lớp <sha> là thư mục BỌC, còn <pid> mới là thư mục
+    # gói - `packs._nap_mot` lấy TÊN THƯ MỤC làm id, nên nó phải đúng bằng id trong manifest,
+    # y hệt lúc đã cài thật. Thiếu lớp bọc thì tên thư mục thành `<sha>` và mọi gói đều bị báo
+    # "tên thư mục không hợp lệ làm id".
+    boc = STAGING / sha
+    kho = boc / "_giai-nen"
+    STAGING.mkdir(parents=True, exist_ok=True)
+    if boc.is_dir():
+        shutil.rmtree(boc, ignore_errors=True)
+
+    ra = extract_checked(du_lieu, kho, STAGING / f"{sha}.zip")
+    if not ra.get("ok"):
+        return ra
 
     manifest = next((kho / t for t in packs.MANIFEST_TEN if (kho / t).is_file()), None)
     if manifest is None:
@@ -312,11 +336,16 @@ def soi(du_lieu: bytes, ten_tep: str = "") -> dict:
         da_co = set(mcp_catalog.tat_ca()) | set(packs.connector_layers())
     except Exception:
         da_co = set()
-    da_cai = doc_so().get(pid)
+    so_hien = doc_so()
+    da_cai = so_hien.get(pid)
     if da_cai:
         # Nâng cấp chính gói này: connector cũ của nó không tính là "đã có", nếu không thì
         # mọi bản nâng cấp đều tự báo trùng với chính mình.
         da_co -= set(da_cai.get("connectors") or [])
+    # 0.440.0: gói đổi mã thay gói cũ (`replaces`). Connector của gói cũ cũng là của chính nó.
+    thay = [o for o in packs.ma_thay_the(m, pid) if o in so_hien]
+    for o in thay:
+        da_co -= set((so_hien.get(o) or {}).get("connectors") or [])
 
     ban = packs._nap_mot(tam, da_co)
     py = sorted(str(p.relative_to(tam)).replace("\\", "/") for p in tam.rglob("*.py"))
@@ -356,7 +385,10 @@ def soi(du_lieu: bytes, ten_tep: str = "") -> dict:
         # duy nhất trong gói đụng tới nơi người dùng tự viết.
         "vault": _liet_ke_vault(tam),
         "py_files": py, "size": len(du_lieu),
-        "da_cai": ({"version": da_cai.get("version")} if da_cai else None),
+        "da_cai": ({"version": da_cai.get("version")} if da_cai else
+                   {"version": (so_hien.get(thay[0]) or {}).get("version"), "replaces": thay} if thay else None),
+        # Gói đã cài mà gói này thay (đổi mã). Màn hình xác nhận nói ra: cài xong gói cũ được gỡ.
+        "replaces": thay,
     }
 
 
@@ -416,6 +448,12 @@ def cai(staging_id: str, consent_sha256: str, *, enable: bool = False,
         if da_doi and rac.exists() and dich.exists():
             shutil.rmtree(rac, ignore_errors=True)
 
+    # 0.440.0: gói này THAY gói cũ (đổi mã). Chuyển những gì gói cũ để lại sang mã mới rồi gỡ
+    # nó. Làm TRƯỚC khi đọc lại danh sách gói (connector của gói cũ còn nằm đó thì connector cùng
+    # tên của gói mới bị coi là trùng) và trước khi ghi năng lực vào brain (sổ năng lực của gói cũ
+    # phải về tên mới trước, không thì mọi skill nó đã đặt bị coi là "của người khác").
+    thay = _thay_the(packs.ma_thay_the(_manifest(dich), pid), pid, dich)
+
     packs.invalidate()
     ban = next((p for p in packs.installed() if p["id"] == pid), None)
 
@@ -431,9 +469,15 @@ def cai(staging_id: str, consent_sha256: str, *, enable: bool = False,
             bao_vault = {"loi": [str(e)]}
 
     so = doc_so()
+    for o in thay["ids"]:
+        so.pop(o, None)
     so[pid] = {
         "version": (ban or {}).get("version", ""),
-        "enabled": bool(enable),
+        # Gói cũ đang bật thì bản thay nó cũng bật: cập nhật không được lặng lẽ tắt thứ đang chạy.
+        # NHƯNG chỉ khi đúng là bản của kho chính thức (vá bảo mật 2026-11-05): `replaces` do chính
+        # gói tự khai, nên một gói lạ khai `replaces: ["javis.zalo"]` từng được bật luôn dù chủ để
+        # công tắc tắt, và chạy plugin.py trong máy chủ với dữ liệu Zalo của gói cũ.
+        "enabled": _bat_sau_cai(enable, thay, pid, sha),
         "tier": (ban or {}).get("tier", "data"),
         "installed_at": _now(),
         "sha256": sha,
@@ -445,12 +489,121 @@ def cai(staging_id: str, consent_sha256: str, *, enable: bool = False,
         "plugins": sorted(d.name for d in (dich / "plugins").iterdir()
                           if d.is_dir()) if (dich / "plugins").is_dir() else [],
     }
+    if thay["aliases"]:
+        so[pid]["plugin_aliases"] = thay["aliases"]
+    if thay["ids"]:
+        so[pid]["replaced"] = thay["ids"]
     _ghi_so(so)
-    return {"ok": True, "id": pid, "enabled": bool(enable),
+    return {"ok": True, "id": pid, "enabled": _bat_sau_cai(enable, thay, pid, sha),
+            "replaced": thay["ids"],
             "tier": (ban or {}).get("tier", "data"),
             "connectors": (ban or {}).get("connectors") or [],
             "vault": bao_vault,
             "warning": (ban or {}).get("error") or ""}
+
+
+def _manifest(thu_muc: Path) -> dict:
+    m = next((thu_muc / t for t in packs.MANIFEST_TEN if (thu_muc / t).is_file()), None)
+    try:
+        d = packs._doc_file(m) if m else {}
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ban_kho_chinh_thuc(pid: str, sha: str) -> bool:
+    """The zip with this sha256 is the one the OFFICIAL store index lists for this pack id.
+
+    The index is fetched over HTTPS from the default store URL (a custom `store_url` does not count), so a pack id and
+    hash found there were published by the Javis store, not chosen by whoever built the zip."""
+    try:
+        import packs_store
+        if packs_store.url_kho() != packs_store.STORE_MAC_DINH:
+            return False
+        for m in (packs_store._doc_cache().get("packs") or []):
+            if isinstance(m, dict) and m.get("id") == pid:
+                return bool(sha) and str((m.get("download") or {}).get("sha256") or "").lower() == sha.lower()
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
+def _bat_sau_cai(enable, thay: dict, pid: str, sha: str) -> bool:
+    """On/off state of a freshly installed pack: what the owner chose, or the replaced pack's state when (and only when)
+    this zip is the official store's release of that pack id."""
+    if bool(enable):
+        return True
+    return bool(thay.get("enabled")) and _ban_kho_chinh_thuc(pid, sha)
+
+
+def _thay_the(ma_cu: list, pid: str, dich: Path) -> dict:
+    """Gói `pid` thay các gói `ma_cu` (đổi mã, 0.440.0). Chuyển phần gói cũ để lại sang tên mới rồi gỡ gói cũ.
+
+    Chuyển: dữ liệu riêng của plugin (`plugin-data/<slug>`: token, cài đặt), sổ năng lực trong brain
+    (`packs-state/<id>.json`), và ghi `plugin_aliases` để địa chỉ `/ext/<slug cũ>/` đã dán ra ngoài
+    vẫn tới plugin mới. KHÔNG xoá kết nối hay năng lực trong brain của gói cũ: chúng đi theo gói mới.
+    Hỏng ở bước nào thì ghi lỗi rồi đi tiếp: gói mới đã yên vị, thiếu một mảnh dữ liệu cũ không đáng
+    làm hỏng cả lần cài."""
+    so = doc_so()
+    ra = {"ids": [], "enabled": False, "aliases": {}, "errors": []}
+    moi_pl = sorted(d.name for d in (dich / "plugins").iterdir() if d.is_dir()) \
+        if (dich / "plugins").is_dir() else []
+    du_lieu = STATE_DIR / "plugin-data"
+    for o in ma_cu:
+        hang = so.get(o)
+        if not isinstance(hang, dict) or o == pid:
+            continue
+        ra["ids"].append(o)
+        ra["enabled"] = ra["enabled"] or bool(hang.get("enabled", True))
+        cu_pl = [str(x) for x in (hang.get("plugins") or [])]
+        # Ghép plugin cũ với plugin mới: cùng tên thì là một; mỗi bên đúng một plugin thì là một.
+        cap = {x: x for x in cu_pl if x in moi_pl}
+        if len(cu_pl) == 1 and len(moi_pl) == 1 and not cap:
+            cap = {cu_pl[0]: moi_pl[0]}
+        # Bí danh cũ hơn nữa (gói từng đổi tên một lần) đi tiếp theo về tên mới.
+        for c, m in (hang.get("plugin_aliases") or {}).items():
+            if m in cap:
+                ra["aliases"][str(c)] = cap[m]
+        for c, m in cap.items():
+            if c != m:
+                ra["aliases"][c] = m
+                a, b = du_lieu / c, du_lieu / m
+                try:
+                    if a.is_dir() and not b.exists():
+                        a.replace(b)
+                except OSError as e:
+                    ra["errors"].append(f"plugin-data {c}: {e}")
+        try:
+            import plugins_host
+            for slug in cu_pl:
+                plugins_host.unload(slug)
+        except Exception as e:
+            ra["errors"].append(f"unload {o}: {e}")
+        try:
+            import pack_vault
+            a, b = pack_vault._so_path(o), pack_vault._so_path(pid)
+            if a.is_file() and not b.exists():
+                a.replace(b)
+        except OSError as e:
+            ra["errors"].append(f"packs-state {o}: {e}")
+        thu_muc = packs.PACKS_DIR / o
+        if thu_muc.is_dir() and packs.PACKS_DIR.resolve() in thu_muc.resolve().parents:
+            rac = packs.PACKS_DIR / f".trash-{o}-{int(_now())}"
+            try:
+                thu_muc.replace(rac)
+                shutil.rmtree(rac, ignore_errors=True)
+            except OSError as e:
+                ra["errors"].append(f"{o}: {e}")
+    for loi in ra["errors"]:
+        print(f"[packs] thay gói cũ bằng {pid}: {loi}", file=sys.stderr)
+    if ra["ids"]:
+        try:
+            import plugins_host
+            plugins_host.invalidate()
+        except Exception:
+            pass
+        packs.invalidate()
+    return ra
 
 
 def _digest_ma(thu_muc: Path) -> str:

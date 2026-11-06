@@ -20,6 +20,17 @@ bản thân trình duyệt chỉ tải khi có người bấm.
 Tải vào `STATE_DIR/browsers` chứ không vào cache mặc định của người dùng: STATE_DIR nằm trên ổ
 gắn ngoài, nên bản tải về SỐNG QUA mỗi lần cập nhật. Để trong `~/.cache` thì cứ dựng lại
 container là mất, và người dùng phải tải lại cả trăm MB mà không hiểu vì sao.
+
+Default download on first start (0.375.0)
+-----------------------------------------
+The owner decided on 2026-10-28 that a browser is part of the basic experience (mbasic is gone,
+so reading pages and the Facebook plugins need a real one), so the button is no longer the only
+way in: `auto_install_browser()` runs once per server start and downloads the same headless
+shell in the background when the machine has nothing Javis can drive. It still stays out of the
+Docker image: the download must match the Playwright version the MCP runs, and in STATE_DIR it
+survives updates. It skips when a system Chrome/Edge exists, when the user pressed Remove
+(marker file), when JAVIS_SKIP_BROWSER is set, and when the image was built without the system
+libraries (JAVIS_BROWSER_DEPS=0), since the download could not run there anyway.
 """
 from __future__ import annotations
 
@@ -46,6 +57,12 @@ ENV_BROWSERS_PATH = "PLAYWRIGHT_BROWSERS_PATH"
 # trên ổ gắn ngoài. Giữ lại đường dẫn chỉ để `don_thu_vien_cu()` dọn nó.
 PYLIBS_DIR = STATE_DIR / "pylibs"
 
+# Written by `go()`, cleared by a manual install. Lives OUTSIDE BROWSERS_DIR because `go()` deletes
+# that whole folder. Without it, the next start would download again what the user just removed.
+REMOVED_MARKER = STATE_DIR / "browser-removed"
+ENV_SKIP = "JAVIS_SKIP_BROWSER"
+ENV_DEPS = "JAVIS_BROWSER_DEPS"   # set by the Dockerfile from the WITH_BROWSER_DEPS build-arg
+
 # Trần thời gian tải. Mạng VPS chậm vẫn phải xong trong chừng này, còn treo lâu hơn là hỏng
 # thật chứ không phải chậm - và treo im vô hạn là kiểu lỗi tệ nhất (không kết quả, không lỗi).
 TAI_TIMEOUT = 900.0
@@ -67,7 +84,14 @@ def _mo_ta_trinh_duyet() -> dict:
     }
 
 
-CONG_CU = {"browser": _mo_ta_trinh_duyet}
+def _mo_ta_tai_offline() -> dict:
+    import local_stt
+    return local_stt.describe()
+
+
+# 0.435.0: the offline ear (`local_stt`) is the second optional tool. Its own module says how it is checked, installed
+# and removed; the branches below only route to it.
+CONG_CU = {"browser": _mo_ta_trinh_duyet, "local_ear": _mo_ta_tai_offline}
 
 
 # ─────────────────────────── dò xem đã có gì chưa ───────────────────────────
@@ -346,7 +370,11 @@ def trang_thai(cong_cu: str = "browser") -> dict:
     d = dict(CONG_CU[cong_cu]())
     viec = _viec.get(cong_cu) or {}
     d["ok"] = True
-    d = _trang_thai_browser(d, viec)
+    if cong_cu == "local_ear":
+        import local_stt
+        d = local_stt.status(d, viec)
+    else:
+        d = _trang_thai_browser(d, viec)
     d.update({
         "tien_do": viec.get("tien_do", ""),
         "log": viec.get("log", ""),
@@ -378,6 +406,9 @@ def _lenh_cai(cong_cu: str) -> tuple:
     Gom ở đây để `_chay_tai` chỉ còn phần CHẠY: đọc log, đếm giờ, ghi trạng thái. Thêm công cụ
     thứ ba sau này chỉ phải viết thêm một nhánh ở đây.
     """
+    if cong_cu == "local_ear":
+        import local_stt
+        return local_stt.install_command()
     BROWSERS_DIR.mkdir(parents=True, exist_ok=True)
     moi_truong = dict(os.environ)
     moi_truong[ENV_BROWSERS_PATH] = str(BROWSERS_DIR)
@@ -444,12 +475,20 @@ async def _chay_tai(cong_cu: str) -> None:
     if ma != 0:
         v["loi"] = localefmt.chu(f"Lệnh cài trả mã lỗi {ma}. Xem log bên dưới.",
                                  f"The install command returned error code {ma}. See the log below.")
-    elif not duong_dan_chrome():
+    elif not _cai_xong(cong_cu):
         v["loi"] = localefmt.chu("Lệnh chạy xong nhưng không thấy thứ vừa cài đâu.",
                                  "The command finished but what it installed cannot be found.")
     else:
         v["tien_do"] = localefmt.chu("Xong.", "Done.")
     print(f"[cong-cu] tải {cong_cu}: mã {ma}, lỗi={v.get('loi') or 'không'}", file=sys.stderr)
+
+
+def _cai_xong(cong_cu: str) -> bool:
+    """What the install was for is now on disk and usable."""
+    if cong_cu == "local_ear":
+        import local_stt
+        return local_stt.installed()
+    return bool(duong_dan_chrome())
 
 
 def bat_dau_cai(cong_cu: str = "browser") -> dict:
@@ -458,6 +497,9 @@ def bat_dau_cai(cong_cu: str = "browser") -> dict:
         return {"ok": False, "error": localefmt.chu(f"không có công cụ tên {cong_cu!r}", f"no tool named {cong_cu!r}")}
     if (_viec.get(cong_cu) or {}).get("dang_chay"):
         return {"ok": True, "dang_chay": True, "note": localefmt.chu("đang tải rồi", "already downloading")}
+    # A manual install undoes an earlier Remove, so the automatic download may run again later.
+    if cong_cu == "browser":
+        REMOVED_MARKER.unlink(missing_ok=True)
     t = asyncio.get_event_loop().create_task(_chay_tai(cong_cu))
     _TASKS.add(t)
     t.add_done_callback(_TASKS.discard)
@@ -468,6 +510,12 @@ def go(cong_cu: str = "browser") -> dict:
     """Xoá bản Javis tự tải. KHÔNG bao giờ đụng tới trình duyệt có sẵn của máy."""
     if cong_cu not in CONG_CU:
         return {"ok": False, "error": localefmt.chu(f"không có công cụ tên {cong_cu!r}", f"no tool named {cong_cu!r}")}
+    if cong_cu == "local_ear":
+        if (_viec.get(cong_cu) or {}).get("dang_chay"):
+            return {"ok": False, "error": localefmt.chu("Đang cài, chờ xong rồi gỡ.", "Installing, wait until it finishes.")}
+        import local_stt
+        _viec.pop(cong_cu, None)
+        return local_stt.remove()
     goc = BROWSERS_DIR
     if not _da_tai():
         return {"ok": False, "error": localefmt.chu("Không có bản nào do Javis cài để gỡ.",
@@ -475,9 +523,61 @@ def go(cong_cu: str = "browser") -> dict:
     try:
         shutil.rmtree(goc, ignore_errors=True)
         _viec.pop(cong_cu, None)
+        try:
+            REMOVED_MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        except OSError:
+            pass
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _env_on(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def auto_install_skip_reason() -> str:
+    """Why the first-start download should NOT run on this machine, empty when it should.
+
+    A reason rather than a bool so the startup log says which gate held it back.
+    """
+    if _env_on(ENV_SKIP):
+        return f"{ENV_SKIP} is set"
+    if os.getenv(ENV_DEPS, "").strip() == "0":
+        return "image built without the Chromium system libraries"
+    if REMOVED_MARKER.exists():
+        return "the user removed the browser"
+    if (_viec.get("browser") or {}).get("dang_chay"):
+        return "already downloading"
+    if (found := duong_dan_chrome()):
+        return f"browser already present: {found}"
+    if not shutil.which("npx"):
+        return "no npx on PATH"
+    return ""
+
+
+async def auto_install_browser(on_ready=None) -> str:
+    """Download the browser once in the background if this machine needs one.
+
+    Awaits the same `_chay_tai` the Tools button uses, so the Tools card shows the progress and
+    a button press during the download only gets "already downloading". `on_ready` runs after a
+    successful download: an MCP hub built before it has no PLAYWRIGHT_BROWSERS_PATH and must be
+    rebuilt to find the new copy. Returns what happened, for the log.
+    """
+    if (reason := auto_install_skip_reason()):
+        return f"skipped: {reason}"
+    await _chay_tai("browser")
+    err = (_viec.get("browser") or {}).get("loi")
+    if err:
+        # Not retried in this run: the next start tries again, and the Tools button still works.
+        return f"failed: {err}"
+    if on_ready:
+        try:
+            on_ready()
+        except Exception as e:  # noqa: BLE001 - the download itself succeeded
+            print(f"[cong-cu] hub refresh after browser download failed: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+    return "installed"
 
 
 def env_cho_connector() -> dict:

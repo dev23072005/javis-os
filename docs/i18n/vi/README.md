@@ -1,8 +1,14 @@
 <div align="center">
 
-# 🧠 Javis OS
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI. Mã nguồn mở, tự host, javisos.com"></a>
 
-**AI agentic đổi được bộ não + Second Brain - chạy trên model nào bạn muốn (Claude Code, ChatGPT/Codex, Antigravity CLI, OpenRouter, OpenAI, Gemini, Anthropic API, Groq, Ollama), có giọng nói, đồ thị tri thức, và tự thông minh dần lên.**
+# Javis OS
+
+### Xây dựng đội ngũ AI của bạn. Không bao giờ lỡ AI tốt nhất.
+
+Javis OS biến **Claude, ChatGPT, Gemini, Grok** và các model bạn chọn thành một đội ngũ làm việc 24/7 ngay trên máy hoặc server của bạn. Mỗi cộng sự có vai trò riêng, dùng chung trí nhớ và công cụ, và vẫn làm tiếp ở chế độ nền. Là AI agentic đổi được bộ não: có model mới tốt hơn thì đổi, mọi thứ đội đã học vẫn còn nguyên.
+
+**🌐 Website: [javisos.com](https://javisos.com)** · Mã nguồn mở · Tự host · 14 nhà cung cấp AI
 
 <!-- flags:start -->
 <p align="center">
@@ -59,7 +65,7 @@ Javis OS **không phải** một chatbot. Nó là một **AI agentic tự host**
 <img src="../../../docs/assets/diagrams/swappable-brain.svg" width="100%" alt="Hình động: lõi Javis ở giữa, bộ đồ nghề (MCP Hub, Skills, Second Brain, Tasks, Schedules, Plugins) bao quanh, 12 bộ não lần lượt lắp vào mà mọi công cụ vẫn sáng nguyên">
 </p>
 
-> ⚠️ **Đọc trước khi cho gói subscription chạy việc nền.** Anthropic chỉ tính gói Claude Pro/Max cho việc dùng **cá nhân, thông thường** của Claude Code. Chạy nền liên tục (loop, nhắc hẹn, việc Kanban, chatbot), chạy trên VPS, hoặc nhiều người dùng chung một tài khoản đều nằm ngoài phạm vi đó, và đã có người **bị khoá tài khoản** vì lý do này. Javis không tự đọc token đăng nhập của bạn (đường đó đã gỡ ở 0.26.17) - nó chạy qua đúng binary `claude`, nhưng như vậy vẫn không làm việc chạy nền 24/7 trở thành hợp lệ. Muốn yên tâm: ở trang **Models**, đặt Claude Code chạy bằng **API key**, hoặc trỏ **model việc nền** sang một provider khác. Xem `server/claude_auth.py`.
+> **Lưu ý khi cho gói subscription chạy việc nền.** Anthropic chỉ tính gói Claude Pro/Ultra cho việc dùng **cá nhân, thông thường** của Claude Code. Chạy nền liên tục (loop, nhắc hẹn, việc Kanban, chatbot), chạy trên VPS, hoặc nhiều người dùng chung một tài khoản đều nằm ngoài phạm vi đó nên có nguy cơ **bị khoá tài khoản**, dù tới nay Javis chưa ghi nhận trường hợp nào. Nếu bạn gặp, hãy báo cho nhà phát triển qua [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose). Javis không tự đọc token đăng nhập của bạn (đường đó đã gỡ ở 0.26.17) - nó chạy qua đúng binary `claude`, nhưng như vậy vẫn không làm việc chạy nền 24/7 trở thành hợp lệ. Muốn yên tâm: ở trang **Models**, đặt Claude Code chạy bằng **API key**, hoặc trỏ **model việc nền** sang một provider khác. Xem `server/claude_auth.py`.
 
 > Triết lý: **năng lực nằm ở Javis, không nằm ở model.** Mọi bộ não đều được cấp cùng bộ đồ nghề qua trung tâm kết nối (MCP Hub) chung - MCP đã đấu, tool đọc/ghi brain, skill, việc Kanban, agent/workflow/loop/nhắc hẹn. Khác biệt duy nhất: hai engine CLI chạy thêm được **lệnh máy**. Đổi từ Claude sang Gemini không làm Javis mất chức năng nào ngoài chuyện đó.
 
@@ -131,6 +137,9 @@ Nhờ vậy:
 - 🗂️ **Quản lý tệp tin** - duyệt, **sửa file `.md`/`.txt` trực tiếp** trong trình duyệt, tìm file theo tên hoặc theo nội dung, tải lên/về.
 - 🧩 **Skills** - gom nhóm, tìm kiếm, **bật/tắt từng skill**, thêm/sửa/xoá, nhập/xuất gói; Javis tự xếp skill mới vào đúng nhóm.
 - 🧰 **Plugins** - thả một thư mục Python vào là có thêm **tool/hook native** cho MỌI engine, không phải sửa lõi.
+- 🧑‍🤝‍🧑 **Cộng sự** (trang Partners) - mỗi cộng sự AI một vai trò, một model, prompt và skill riêng; bật **Auto** là cộng sự tự làm tiếp không cần bạn.
+- 👥 **Nhóm (Teams)** - gom nhiều cộng sự vào một phòng chat: trưởng nhóm chia việc, các thành viên trả lời nhau, và cả nhóm chia sẻ được bằng một file.
+- 💬 **Chatbot đa kênh** - đặt một cộng sự chăm khách trên WhatsApp, Messenger, Instagram, Telegram, Slack, Lark, Threads, Zalo và Zalo OA, chung một hộp thư bạn nhảy vào trả lời được.
 - 🤖 **Agents & Workflows** - tạo trợ lý chuyên biệt (có bộ nhớ riêng) + chuỗi tự động nhiều bước, có bước kiểm chứng.
 - ♻️ **Việc định kỳ & nhắc hẹn** - nhiều vòng lặp chạy nền song song, mỗi vòng làm đúng một việc bạn mô tả rồi tự kiểm chứng; kèm nhắc hẹn theo giờ cố định hoặc cron.
 - 🗃️ **Việc (Kanban)** - giao một "goal" bằng lời, AI tự đặc tả, chọn worker, chạy nền và chỉ gọi bạn khi có ngoại lệ.
@@ -154,6 +163,8 @@ Nhờ vậy:
 ## 🚀 Cài đặt
 
 > ⚠️ **Quan trọng về bảo mật:** Javis chạy bộ não AI với **toàn quyền** trên máy. Khi chạy public (Docker/VPS/Hostinger), Javis **tự bắt buộc đăng nhập** - mở app ra là màn tạo tài khoản / đăng nhập, không ai điều khiển được khi chưa có mật khẩu.
+
+> 💻 **Cài trên máy tính Windows hoặc Mac của bạn?** Tải bộ cài về rồi mở như mọi ứng dụng: [JavisOS-Setup.exe](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-Setup.exe) (Windows 10/11) hoặc [JavisOS-macOS.dmg](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-macOS.dmg) (macOS 11+). Bộ cài tự kiểm tra máy thiếu gì (Git, Python, Node, các bộ não AI), tự cài, rồi để lại biểu tượng JAVIS OS để bấm. Các bước: [QUICKSTART.md](../../../QUICKSTART.md).
 
 ### Cách 1 - Hostinger Docker Manager (tên miền + HTTPS) ⚡
 
@@ -208,7 +219,7 @@ chmod +x install.sh && ./install.sh
 ```
 Script tự cài Python + Node + hai engine CLI (Claude Code, Codex), tạo venv, đăng ký dịch vụ systemd tự chạy khi boot, in ra địa chỉ. Báo Claude chưa đăng nhập thì chạy 1 lần: `claude auth login --claudeai`.
 
-> 🍎 **macOS - mở như một app:** sau khi cài xong, double-click `JAVIS OS.app` (hoặc `Start JAVIS OS.command`) để chạy server + mở dashboard; tự chạy khi đăng nhập máy: `./bin/javis-autostart.sh install`. Chi tiết: [bin/README.md](../../../bin/README.md).
+> 🍎 **macOS - mở như một app:** sau khi cài xong, double-click `JAVIS OS.app` (hoặc `Start JAVIS OS.command`) để chạy server + mở dashboard; từ 0.306.0 `./install.sh` cho Javis tự chạy khi đăng nhập máy và tự mở dashboard (tắt: `./bin/javis-autostart.sh uninstall`). Chi tiết: [bin/README.md](../../../bin/README.md).
 
 ### Cách 4 - Windows (máy cá nhân)
 
@@ -232,7 +243,7 @@ Mở dashboard:                          http://localhost:7777
 
 > ⚠️ **Cài thêm một CLI sau khi Javis đang chạy thì phải khởi động lại Javis** (`stop-javis.bat` rồi `start-javis.vbs`). Tiến trình đang chạy giữ PATH của lúc nó bật, nên CLI vừa cài nó không thấy - trang Models sẽ vẫn báo "CLI chưa cài" cho một CLI đã nằm sẵn trên ổ đĩa.
 
-> 🪟 **Windows - mở như một app:** sau khi `setup.bat` chạy xong lần đầu, từ đó về sau chỉ cần double-click **`JAVIS OS.bat`** - server tự chạy nền (không cửa sổ đen) rồi dashboard tự mở thành **cửa sổ riêng** không thanh địa chỉ, có ô riêng trên taskbar. Tự chạy khi đăng nhập máy: `javis-autostart.bat install` (gỡ: `uninstall`).
+> 🪟 **Windows - mở như một app:** sau khi `setup.bat` chạy xong lần đầu, từ đó về sau chỉ cần double-click **`JAVIS OS.bat`** - server tự chạy nền (không cửa sổ đen) rồi dashboard tự mở thành **cửa sổ riêng** không thanh địa chỉ, có ô riêng trên taskbar. Từ 0.306.0 bộ cài cho Javis tự chạy khi đăng nhập máy và tự mở dashboard (tắt: `javis-autostart.bat uninstall` hoặc nút trong Cài đặt).
 
 ### Nhiều bản Javis trên cùng một VPS (mỗi bản một link riêng)
 
@@ -266,7 +277,7 @@ Mở Javis → bộ cài đặt sẽ dẫn bạn qua:
 
 > 📚 **Tài liệu chi tiết:** xem thư mục **[docs/](../../../docs/README.md)** - hướng dẫn từng chức năng (mở ở đâu, bấm gì, dùng thế nào). Bảng dưới là bản đồ nhanh; cột **Chi tiết** dẫn tới trang hướng dẫn tương ứng.
 
-Thanh điều hướng bên trái gom **22 trang** thành **6 nhóm** (bấm tên nhóm để mở):
+Thanh điều hướng bên trái gom **22 trang** thành **5 nhóm** (bấm tên nhóm để mở):
 
 | Nhóm | Mục | Làm gì | Chi tiết |
 |---|---|---|---|
@@ -274,13 +285,13 @@ Thanh điều hướng bên trái gom **22 trang** thành **6 nhóm** (bấm tê
 | | **Trò chuyện** | Khung chat rộng toàn màn hình kèm cột lịch sử hội thoại. | [Phiên hội thoại](../../../docs/04-phien-hoi-thoai.md) |
 | | **Tệp tin** | Duyệt brain, **sửa `.md`/`.txt` trực tiếp**, tìm file theo tên/nội dung, tải lên/về. | [Quản lý tệp tin](../../../docs/05-quan-ly-tep-tin.md) |
 | | **Tự học** | Javis tự rút ký ức, đúc Wiki, kỹ năng sau mỗi hội thoại; hoàn tác được. | [Tự học](../../../docs/22-tu-hoc.md) |
-| **Code** | **Terminal** | **Dòng lệnh thật** của máy chạy Javis, mở ngay trong trình duyệt - khỏi mở SSH. | [Nhóm Code: Terminal](../../../docs/27-tab-code-terminal.md) |
 | **Năng lực** | **Agents** | Tạo trợ lý chuyên biệt (vai trò + skill + bộ nhớ riêng). | [Agents & Workflows](../../../docs/07-agents-va-workflows.md) |
 | | **Skills** | Gom nhóm + tìm kiếm + **bật/tắt** + thêm/sửa/xoá + nhập/xuất skill. | [Skills](../../../docs/06-skills.md) |
 | | **Workflows** | Tạo/chạy chuỗi tự động (agent → agent), có bước kiểm chứng. | [Agents & Workflows](../../../docs/07-agents-va-workflows.md) |
 | | **Plugins** | Thêm tool/hook native cho mọi engine bằng một thư mục Python. | [Plugins](../../../docs/20-plugins.md) |
 | | **Chatbot** | Đem Agent ra trả lời khách qua bot Telegram/Zalo/Slack/WhatsApp/Lark riêng, brain riêng. | [Chatbot](../../../docs/25-chatbot.md) |
 | | **Hội thoại** | Hộp thư gom mọi cuộc chat khách nhắn cho bot và Zalo cá nhân; đọc lại, tiếp quản khi cần người thật. | [Hội thoại khách](../../../docs/28-hoi-thoai-khach.md) |
+| | **Terminal** | **Dòng lệnh thật** của máy chạy Javis, mở ngay trong trình duyệt - khỏi mở SSH. | [Terminal](../../../docs/27-tab-code-terminal.md) |
 | **Việc** | **Việc** | Hàng đợi task nền do AI tự đặc tả và tự chạy; bạn chỉ xử lý ngoại lệ. | [Việc (Kanban)](../../../docs/21-viec-kanban.md) |
 | | **Việc định kỳ** | Nhiều vòng lặp chạy nền + nhắc hẹn theo giờ hoặc cron. | [Việc định kỳ & Nhắc hẹn](../../../docs/08-viec-dinh-ky.md) |
 | **Kết nối** | **Kết nối** | Kho dịch vụ ngoài, đa tài khoản cùng một dịch vụ, phân quyền 3 mức. | [Kết nối & số liệu](../../../docs/09-mcp-va-so-lieu.md) |
@@ -463,6 +474,8 @@ Không tiện donate cũng không sao - dùng Javis, góp ý, hay gửi một Pu
 ---
 
 <div align="center">
+
+**[javisos.com](https://javisos.com)**
 
 Made with ☕ by **[Minh Quý](https://minhquy.vn)** · Repo: `github.com/blogminhquy/javis-os`
 

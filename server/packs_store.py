@@ -32,6 +32,7 @@ rồi hiện sai.
 from __future__ import annotations
 
 import json
+import re
 import time
 from urllib.parse import urljoin, urlparse
 
@@ -83,6 +84,31 @@ def _map_nn(v, tran=MAX_TEN) -> dict:
     return {"en": s} if s else {}
 
 
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+_REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,100}$")
+
+
+def _upstream(v) -> dict:
+    """Recommended repos (0.370.0): an entry that follows its author's GitHub repo says so in `upstream`.
+
+    The Store shows it as a "Follows the source repo" line with a link to github.com/<repo>, so the repo
+    has to be a plain owner/name before it becomes a link: anything else drops the field and the card
+    shows as an ordinary pack. The store refreshes these packs from the source daily
+    (javis-store `tools/theo-goc.py`); updating still goes through the usual confirm screen."""
+    if not isinstance(v, dict):
+        return {}
+    repo = _chuoi(v.get("repo"), 201)
+    if not _REPO_RE.match(repo) or ".." in repo:
+        return {}
+    ref = _chuoi(v.get("ref"), 100)
+    commit = _chuoi(v.get("commit"), 40).lower()
+    synced = _chuoi(v.get("synced"), 10)
+    return {"repo": repo,
+            "ref": ref if _REF_RE.match(ref) else "",
+            "commit": commit if re.match(r"^[0-9a-f]{7,40}$", commit) else "",
+            "synced": synced if re.match(r"^\d{4}-\d{2}-\d{2}$", synced) else ""}
+
+
 def _lam_sach(m: dict) -> dict:
     """Giữ đúng những trường Javis biết dùng. Trường lạ bị bỏ, không bao giờ đi tiếp.
 
@@ -101,6 +127,9 @@ def _lam_sach(m: dict) -> dict:
         "provides": {"connectors": [_chuoi(x, 64) for x in
                                     ((m.get("provides") or {}).get("connectors") or [])[:50]
                                     if _chuoi(x, 64)]},
+        # 0.440.0: mã cũ gói này thay (gói đổi mã). Máy đang cài mã cũ thấy gói mới như một bản cập nhật.
+        "replaces": [_chuoi(x, 64) for x in (m.get("replaces") or [])[:10]
+                     if isinstance(m.get("replaces"), list) and _chuoi(x, 64)],
         "category": _chuoi(m.get("category"), 32),
         "category_label": _map_nn(m.get("category_label"), 40),
         # `tier` là thứ người phát hành KHAI, chỉ để lọc và để hiện nhãn. Bậc THẬT do trình cài
@@ -110,6 +139,7 @@ def _lam_sach(m: dict) -> dict:
         "verified": bool(m.get("verified")),
         "updated": _chuoi(m.get("updated"), 32),
         "homepage": _chuoi(m.get("homepage"), 300),
+        "upstream": _upstream(m.get("upstream")),
         # Logo trên thẻ. Đường dẫn TƯƠNG ĐỐI so với file index (như `download.url`), ghép ở
         # `lay()`. Không nhận URL tuyệt đối: logo phải nằm CÙNG nơi với index, để một mục trong
         # kho không thành beacon gõ về máy chủ của bên thứ ba mỗi lần vẽ lưới. `veAvatar`

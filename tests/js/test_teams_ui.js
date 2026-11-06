@@ -6,6 +6,7 @@
 // thứ tự chạy, khung soạn (@ có cấu trúc, Giao việc), cài đặt một cột. Cộng các chỗ nối: thanh bên, script, CSS, i18n.
 "use strict";
 const fs = require("fs");
+const { napTruoc, coNap } = require("./_thu_tu_nap");   // load order that understands lazy groups (0.417.0)
 const path = require("path");
 const ROOT = path.join(__dirname, "..", "..");
 const TM = require(path.join(ROOT, "dashboard", "teams.js"));
@@ -170,7 +171,8 @@ const rail = (consoleJs.match(/const RAIL_ITEMS = \[\s*([\s\S]*?)\]\.map/) || []
 check("thanh bên có mục teams ngay sau workspace", /"workspace", "teams"/.test(rail), rail);
 check("nhóm Năng lực chứa teams", /ids: \["workspace", "teams"/.test(consoleJs));
 check("icon và tiêu đề trang teams", /teams: "users"/.test(consoleJs) && consoleJs.includes('"teams"') && /id === "teams"/.test(consoleJs));
-check("index.html nạp teams.js", /<script src="\/static\/teams\.js\?v=\d+"><\/script>/.test(indexHtml));
+// 0.417.0: teams.js nạp chậm qua nap-cham.js (khối javis-lazy), không còn là thẻ <script>.
+check("index.html nạp teams.js", coNap("teams.js", indexHtml));
 check("app.js chuyển gói team_message, team_state thành sự kiện trang", appJs.includes('"team_message"') && appJs.includes("javis:team-event"));
 // 0.173.0: nhóm đang mở bị xoá (công cụ javis_team hay tab khác): khung chat đóng về trống, báo bằng chữ, không giữ nhóm ma.
 check("nhóm đang mở bị xoá: gói team_state deleted và GET nhóm 404 đều đóng khung qua closeGone",
@@ -249,11 +251,12 @@ check("0.176 corner press: like, or remove the reaction already there", /return 
       && JR0.cornerToggle(null) === "like" && JR0.cornerToggle({ value: "sad" }) === "none" && JR0.cornerToggle({ value: "none" }) === "like");
 check("điện thoại: nhấn giữ tin mở bảng, có ngưỡng rung tay", teamsJs.includes('"pointerdown"') && /> 10/.test(teamsJs));
 check("gói WS không mang phản hồi thì giữ phản hồi đang có", teamsJs.includes('!("reaction" in nm)'));
-check("0.176 swipe left past the threshold replies; vertical moves stay scrolling", /var SWIPE_AT = 60;/.test(teamsJs)
-      && /if \(fire && sw\.dx <= -SWIPE_AT\) startReply\(sw\.mid\)/.test(teamsJs) && /\.tm-msg \{ touch-action: pan-y;/.test(css));
+check("0.176 swipe left past the threshold replies; vertical moves stay scrolling (msg-swipe.js, shared with the main chat)",
+      /S\.unswipe = SW\.bind\(el, \{\s*selector: "\.tm-msg",\s*bubble: "\.tm-bubble",/.test(teamsJs)
+      && /run: function \(m\) \{ startReply\(m\.getAttribute\("data-mid"\)\); \}/.test(teamsJs) && /\.tm-msg \{ touch-action: pan-y;/.test(css));
 check("0.179 long press uses msg-press.js (Reply, Copy, Pin; emoji on assistant messages); unbound on leave",
       /S\.unpress = MP\.bind\(el, \{\s*selector: "\.tm-msg"/.test(teamsJs) && /if \(S\.unpress\) \{ S\.unpress\(\);/.test(teamsJs)
-      && /document\.querySelector\("\.mp-layer"\)\) \{ endSwipe\(false\); return; \}/.test(teamsJs));
+      && /if \(S\.unswipe\) \{ S\.unswipe\(\);/.test(teamsJs));
 check("bảng (bàn phím) đưa focus vào emoji đầu; đóng trả focus về nút góc hay nút Trả lời", /\.tm-sheet \.tm-rx-pick"\) \|\| box\.querySelector\("\.tm-sheet button"\);\s*if \(first\) first\.focus\(\)/.test(teamsJs)
       && /\.tm-rx-btn\[data-rx-toggle="' \+ S\.focusBack/.test(teamsJs));
 check("nhấn giữ chỉ cho chạm và bút, không cho chuột; chặn menu ngữ cảnh của lần giữ đó",
@@ -285,9 +288,10 @@ check("gói WS không mang reaction của agent thì giữ cái đang có", team
 // ───────────── 0.176.0: reply, markdown, assistant settings, rename and delete ─────────────
 const qm = TM.messageHtml({ id: 9, author_kind: "owner", content: "> Lan: Câu <cũ>\n\nSai rồi em", meta: {} }, { members: members });
 check("0.176 owner reply shows the quote block (name bold) above the text, both escaped",
-      qm.includes('<span class="tm-quote-body"><b>Lan</b>Câu &lt;cũ&gt;</span></div>') && qm.includes('<div class="tm-text">Sai rồi em</div>'), qm);
+      qm.includes('<span class="tm-quote-body"><b>Lan</b>Câu &lt;cũ&gt;</span></div>') && qm.includes('<div class="tm-text utext">Sai rồi em</div>'), qm);
 check("0.176 sending a reply puts the quote on top and calls the assistant replied to when nobody is @-mentioned",
-      /var text = S\.replyTo && Q \? Q\.ghep\(S\.replyTo\.quote, typed\) : typed;/.test(teamsJs)
+      /var text = S\.replyTo && Q \? Q\.ghep\(S\.replyTo\.quote, words\) : words;/.test(teamsJs)
+      && /var words = call \? call\.rest : typed;/.test(teamsJs)
       && /if \(S\.replyTo && S\.replyTo\.key && !mentions\.length\) mentions = \[S\.replyTo\.key\];/.test(teamsJs));
 check("0.176 list preview drops the quote", TM.previewText({ last: { text: "> Lan: cũ\n\nmới", author_kind: "owner" } }) ===
       vi["teams.you"] + ": mới");
@@ -365,7 +369,8 @@ check("tin được nhảy tới được tô sáng", TM.messageHtml(am, { membe
 check("nhảy tới tin: tải trang kết thúc ở đúng tin đó, có nút về tin mới nhất",
       /before_ts=" \+ q\(ts\) \+ "&before_id=" \+ q\(Number\(mid\) \+ 1\)/.test(teamsJs) && teamsJs.includes("tm-jump-back"));
 check("đang xem tin cũ: tin mới tới không chèn vào giữa khúc cũ",
-      teamsJs.includes("else if (!S.filterTask && (S.jumped === null || S.jumped === undefined)) { S.msgs.push(nm); queueReveal(nm); }"));
+      teamsJs.includes("else if (!S.filterTask && (S.jumped === null || S.jumped === undefined) &&")
+      && teamsJs.includes("(!S.msgs.length || Number(nm.id) > Number(S.msgs[S.msgs.length - 1].id))) { S.msgs.push(nm); queueReveal(nm); }"));
 check("CSS: lớp flex mới của tìm có [hidden], vùng chạm 44px trên điện thoại",
       /\.tm-search\[hidden\]/.test(css) && /\.tm-search-row\[hidden\]/.test(css) && /\.tm-jumped\[hidden\]/.test(css)
       && /\.tm-search-btn, \.tm-search-go, \.tm-search-input, \.tm-search-hit, \.tm-jump-back \{ min-height: 44px; \}/.test(css));
@@ -503,7 +508,8 @@ check("0.194.1 tin của chủ cũng có hàng thao tác dưới bong bóng, d�
 })(TM.messageHtml({ id: 8, author_kind: "owner", content: "x", meta: {}, ts: 1792200000 }, { members: members }))
   && /\.tm-msg-owner \.tm-col \{ align-items: flex-end;/.test(css) && /\.tm-msg-agent \.tm-col \{ align-items: flex-start;/.test(css));
 check("0.194.1 tin không có mốc giờ thì không bịa giờ", !TM.messageHtml(Object.assign({}, am, { ts: 0 }), { members: members }).includes("tm-time"));
-check("T5 nhấn giữ mở bảng cho mọi tin (cả tin của chủ)", teamsJs.includes('e.target.closest(".tm-msg")'));
+check("T5 nhấn giữ mở bảng cho mọi tin (cả tin của chủ)", /S\.unpress = MP\.bind\(el, \{\s*selector: "\.tm-msg",/.test(teamsJs)
+      && /S\.unswipe = SW\.bind\(el, \{\s*selector: "\.tm-msg",/.test(teamsJs));
 
 // Trang chiếm trọn chiều cao, khung soạn một hàng ở đáy.
 check("T5 console.js: trang Nhóm dùng cview-flush, body.on-teams; rời trang gỡ cả hai và báo teams.js",
@@ -832,6 +838,13 @@ check("khoá chữ ghim có ở vi và en", ["teams.pin_team", "teams.unpin_team
           teamsJs.includes('lease_lost: "teams.status.lease_lost"') && teamsJs.includes('"leader_changed", "lease_lost"]') &&
           teamsJs.includes('lease_lost: "teams.reply.why.lease_lost"') && !!vi["teams.reply.why.lease_lost"] && !!en["teams.reply.why.lease_lost"] &&
           !!vi["teams.status.lease_lost"] && !!en["teams.status.lease_lost"]);
+    // Owner, 2026-11-06: a team chat's GitHub repo shows the same GitHub logo as the main chat, not a branch icon.
+    const ghJs = fs.readFileSync(path.join(ROOT, "dashboard", "github-connect.js"), "utf8");
+    check("GitHub logo: github-connect.js shares its logo", /current: function \(\) \{ return attached\.slice\(\); \}, logo: LOGO \}/.test(ghJs));
+    check("GitHub logo: the team's + menu, repo chip and info panel use it",
+          teamsJs.includes("item('role=\"menuitem\" data-plus-github=\"1\"', ghLogo(), tw(\"gh.menu\"))") &&
+          teamsJs.includes('esc(tw("gh.chip_label", { names: names.join(", ") })) + \'">\' + ghLogo() +') &&
+          (teamsJs.match(/ic\("git-branch"\)/g) || []).length === 1);
   })();
   process.exit(fails ? 1 : 0);
 })();

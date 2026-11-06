@@ -45,6 +45,9 @@ DEFAULT_CAPS = {
     # 0.260.0 (chủ 20/10/2026): các người được @ trong một tin trả lời CÙNG LÚC (1) hay lần lượt theo thứ tự @ (0, người sau
     # đọc được câu của người trước, như trước 0.260.0).
     "reply_parallel": 1,
+    # 0.452.0 (owner, 04/11/2026: a team must run its own loop): jobs a member answering the owner in the chat may open
+    # per day, coordinated by the leader like any job (0 = off: the leader only proposes, the owner presses Create job).
+    "auto_jobs": 5,
 }
 # Trần chủ nhóm đổi được (POST /teams/{id}/caps). GOAL T1 mục 9 (bảng giới hạn): `running_jobs` và `no_progress` vẫn nằm
 # trong DEFAULT_CAPS để hiện và để đọc dòng cũ, nhưng do MÁY CHỦ cố định:
@@ -53,14 +56,18 @@ DEFAULT_CAPS = {
 #   giới hạn kỹ thuật, thay vì mở song song trong một nhóm (đụng khoá bận theo agent, thứ tự hàng đợi, ngữ cảnh chung).
 # - no_progress: bộ chạy dừng ở hai kết quả GIỐNG HỆT liên tiếp (so sha), con số không được đọc ở đâu.
 OWNER_CAPS = ("task_turns", "task_steps", "help_depth", "daily_turns", "mentions", "busy_wait_s", "judge_daily",
-              "volunteer_k", "judge_off_batch", "reply_parallel")
+              "volunteer_k", "judge_off_batch", "reply_parallel", "auto_jobs")
 # Trần có lựa chọn "Không giới hạn" (lưu `None`, không thay bằng số lớn). Bộ chạy đọc `None` là không chặn.
 UNLIMITED_CAPS = ("task_turns", "task_steps", "help_depth", "daily_turns", "judge_daily")
 # Giá trị lớn nhất của các ô không phải trần lượt (T3 J): K tối đa 5 người, chế độ phán xử là 0 hay 1.
-CAP_MAX = {"volunteer_k": 5, "judge_off_batch": 1, "reply_parallel": 1}
+CAP_MAX = {"volunteer_k": 5, "judge_off_batch": 1, "reply_parallel": 1, "auto_jobs": 50}
 FIXED_CAPS = {"running_jobs": 1, "no_progress": 2}
 TEAM_STATUS = ("active", "paused", "archived")
 STEP_KINDS = ("plan", "work", "help", "synthesize", "reply")
+# A step that waits for every step before it (a sequential plan), see `TeamStore.add_step(held=...)`.
+STEP_HELD = "held"
+# Steps that still have to run or finish: a job with one of these left is not done.
+STEP_OPEN = ("queued", STEP_HELD, "running", "waiting", "waiting_owner")
 TURN_ROLES = ("leader_reply", "member_reply", "plan", "work", "help", "synthesize", "member_volunteer")
 # Kết cục của một lượt trả lời trò chuyện (0.142.0), lưu bền để tải lại trang hay khởi động lại máy chủ không mất dấu:
 # queued (đang chờ) -> running (đang trả lời) -> done (xong) | error (lỗi, kèm lý do, có Thử lại).
@@ -137,6 +144,12 @@ GATE_SNAPSHOT_SUFFIX = ".pre-0.207.0"
 WORK_MODES = ("gated", "full")
 # Cột thêm cho kho đã có (ALTER, idempotent). Mọi cột có mặc định: bản 0.153.x vẫn đọc ghi được kho đã nâng. Dòng nhật ký
 # cũ coi như đã chiếu xong (`effect_state` mặc định 'done', không backfill tác động).
+# 0.437.0: a plan part's label and the earlier parts it waits for (`after_json`, NULL = the pre-0.437 meaning of a held
+# step: wait for every step before it). Added columns only, so an older version reads the store as before.
+_STEP_DEP_COLS = (
+    ("team_steps", "part", "TEXT NOT NULL DEFAULT ''"),
+    ("team_steps", "after_json", "TEXT"),
+)
 _T2_REACTION_COLS = (
     ("team_reactions", "source_kind", "TEXT NOT NULL DEFAULT 'owner'"),
     ("team_reactions", "axis", "TEXT NOT NULL DEFAULT ''"),
@@ -219,9 +232,14 @@ class TeamStore:
         team_migration.snapshot_once(self.path, "team_reactions", "axis", suffix=T2_SNAPSHOT_SUFFIX)
         # 0.207.0: one copy before the approval gate's column, so a downgrade can restore the store as it was.
         team_migration.snapshot_once(self.path, "teams", "work_mode", suffix=GATE_SNAPSHOT_SUFFIX)
+        team_migration.snapshot_before_table(self.path, 'teams', 'team_cap_settings', '.pre-0.283.0')
         with closing(self._conn()) as c:
             c.executescript(_SCHEMA)
-            for table, col, decl in _T2_REACTION_COLS:
+            c.execute('CREATE TABLE IF NOT EXISTS team_cap_settings(team_id TEXT NOT NULL, cap TEXT NOT NULL, '
+                      'set_at REAL NOT NULL, event_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(team_id,cap))')
+            if 'event_id' not in {r[1] for r in c.execute('PRAGMA table_info(team_cap_settings)')}:
+                c.execute('ALTER TABLE team_cap_settings ADD COLUMN event_id INTEGER NOT NULL DEFAULT 0')
+            for table, col, decl in _T2_REACTION_COLS + _STEP_DEP_COLS:
                 if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()}:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
             c.execute("CREATE INDEX IF NOT EXISTS team_reaction_log_effect ON team_reaction_log(effect_state)")
@@ -378,6 +396,15 @@ class TeamStore:
             r = c.execute("SELECT * FROM teams WHERE team_id=?", (str(team_id or ""),)).fetchone()
             return self._team(r) if r else None
 
+    def by_session(self, session_id: str) -> Optional[dict]:
+        """The team whose chat is conversation `session_id` (0.449.0: GitHub news and fix rounds of a team chat)."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        with closing(self._conn()) as c:
+            r = c.execute("SELECT * FROM teams WHERE session_id=? LIMIT 1", (sid,)).fetchone()
+            return self._team(r) if r else None
+
     def list_teams(self, brain_id: str, limit: int = 50, before: Optional[float] = None,
                    include_archived: bool = False) -> list:
         """Nhóm của brain, mới cập nhật trước. Trang đầu (`before` trống) mở bằng các nhóm đã ghim (ghim sau đứng trước);
@@ -526,7 +553,18 @@ class TeamStore:
             after = dict(before, **clean)
             c.execute("UPDATE teams SET caps_json=?, updated_at=? WHERE team_id=?", (_j(after), time.time(), team_id))
             self._event(c, team_id, "caps_set", by, before, after)
+            event_id = c.execute('SELECT MAX(id) FROM team_events WHERE team_id=?', (team_id,)).fetchone()[0]
+            if by == 'owner':
+                for key in clean:
+                    c.execute('INSERT INTO team_cap_settings(team_id,cap,set_at,event_id) VALUES(?,?,?,?) '
+                              'ON CONFLICT(team_id,cap) DO UPDATE SET set_at=excluded.set_at,event_id=excluded.event_id',
+                              (team_id, key, time.time(), event_id))
         return self.get(team_id)
+
+    def owner_caps_after(self, team_id, event_id):
+        with closing(self._conn()) as c:
+            return {r['cap'] for r in c.execute('SELECT cap FROM team_cap_settings WHERE team_id=? AND event_id>?',
+                                                (team_id, int(event_id)))}
 
     def log_event(self, team_id: str, kind: str, by: str, before: Any = None, after: Any = None) -> None:
         with self._Tx(self) as c:
@@ -683,10 +721,19 @@ class TeamStore:
                 "kind": r["kind"], "agent_key": r["agent_key"], "job_revision": r["job_revision"], "brief": r["brief"],
                 "input_refs": json.loads(r["input_refs_json"] or "[]"), "status": r["status"],
                 "parent_step": r["parent_step"], "result_msg_id": r["result_msg_id"], "applied": bool(r["applied"]),
-                "note": r["note"], "created_at": r["created_at"], "updated_at": r["updated_at"]}
+                "note": r["note"], "created_at": r["created_at"], "updated_at": r["updated_at"],
+                "part": r["part"] if "part" in r.keys() else "",
+                "after": (json.loads(r["after_json"]) if "after_json" in r.keys() and r["after_json"] is not None
+                          else None)}
 
     def add_step(self, task_id: str, team_id: str, kind: str, agent_key: str, job_revision: int, brief: str,
-                 input_refs: list, parent_step: Optional[str] = None) -> dict:
+                 input_refs: list, parent_step: Optional[str] = None, held: bool = False, part: str = "",
+                 after: Optional[list] = None) -> dict:
+        """`held` (customer report 0.270, Code 23): the step waits for every step before it. It is not queued, so no
+        wave or tick picks it; `release_held_step` queues it once the job has nothing else left to run.
+
+        0.437.0: `part` labels a plan part (a retry or a continuation of the part keeps it). `after` lists the parts this
+        step waits for; a non-empty list holds the step until `release_ready_steps` finds all of them done."""
         if kind not in STEP_KINDS:
             raise TeamError("loại bước không hợp lệ")
         now = time.time()
@@ -694,10 +741,13 @@ class TeamStore:
             seq = int(c.execute("SELECT COALESCE(MAX(seq),0)+1 FROM team_steps WHERE task_id=?",
                                 (task_id,)).fetchone()[0])
             sid = "st_" + secrets.token_hex(8)
+            after = [str(x)[:40] for x in (after or []) if str(x or "").strip()]
             c.execute("INSERT INTO team_steps(step_id,task_id,team_id,seq,kind,agent_key,job_revision,brief,"
-                      "input_refs_json,parent_step,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                      "input_refs_json,parent_step,status,created_at,updated_at,part,after_json) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (sid, task_id, team_id, seq, kind, agent_key, int(job_revision), str(brief or "")[:8000],
-                       _j(list(input_refs or [])), parent_step, now, now))
+                       _j(list(input_refs or [])), parent_step, STEP_HELD if (held or after) else "queued", now, now,
+                       str(part or "")[:40], _j(after) if after else None))
             return self._step(c.execute("SELECT * FROM team_steps WHERE step_id=?", (sid,)).fetchone())
 
     def steps(self, task_id: str) -> list:
@@ -722,6 +772,46 @@ class TeamStore:
             return [self._step(r) for r in c.execute(
                 "SELECT * FROM team_steps WHERE task_id=? AND status='queued' ORDER BY seq", (task_id,)).fetchall()]
 
+    def release_ready_steps(self, task_id: str, job_revision: int) -> list:
+        """0.437.0: queue every held step whose `after` parts are all done (a done, applied Work step of that part at
+        this revision), its inputs extended with those parts' results. Held steps without `after` (pre-0.437 meaning)
+        are left to `release_held_step`. Returns the released steps."""
+        out = []
+        with self._Tx(self) as c:
+            done: dict = {}
+            for r in c.execute("SELECT part, result_msg_id FROM team_steps WHERE task_id=? AND kind='work' AND "
+                               "status='done' AND applied=1 AND part!='' AND job_revision=? ORDER BY seq",
+                               (task_id, int(job_revision))).fetchall():
+                done[r["part"]] = r["result_msg_id"]   # a later step of the same part (a retry) wins
+            for r in c.execute("SELECT * FROM team_steps WHERE task_id=? AND status=? AND after_json IS NOT NULL "
+                               "ORDER BY seq", (task_id, STEP_HELD)).fetchall():
+                deps = json.loads(r["after_json"] or "[]")
+                if not all(p in done for p in deps):
+                    continue
+                refs = list(json.loads(r["input_refs_json"] or "[]"))
+                refs += [done[p] for p in deps if done[p] is not None and done[p] not in refs]
+                c.execute("UPDATE team_steps SET status='queued', input_refs_json=?, updated_at=? WHERE step_id=? "
+                          "AND status=?", (_j(refs), time.time(), r["step_id"], STEP_HELD))
+                out.append(self._step(c.execute("SELECT * FROM team_steps WHERE step_id=?", (r["step_id"],)).fetchone()))
+        return out
+
+    def release_held_step(self, task_id: str, extra_inputs: Optional[list] = None,
+                          legacy_only: bool = False) -> Optional[dict]:
+        """Queue the FIRST held step of the job (lowest seq), its inputs extended with `extra_inputs` (the results of the
+        steps before it, so the step sees what it waited for). None when no step is held. `legacy_only` (0.437.0): only
+        a held step without `after` (they wait for everything before them)."""
+        with self._Tx(self) as c:
+            r = c.execute("SELECT * FROM team_steps WHERE task_id=? AND status=? "
+                          + ("AND after_json IS NULL " if legacy_only else "") + "ORDER BY seq LIMIT 1",
+                          (task_id, STEP_HELD)).fetchone()
+            if r is None:
+                return None
+            refs = list(json.loads(r["input_refs_json"] or "[]"))
+            refs += [x for x in (extra_inputs or []) if x not in refs]
+            c.execute("UPDATE team_steps SET status='queued', input_refs_json=?, updated_at=? WHERE step_id=? AND status=?",
+                      (_j(refs), time.time(), r["step_id"], STEP_HELD))
+            return self._step(c.execute("SELECT * FROM team_steps WHERE step_id=?", (r["step_id"],)).fetchone())
+
     def claim_step(self, step_id: str) -> bool:
         with self._Tx(self) as c:
             cur = c.execute("UPDATE team_steps SET status='running', updated_at=? WHERE step_id=? AND status='queued'",
@@ -744,7 +834,7 @@ class TeamStore:
     def cancel_open_steps(self, task_id: str, note: str) -> int:
         with self._Tx(self) as c:
             return c.execute("UPDATE team_steps SET status='cancelled', note=?, updated_at=? "
-                             "WHERE task_id=? AND status IN ('queued','waiting','waiting_owner')",
+                             "WHERE task_id=? AND status IN ('queued','held','waiting','waiting_owner')",
                              (note, time.time(), task_id)).rowcount
 
     def set_step_status(self, step_id: str, status: str, note: str = "") -> None:

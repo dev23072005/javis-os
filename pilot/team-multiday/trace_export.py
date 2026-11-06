@@ -55,6 +55,11 @@ def export(state_dir: Path, team_id: str = "") -> list:
     for t in teams:
         tid = t["team_id"]
         out.append({"link": "team", "team_id": tid, "name": t["name"]})
+        if _has(tc, 'team_quality_policy'):
+            row = tc.execute('SELECT body,updated_at FROM team_quality_policy WHERE team_id=?', (tid,)).fetchone()
+            if row:
+                out.append({'link': 'quality_policy', 'team_id': tid, 'at': row['updated_at'],
+                            'policy': json.loads(row['body'])})
         if _has(tc, "team_mandate_versions"):
             for v in _rows(tc, "SELECT version, snapshot_json, by, at FROM team_mandate_versions WHERE team_id=? "
                                "ORDER BY version", (tid,)):
@@ -116,12 +121,46 @@ def export(state_dir: Path, team_id: str = "") -> list:
             if _has(tc, "team_acceptance"):
                 acc = tc.execute("SELECT * FROM team_acceptance WHERE task_id=?", (j["id"],)).fetchone()
                 if acc:
-                    checks = _rows(tc, "SELECT revision, round, idx, kind, verdict, evidence_json, at FROM "
+                    checks = _rows(tc, "SELECT * FROM "
                                        "team_acceptance_checks WHERE task_id=? ORDER BY id", (j["id"],))
+                    contract = dict(acc)
                     out.append({"link": "acceptance", "team_id": tid, "at": acc["updated_at"], "task_id": j["id"],
                                 "status": acc["status"], "rounds_used": acc["rounds_used"],
                                 "confirmed_by": acc["confirmed_by"],
+                                'contract_version': contract.get('contract_version'),
+                                'template_version': contract.get('template_version'), 'origin': contract.get('origin', 'legacy'),
+                                'source_snapshot_hash': contract.get('source_snapshot_hash'),
+                                'output_manifest_hash': contract.get('output_manifest_hash'),
+                                'output_manifest': json.loads(contract.get('output_manifest_json') or '[]'),
+                                'completion_valid': None, 'validity': 'not_rechecked_by_export',
                                 "checks": [dict(c, evidence=json.loads(c.pop("evidence_json") or "{}")) for c in checks]})
+    # Preserve event identities/provenance rather than summing CLI fallbacks and details again.
+    # No provider logs, prompt text, tool arguments or arbitrary metadata enter this export.
+    events_path = state_dir / 'usage-events.jsonl'
+    team_ids = {t['team_id'] for t in teams}
+    if events_path.is_file():
+        with events_path.open(encoding='utf-8') as stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                execution = event.get('execution') or {}
+                if not isinstance(execution, dict) or execution.get('team_id') not in team_ids:
+                    continue
+                out.append({'link': 'usage_event', 'at': event.get('ts'),
+                    'team_id': execution['team_id'], 'task_id': execution.get('task_id'),
+                    'event_id': event.get('event_id'), 'event_kind': event.get('event_kind'),
+                    'execution': {k: execution[k] for k in ('execution_id', 'turn_id', 'step_id', 'attempt',
+                        'job_revision', 'role', 'status') if k in execution},
+                    'tokens_in': event.get('in'), 'tokens_out': event.get('out'),
+                    'tokens_known': event.get('tokens_known'), 'money': event.get('money'),
+                    'coverage': 'raw_observation_not_reconciled'})
+    tc.close()
+    if kc is not None:
+        kc.close()
     out.sort(key=lambda x: (float(x.get("at") or 0), x["link"]))
     return out
 

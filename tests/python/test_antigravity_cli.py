@@ -289,6 +289,12 @@ check("id hội thoại lấy ở TẦNG NGOÀI, không bị payload lồng đè
       _gl.session_id == "hoi-thoai-1", _gl.session_id)
 check("đọc được token từ usage lồng bên trong result",
       any(e["type"] == "usage" and e["input_tokens"] == 120 for e in _evsl), _evsl)
+# 0.438.6: chữ xem trước ra từng mẩu (text_delta) TRƯỚC `final`, và `result.response` (toàn văn lặp lại) không
+# hiện thêm lần nữa.
+_dtl = [e["content"] for e in _evsl if e["type"] == "delta"]
+check("chữ xem trước ra từng mẩu, toàn văn của result không hiện lặp", _dtl == ["Xin ", "chào!"], _dtl)
+check("mẩu chữ ra TRƯỚC câu trả lời cuối",
+      _final and _dtl and max(i for i, e in enumerate(_evsl) if e["type"] == "delta") < _evsl.index(_final[0]))
 
 # Ca NGƯỢC LẠI, và đây là chỗ patch của người dùng còn hở: lượt trả lời NGẮN có bản chỉ phát
 # mỗi `result`, không có text_delta nào. `return ra` vô điều kiện ở nhánh result là câu trả lời
@@ -300,6 +306,16 @@ _CHI_RESULT = [
 _evsr, _, _ = _chay_gia(_CHI_RESULT, help_text=_HELP_MOI)
 check("CANARY: chỉ có `result`, không có text_delta -> VẪN lấy được câu trả lời",
       any(e["type"] == "final" and e["content"] == "Chỉ mỗi result." for e in _evsr), _evsr)
+
+# 0.438.6: dashboard đẩy `delta` của Grok và Antigravity thành khung stream (không đọc giọng giữa chừng), và
+# `final` vẫn là câu trả lời được lưu.
+_main_src = (ROOT / "server" / "main.py").read_text(encoding="utf-8")
+for _nhanh, _dau in (("grok-cli", 'elif prov == "grok-cli":'), ("antigravity-cli", 'elif prov == "antigravity-cli":')):
+    _i = _main_src.find(_dau, _main_src.find("===== Gói SuperGrok") - 2000)
+    _khoi = _main_src[_i:_main_src.find("            elif prov == ", _i + len(_dau))]   # đúng nhánh này thôi
+    check(f"dashboard {_nhanh}: delta thành khung stream, final vẫn là câu trả lời",
+          'elif et == "delta":' in _khoi and '"type": "stream", "content": ev["content"], "tts": False' in _khoi
+          and _khoi.find('elif et == "delta":') < _khoi.find('elif et == "final":'))
 
 
 # ============================================================
@@ -951,6 +967,47 @@ check("CANARY: model lờ file ngữ cảnh -> cũng phải nói ra", _co_canh_b
 _evs_mu = _chay_file_voi_su_kien(lambda duong: ["Chào anh."], help_text=_HELP_CU)
 check("CANARY: bản CLI không có stream-json -> KHÔNG đo được thì KHÔNG dán cảnh báo oan",
       any(e["type"] == "final" for e in _evs_mu) and not _co_canh_bao(_evs_mu), _evs_mu)
+
+# agy 1.x (đo trên 1.4.12, 2026-11-04) không phát `tool_result` mà phát `step_update`. Đọc file
+# thành công trông như dưới đây; bản trước tính nó là "thử mà hỏng" và dán cảnh báo oan mọi lượt.
+def _buoc_tool(duong, state, output=None):
+    ti = {"name": "read_file", "parameters": {"Path": duong}}
+    if output is not None:
+        ti["output"] = output
+    return json.dumps({"event": "step_update", "step_update": {
+        "conversation_id": "c1", "step_index": 2, "state": state, "step_type": "tool",
+        "tool_name": "read_file", "tool_info": ti}})
+
+
+_evs_moi = _chay_file_voi_su_kien(lambda duong: [
+    _buoc_tool(duong, "ACTIVE"),
+    _buoc_tool(duong, "DONE", "120 lines, 40000 bytes"),
+    json.dumps({"event": "result", "result": {"status": "SUCCESS", "response": "Chào anh."}}),
+])
+check("CANARY: agy 1.x đọc ĐƯỢC file (step_update DONE) thì KHÔNG dán cảnh báo oan",
+      any(e["type"] == "final" for e in _evs_moi) and not _co_canh_bao(_evs_moi), _evs_moi)
+
+_evs_moi_hong = _chay_file_voi_su_kien(lambda duong: [
+    _buoc_tool(duong, "ACTIVE"),
+    _buoc_tool(duong, "DONE", "Error: permission denied"),
+    json.dumps({"event": "result", "result": {"status": "SUCCESS", "response": "Chào anh."}}),
+])
+check("CANARY: agy 1.x đọc HỎNG (output báo lỗi) thì vẫn phải nói ra",
+      _co_canh_bao(_evs_moi_hong), _evs_moi_hong)
+
+check("lỗi 'permission prompt required' KHÔNG bị đọc thành CLI chối stdin",
+      not antigravity_cli._la_loi_thieu_prompt("Error: permission prompt required for run_command"))
+check("'Error: empty prompt' vẫn được nhận ra",
+      antigravity_cli._la_loi_thieu_prompt('Error: empty prompt. Usage: agy --print "your prompt here"'))
+check("'-p took ... as its prompt' cũng được nhận ra",
+      antigravity_cli._la_loi_thieu_prompt('Error: -p took "--input-format" as its prompt'))
+os.environ["JAVIS_AGY_PROMPT_DAI"] = "stdin"
+try:
+    _ep = antigravity_cli.duong_prompt_dai("/khong/co")
+finally:
+    os.environ.pop("JAVIS_AGY_PROMPT_DAI", None)
+check("ép stdin bằng env không còn ra công thức `-p \"\"` mà 1.4.12 chối",
+      _ep.startswith("stdin:") and _ep != "stdin:rong", _ep)
 
 # Bản CLI nhận stdin thì phải đi stdin và KHÔNG đụng tới file: stdin giữ prompt nguyên vẹn, còn
 # file thì phụ thuộc model chịu mở ra đọc.

@@ -25,6 +25,7 @@ stop its own tools before they run at that level: a gated tool step on it is ref
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import shlex
 import threading
@@ -45,11 +46,20 @@ NATIVE_FREE = frozenset({"Read", "Glob", "Grep", "LS", "NotebookRead", "TodoWrit
                          "Task", "Agent", "BashOutput", "KillShell", "KillBash", "ExitPlanMode", "ToolSearch",
                          "ListMcpResourcesTool", "ReadMcpResourceTool"})
 NATIVE_WRITE = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+# 0.271.0: Claude Code's shell tools. On Windows the shell is `PowerShell`, not `Bash` (customer report, codes 5 and 22):
+# before this its call was fingerprinted with every input field (a different `timeout` on the rerun made the approved
+# command "another" command), a declared PowerShell action was fingerprinted as a hub tool, and the card only said
+# "PowerShell". Both shells are now one action per exact command text. PowerShell is never read-only here.
+SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
+# Native tools an `ask_approval` directive may name, fingerprinted like the gate does at call time.
+NATIVE_DECLARABLE = NATIVE_WRITE | SHELL_TOOLS | frozenset({"WebFetch"})
+LABEL_COMMAND_MAX = 160
 # Shell programs that only read. Narrower than run_command's `auto` list on purpose: python, node, npm and make run any
 # code, which can reach the network, so in a gated team they are outside actions.
 # Review 0.207.0: rg (--pre runs a program), sort/uniq/tree (write an output file), date (-s), file (-C) are out.
+# 0.267.0: cd, echo and nl only move around or print; sed only with a print-only script (sed_readonly).
 BASH_READ = frozenset({"ls", "cat", "head", "tail", "wc", "find", "grep", "stat", "du", "diff", "pwd", "which",
-                       "basename", "dirname", "realpath", "cut", "jq"})
+                       "basename", "dirname", "realpath", "cut", "jq", "cd", "echo", "nl"})
 _GIT_READ = frozenset({"status", "diff", "log", "show", "ls-files", "rev-parse", "describe", "blame", "shortlog"})
 # git flags that write a file or run a configured program
 _GIT_BAD = ("--output", "--ext-diff", "--textconv", "-o")
@@ -61,6 +71,16 @@ PROTECTED_PARTS = ("plugins", ".claude", ".git", ".grok", ".codex", ".agents", "
 PROTECTED_FILES = (".mcp.json", ".mcp_hub.json", "CLAUDE.md", "AGENTS.md", "GEMINI.md")
 _FIND_ACT = frozenset({"-exec", "-execdir", "-delete", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"})
 _SHELL_CHARS = set(">|&;<`$\n")
+# 0.267.0 (a user's team, 21/10/2026): a step that only read three files was stopped for approval, because the command
+# chained them (`cd ...; cat -n a; echo ----; sed -n 78,95p b; grep -n "quat\\|gio" c`) and every `;` or `|`, even one
+# inside quotes, counted as an outside action. Commands are now split on these separators outside quotes and each part
+# is checked on its own. Anything else that is not a word (>, <, &, parentheses) still means outside.
+_CHAIN = frozenset({";", "&&", "||", "|"})
+_UNSAFE_ANYWHERE = set("`$\n\r")
+# Output thrown away is still read-only: `2>/dev/null`, `>/dev/null`, `2>&1`.
+_DISCARD = re.compile(r"(?:(?<=\s)|^)(?:[12]?>\s*/dev/null|2>&1)(?=\s|$|;|&|\|)")
+# sed that only prints: `-n 78,95p`, `-n 5p`, `-n '/x/p'`. Anything else (-i, w, e, s///w) can write or run.
+_SED_PRINT = re.compile(r"^(?:\d+(?:,\d+)?|/[^/]*/(?:,/[^/]*/)?)p$")
 _READ_VERBS = ("get", "list", "search", "read", "fetch", "query", "find", "describe", "lookup", "view", "count",
                "download", "export", "suggest")
 
@@ -180,17 +200,30 @@ def hub_check(name: str, args: Any, label: str = "") -> tuple:
 
 # ---- Claude native tools (PreToolUse hook) ----
 
-def bash_readonly(command: str) -> bool:
-    cmd = str(command or "").strip()
-    if not cmd or any(ch in _SHELL_CHARS for ch in cmd):
-        return False
-    try:
-        argv = shlex.split(cmd)
-    except ValueError:
-        return False
-    if not argv:
-        return False
+def sed_readonly(args: list) -> bool:
+    """sed with print-only scripts and no in-place edit. args: the words after `sed`."""
+    script, files, expect = [], [], False
+    for a in args:
+        if expect:
+            script.append(a)
+            expect = False
+        elif a in ("-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended"):
+            continue
+        elif a in ("-e", "--expression"):
+            expect = True
+        elif a.startswith("-"):
+            return False            # -i, --in-place, -f script files, -s ... are out
+        elif not script:
+            script.append(a)
+        else:
+            files.append(a)
+    return bool(script) and not expect and all(_SED_PRINT.match(x.strip()) for x in script)
+
+
+def _one_readonly(argv: list) -> bool:
     prog = os.path.basename(argv[0]).lower()
+    if prog == "sed":
+        return sed_readonly(argv[1:])
     if prog not in BASH_READ and prog != "git":
         return False
     if prog == "git":
@@ -199,6 +232,30 @@ def bash_readonly(command: str) -> bool:
     if prog == "find" and any(a in _FIND_ACT for a in argv[1:]):
         return False
     return True
+
+
+def bash_readonly(command: str) -> bool:
+    cmd = str(command or "").strip()
+    if not cmd or any(ch in _UNSAFE_ANYWHERE for ch in cmd):
+        return False
+    cmd = _DISCARD.sub(" ", cmd)
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        words = list(lex)
+    except ValueError:
+        return False
+    parts, cur = [], []
+    for w in words:
+        if w in _CHAIN:
+            parts.append(cur)
+            cur = []
+        elif w and all(ch in "();<>|&" for ch in w):
+            return False            # >, >>, <, &, (, ): writes, input tricks, background or subshells
+        else:
+            cur.append(w)
+    parts.append(cur)
+    return all(p and _one_readonly(p) for p in parts)
 
 
 def protected_rel(rel: Any) -> bool:
@@ -240,10 +297,32 @@ def webfetch_free(url: Any) -> bool:
 
 
 def _native_args(tool: str, inp: dict) -> Any:
-    """What makes two native calls the same action. Bash: the command alone (the description wording varies)."""
-    if tool == "Bash":
+    """What makes two native calls the same action. Shell tools: the command alone (the description, timeout and
+    background flag vary between runs of the same command)."""
+    if tool in SHELL_TOOLS:
         return {"command": str((inp or {}).get("command") or "")}
     return {k: v for k, v in (inp or {}).items() if k not in ("description",)}
+
+
+def is_native(tool: str) -> bool:
+    """A tool name an approval request declares that the PreToolUse hook (not the hub) will see at call time."""
+    t = str(tool or "")
+    return t in NATIVE_DECLARABLE or (t.startswith("mcp__") and not t.startswith("mcp__javis__"))
+
+
+def short_text(text: Any, n: int = LABEL_COMMAND_MAX) -> str:
+    """One line, whitespace collapsed, cut at `n` characters with an ellipsis."""
+    one = " ".join(str(text or "").split())
+    return one if len(one) <= n else one[:n - 1].rstrip() + "…"
+
+
+def native_label(tool: str, inp: Any) -> str:
+    """What the card's summary line says about one native call: the tool and the command, file or address it acts on,
+    shortened. The full call is kept separately (`call`) for the card's list of exact calls."""
+    d = inp if isinstance(inp, dict) else {}
+    what = d.get("command") if tool in SHELL_TOOLS else (d.get("file_path") or d.get("notebook_path") or d.get("url") or "")
+    what = short_text(what)
+    return f"{tool}: {what}" if what else str(tool or "")
 
 
 def classify_native(tool: str, inp: dict, roots: list) -> str:
@@ -273,8 +352,7 @@ def native_check(gate_id: Optional[str], tool: str, inp: dict) -> tuple:
     if classify_native(tool, inp, g.roots) == "free":
         return True, ""
     args = _native_args(tool, inp)
-    label = f"{tool}: {args.get('command') if tool == 'Bash' else (inp or {}).get('file_path') or ''}".strip(": ")
-    return decide(g, "native", tool, args, label)
+    return decide(g, "native", tool, args, native_label(tool, inp))
 
 
 # ---- protected files: fingerprint before a gated step, report what it changed ----
@@ -365,6 +443,28 @@ def provider_support(provider: str, *, codex_sandbox: Optional[str] = "workspace
     return {"ok": False, "approved_actions": False, "reason": f"{p} chưa được kiểm là chặn được công cụ trước khi chạy"}
 
 
-def unsupported_text(reason: str) -> str:
-    return (f"Nhóm đang ở quyền 'cần duyệt' mà {reason}. Đổi trợ lý làm bước này sang Claude, Codex hay một model API, "
-            "hoặc bật 'Nhóm tự làm hành động ra ngoài' trong cài đặt nhóm nếu anh tin nhóm này.")
+def unsupported_text(reason: str, *, assistant: str = "", choices: tuple = ()) -> str:
+    """Why a gated step was refused, recovery FIRST: the runner keeps 300 characters of it, the job list 200, and the
+    reasons above run long (PR #904: on Docker the "Try again" part was cut off). `choices`: labels of the connected
+    providers this machine can gate, never the refused one (main._team_gate_choices). Never suggests full mode: that
+    drops the approvals instead of fixing the provider."""
+    from localefmt import chu  # lazy: this module keeps its imports light
+    names = [str(c) for c in choices if c][:3]
+    if names:
+        vi_or, en_or = (names[0], names[0]) if len(names) == 1 else (
+            ", ".join(names[:-1]) + " hoặc " + names[-1], ", ".join(names[:-1]) + " or " + names[-1])
+        return chu(
+            "Bước này chưa chạy. Ở trang Cộng sự, đổi model của {vi_who} sang {vi_or} rồi bấm Thử lại. "
+            "Lý do: nhóm ở quyền 'cần duyệt' mà {reason}.",
+            "This step did not run. On the Partners page, switch {en_who} to {en_or}, then press Try again. "
+            "Why: the team needs approvals and {reason}.",
+            vi_who=assistant or "trợ lý làm bước này", en_who=assistant or "the assistant of this step",
+            vi_or=vi_or, en_or=en_or, reason=reason)
+    return chu(
+        "Bước này chưa chạy. Chưa có model nào đã kết nối chạy được quyền này: kết nối Claude Code hoặc một API key ở "
+        "trang Models, rồi đổi model của {vi_who} ở trang Cộng sự và bấm Thử lại. "
+        "Lý do: nhóm ở quyền 'cần duyệt' mà {reason}.",
+        "This step did not run. No connected model can run it with approvals: connect Claude Code or an API key on the "
+        "Models page, switch {en_who} on the Partners page, then press Try again. "
+        "Why: the team needs approvals and {reason}.",
+        vi_who=assistant or "trợ lý làm bước này", en_who=assistant or "the assistant of this step", reason=reason)

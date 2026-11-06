@@ -49,6 +49,11 @@ function cardsHtml(lang) {
     TM.mandateHtml({ mandate: m }),
     TM.opportunityCardHtml({ id: 2, meta: { opportunity: opp } }),
     TM.acceptanceCardHtml({ id: 3, meta: { acceptance: acc } }),
+    TM.qualityPolicyHtml({ quality_policy: { enabled: true, limit_migration: "observe", limit_migration_selected: true },
+      acceptance_template: { version: 1, criteria: [{ kind: "owner_confirm", target: "message" }] } }),
+    TM.qualityUsageHtml({ attempts: 12, requests: null, tokens_in: 12345, tokens_out: 6789,
+      money: { reported_usd: null, estimated_usd: 1.23, subscription_equivalent_usd: 2.34 },
+      coverage: { status: "partial" } }, 0.01),
     // The two forms whose CSS changed (review 0.210.0): mandate editor and acceptance criteria editor.
     TM.mandateHtml({ mandate: m }, true),
     TM.queueHtml({ waiting: [{ id: "t_9", title: lang === "vi" ? "Viết bài ra mắt" : "Write the launch post" }] }, { accEdit: "t_9" }),
@@ -57,32 +62,36 @@ function cardsHtml(lang) {
 
 const css = ["style.css", "console.css"].map((f) => "file://" + path.join(ROOT, "dashboard", f));
 let fails = 0;
-const browser = await pw.chromium.launch({ executablePath: fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined });
+const browser = await pw.chromium.launch({ executablePath: process.env.JAVIS_PILOT_BROWSER ||
+  (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined) });
 for (const lang of ["vi", "en"]) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
     css.map((h) => `<link rel="stylesheet" href="${h}">`).join("") +
     // The real side panel lives inside the app grid; outside it, let the page grow so the screenshot shows every card.
-    "<style>html,body{height:auto!important;overflow:visible!important}.tm-side{display:block;height:auto}</style>" +
+    "<style>html,body{height:auto!important;overflow:visible!important}.tm-side{display:block;position:relative;inset:auto;height:auto;animation:none}</style>" +
     `</head><body><div class="tm-side" style="padding:0 16px;overflow:visible">${cardsHtml(lang)}</div></body></html>`;
-  const file = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "tm-ui-")), `cards-${lang}.html`);
+  const file = path.join(fs.mkdtempSync(path.join(process.env.TMPDIR || process.env.TEMP || "/tmp", "tm-ui-")), `cards-${lang}.html`);
   fs.writeFileSync(file, html);
   await page.goto("file://" + file);
+  await page.locator('details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
   const r = await page.evaluate(() => {
     const doc = document.documentElement;
-    const small = [...document.querySelectorAll(".tm-ap, .tm-md, .tm-wm .tm-radio, .tm-ap button, .tm-md button, .tm-md .tm-sub, .tm-ap .tm-sub, .tm-md li, .tm-ap li, .tm-ap code, .tm-md code, .tm-md-form textarea, .tm-md-form input, .tm-md-form select, .tm-acc-form textarea, .tm-acc-form input, .tm-acc-form button")]
+    const small = [...document.querySelectorAll(".tm-ap, .tm-md, .tm-wm .tm-radio, .tm-ap button, .tm-md button, .tm-md .tm-sub, .tm-ap .tm-sub, .tm-md li, .tm-ap li, .tm-ap code, .tm-md code, .tm-md-form textarea, .tm-md-form input, .tm-md-form select, .tm-acc-form textarea, .tm-acc-form input, .tm-acc-form button, .tm-quality-form input, .tm-quality-form select, .tm-quality-form button, .tm-template-form textarea, .tm-template-form button")]
       .map((e) => [e.className, parseFloat(getComputedStyle(e).fontSize)]).filter(([, fs]) => fs < 16);
     const out = [...document.querySelectorAll("button")].filter((b) => { const x = b.getBoundingClientRect(); return x.right > innerWidth + 0.5 || x.left < -0.5; })
       .map((b) => b.textContent);
     return { scroll: doc.scrollWidth, width: innerWidth, small, out, cards: document.querySelectorAll(".tm-ap, .tm-md, .tm-wm").length,
-      forms: document.querySelectorAll(".tm-md-form, .tm-acc-form").length };
+      forms: document.querySelectorAll(".tm-md-form, .tm-acc-form, .tm-quality-form, .tm-template-form").length };
   });
-  const ok = r.scroll <= r.width && r.small.length === 0 && r.out.length === 0 && r.cards >= 5 && r.forms === 2;
+  const ok = r.scroll <= r.width && r.small.length === 0 && r.out.length === 0 && r.cards >= 5 && r.forms === 4;
   console.log((ok ? "ok   " : "FAIL ") + `${lang} 390px: ${r.cards} cards, ${r.forms} forms, scrollWidth ${r.scroll}, small text ${JSON.stringify(r.small)}, buttons off screen ${JSON.stringify(r.out)}`);
   if (!ok) fails++;
   if (shots) {
     fs.mkdirSync(shots, { recursive: true });
     await page.screenshot({ path: path.join(shots, `team-cards-${lang}-390.png`), fullPage: true });
+    await page.locator('.tm-quality-form').locator('..').screenshot({
+      path: path.join(shots, `team-quality-${lang}-390.png`) });
   }
   await page.close();
 }

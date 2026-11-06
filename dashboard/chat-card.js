@@ -133,6 +133,23 @@
     });
   }
 
+  /* Where a button press goes. By default the main chat (window.JavisSend). A page with its own chat registers its root:
+     onSend(root, fn) sends presses of buttons inside `root` to fn(text, button) instead (the Team chat answers in the
+     team). Returns a function that removes the registration. The newest registration that contains the button wins. */
+  var senders = [];
+  function onSend(root, fn) {
+    var reg = { root: root, fn: fn };
+    senders.push(reg);
+    return function () { var i = senders.indexOf(reg); if (i >= 0) senders.splice(i, 1); };
+  }
+  function senderFor(b) {
+    for (var i = senders.length - 1; i >= 0; i--) {
+      var r = senders[i].root;
+      if (r && r.contains && r.contains(b)) return senders[i].fn;
+    }
+    return null;
+  }
+
   if (typeof document !== "undefined") {
     document.addEventListener("click", function (e) {
       var b = e.target.closest ? e.target.closest(".jv-card-btn") : null;
@@ -141,11 +158,13 @@
       var row = b.parentNode;
       Array.prototype.forEach.call(row.querySelectorAll(".jv-card-btn"), function (x) { x.disabled = true; });
       b.classList.add("jv-ask-picked");
+      var own = senderFor(b);
+      if (own) { own(b.getAttribute("data-reply"), b); return; }
       if (typeof window.JavisSend === "function") window.JavisSend(b.getAttribute("data-reply"));
     });
   }
 
-  var API = { parse: parse, html: html, replaceIn: replaceIn };
+  var API = { parse: parse, html: html, replaceIn: replaceIn, onSend: onSend, senderFor: senderFor };
   if (typeof window !== "undefined") window.JavisCard = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;
 })();

@@ -1,32 +1,43 @@
 name: Build & Publish Docker image (GHCR)
 
-# Mỗi lần push lên main → build image Docker và đẩy lên GitHub Container Registry
-# (ghcr.io/blogminhquy/javis-os). Hostinger Docker Manager / VPS chỉ cần PULL image này.
+# Build image Docker và đẩy lên GitHub Container Registry (ghcr.io/blogminhquy/javis-os).
+# Hostinger Docker Manager / VPS chỉ cần PULL image này.
+#
+# Không còn tự chạy khi push lên main: release.yml đánh số phiên bản từ changelog.d/ trước, rồi gọi
+# workflow này trên ĐÚNG commit phát hành, để image mang VERSION mới. Commit do bot đẩy bằng
+# GITHUB_TOKEN không kích hoạt workflow nào khác, nên nếu vẫn nghe `push` thì image được build từ
+# commit merge, mang số cũ, và máy Docker sẽ báo "có bản mới" mãi.
 on:
-  push:
-    branches: [main]
-    # Chỉ bỏ qua build khi push THUẦN tài liệu (không ảnh hưởng image).
-    # CLAUDE.md là system prompt nạp vào image → KHÔNG ignore, để sửa nó là build lại.
-    paths-ignore:
-      - "README.md"
-      - "DEPLOY.md"
-      - ".learn/**"
+  workflow_call:
+    inputs:
+      ref:
+        description: "Ref to build (release.yml passes main, which then carries the new VERSION)"
+        required: true
+        type: string
   workflow_dispatch:
 
 jobs:
   build-and-push:
+    # Chạy tay (workflow_dispatch) chỉ từ main (vá bảo mật 2026-11-05): job này đẩy tag :latest mà mọi
+    # máy Docker kéo về, nên một nhánh chưa qua review không được tự xuất bản image chỉ vì có người
+    # bấm Run workflow trên nhánh đó.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set lowercase image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Read app version
-        run: echo "APP_VERSION=$(cat VERSION | tr -d ' \n\r')" >> "$GITHUB_ENV"
+        run: |
+          echo "APP_VERSION=$(cat VERSION | tr -d ' \n\r')" >> "$GITHUB_ENV"
+          echo "BUILD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -68,9 +79,10 @@ jobs:
           build-args: |
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
+            JAVIS_IMAGE_SOURCE=${{ env.IMAGE }}
           tags: |
             ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:${{ env.BUILD_SHA }}
             ${{ env.IMAGE }}:${{ env.APP_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

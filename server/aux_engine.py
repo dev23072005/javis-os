@@ -20,9 +20,13 @@ Ba loại engine, khác nhau ở CÔNG CỤ có được - đây là chỗ phả
   MCP hub qua .grok/config.toml trong brain). Mức quyền xuống thẳng cờ chặn của CLI:
   suggest -> chặn Write/Edit/Bash, auto -> chặn Bash, full -> không chặn ở tầng CLI.
 - api (openrouter/openai/gemini/anthropic-api): KHÔNG có tool native. Bù lại hub cấp
-  javis_read_file / javis_list_dir / javis_write_file / javis_use_skill + tool MCP, và
-  javis_write_file tự chặn khi mode là suggest (mcp_hub._builtin_tools). Không có Bash,
-  không có WebFetch - hẹp hơn Claude, nhưng đủ cho việc nền đọc/ghi ghi chú trong vault.
+  javis_read_file / javis_list_dir / javis_write_file / javis_use_skill, tìm và đọc web
+  (javis_web_search / javis_web_fetch) + tool MCP, và javis_write_file tự chặn khi mode là
+  suggest (mcp_hub._builtin_tools). Từ 05/11/2026 có thêm TERMINAL THẬT (javis_terminal,
+  javis_process) trong brain, nhưng chỉ khi việc chạy ở mức `full` VÀ engine Claude mà nó thay
+  thế cũng được chạy Bash (`cli_cho_bash`). Nghĩa là cùng một việc, đổi bộ não sang API key
+  thì được đúng những gì Claude Code được: loop bị cô lập, việc mức auto/suggest vẫn không có
+  lệnh máy; việc Toàn quyền (dựng video bằng ffmpeg chẳng hạn) thì có.
 
 Hợp đồng sự kiện giữ y như ClaudeSDK để nơi gọi không phải sửa: query() sinh dict
 {"type": "tool_call"|"final"|"error"|"usage", ...}. Đường API sinh "text" nhiều mảnh nên
@@ -37,6 +41,7 @@ import time
 from typing import Optional
 
 import config as cfgmod
+import model_routing
 
 CLAUDE = "anthropic-cli"
 CODEX = "openai-oauth"
@@ -329,18 +334,25 @@ class _ApiAuxEngine:
     """
 
     def __init__(self, provider, model, system_prompt=None, vault_root=None,
-                 mode="full", tag="aux", reasoning="off"):
+                 mode="full", tag="aux", reasoning="off", api_key="", account_id="",
+                 terminal=False):
         self.provider = provider
         self.model = model
+        # 0.350.0: one link per account of the card, so the chain moves to key 2 when key 1 is out of quota.
+        self.api_key = api_key or ""
+        self.account_id = account_id or ""
         self.system_prompt = system_prompt
         self.vault_root = vault_root
         self.javis_mode = mode
         self.tag = tag
         self.reasoning = reasoning
         self.session_id = None      # engine API không có phiên nối tiếp - giữ cho đủ hợp đồng
+        # Được terminal thật hay không: chỗ dựng engine quyết theo engine Claude nó thay
+        # (`cli_cho_bash`), ở đây chỉ còn rào chót là mức `full`.
+        self.terminal = bool(terminal) and (mode or "full") == "full"
 
     def is_available(self) -> bool:
-        return bool(api_key_for(self.provider))
+        return bool(self.api_key or api_key_for(self.provider))
 
     def reset_session(self):
         self.session_id = None
@@ -349,7 +361,7 @@ class _ApiAuxEngine:
         import engine as eng
         import mcp_hub
 
-        key = api_key_for(self.provider)
+        key = self.api_key or api_key_for(self.provider)
         if not key:
             import localefmt
             yield {"type": "error", "content": localefmt.chu(f"Chưa có API key cho {self.provider}.",
@@ -377,10 +389,19 @@ class _ApiAuxEngine:
 
         tools, route = [], {}
         # `no_tools` (strip_tools): text-only turn on untrusted input, so the hub is never asked for anything.
+        co_terminal = False
+        ctx = None
         if not getattr(self, "no_tools", False):
+            ctx = self._ngu_canh_terminal()
             try:
-                tools, route = await mcp_hub.discover_all(self.javis_mode or "full",
-                                                          vault_root=self.vault_root)
+                if ctx is not None:
+                    tools, route = await mcp_hub.discover_all(
+                        self.javis_mode or "full", vault_root=self.vault_root,
+                        workspace_root=list(ctx.workspace_roots), coding_ctx_cua_phien=ctx)
+                    co_terminal = "javis_terminal" in route
+                else:
+                    tools, route = await mcp_hub.discover_all(self.javis_mode or "full",
+                                                              vault_root=self.vault_root)
             except Exception as e:
                 print(f"[aux discover] {e}", file=sys.stderr)
 
@@ -390,11 +411,22 @@ class _ApiAuxEngine:
         # không được" rồi tự dựng một lý do nghe hợp lý mà sai - hay gặp nhất là đổ cho quyền
         # ("phiên này bị chặn quyền"), khiến chủ đi sửa mức quyền trong khi mức quyền không hề
         # sai. Nói rõ THIẾU GÌ và VÌ SAO thì câu báo về mới dẫn đúng tới việc cần làm.
+        if co_terminal:
+            _may = ("terminal thật (javis_terminal, chạy nền bằng background=true rồi xem bằng "
+                    "javis_process) với thư mục làm việc là brain, nên chạy được ffmpeg, python, "
+                    "script dựng video... như trên máy chủ; ")
+            _thieu = "Bạn KHÔNG có: "
+        else:
+            _may = ""
+            _thieu = ("Bạn KHÔNG có: lệnh máy (Bash/terminal - việc này không chạy ở mức Toàn quyền "
+                      "hoặc đã bị giới hạn công cụ), ")
         sysprompt += (
             "\n\n[Sự thật hệ thống - năng lực của phiên này] Bạn đang chạy bằng engine API "
-            f"'{self.provider}', KHÔNG phải Claude Code. Bạn có: các tool qua MCP Hub của Javis "
+            f"'{self.provider}', KHÔNG phải Claude Code. Bạn có: {_may}tìm và đọc web "
+            "(javis_web_search, javis_web_fetch; chưa thấy trong danh sách thì tìm bằng "
+            "javis_search_tools rồi gọi qua javis_run_tool), các tool qua MCP Hub của Javis "
             "(gồm tool đọc/ghi file trong vault và mọi MCP người dùng đã đấu vào Javis). "
-            "Bạn KHÔNG có: lệnh máy (Bash), tự mở URL (WebFetch/WebSearch), và KHÔNG có các "
+            f"{_thieu}các "
             "connector gắn thẳng vào TÀI KHOẢN Claude - Gmail, Google Drive, Google Calendar "
             "gọi bằng tool native `mcp__<tên>__*` chỉ tồn tại trên engine Claude Code. "
             "Nếu việc được giao cần một trong những thứ đó, hãy nói THẲNG là engine hiện tại "
@@ -416,7 +448,12 @@ class _ApiAuxEngine:
                   "ollama-local": eng.ollama_local_chat_with_mcp,
                   "openai-compat": eng.openai_compat_chat_with_mcp,
                   "anthropic-compat": eng.anthropic_compat_chat_with_mcp}[self.provider]
-            stream = fn(key, self.model, messages, self.reasoning, tools, route)
+            # Việc nền có tool là việc CỦA CHỦ (task, loop, workflow, team), nên chạy với trần vòng của
+            # chủ (mặc định 500) chứ không phải trần 30 của bot nói chuyện với khách. Trước 05/11/2026
+            # việc nền bằng API key dừng ở vòng 30: điền Google Sheet, dựng video đều đứt giữa chừng.
+            # Lượt `no_tools` (đầu vào không tin cậy) không đi nhánh này.
+            stream = eng.chay_trong_phien_coding(
+                lambda: fn(key, self.model, messages, self.reasoning, tools, route))
         else:
             fn = {"openrouter": eng.openrouter_stream, "openai": eng.openai_stream,
                   "gemini": eng.gemini_stream, "groq": eng.groq_stream,
@@ -430,17 +467,84 @@ class _ApiAuxEngine:
 
         # Đường API sinh "text" theo mảnh; việc nền chỉ đọc "final" nên gom lại rồi phát MỘT lần.
         buf = []
-        async for ev in stream:
-            t = ev.get("type")
-            if t == "text":
-                buf.append(ev.get("content") or "")
-            elif t in ("tool_call", "error", "usage"):
-                if t == "usage":
-                    self._ghi_muc_dung(ev)
-                yield ev
-                if t == "error":
-                    return
+        import turn_context
+        observed_requests = [False]
+        request_ids = set()
+        self.usage_request_count = 0
+
+        def observe_request(event):
+            observed_requests[0] = True
+            request_ids.add(event.get("event_id"))
+            self.usage_request_count = len(request_ids)
+            self._ghi_muc_dung(event)
+
+        observer = observe_request if (turn_context.current() or {}).get("execution") else None
+        observer_token = eng.TEAM_REQUEST_OBSERVER.set(observer)
+        try:
+            async for ev in stream:
+                t = ev.get("type")
+                if t == "text":
+                    buf.append(ev.get("content") or "")
+                elif t in ("tool_call", "error", "usage"):
+                    if t == "usage" and not observed_requests[0]:
+                        self.usage_request_count += 1
+                        self._ghi_muc_dung(ev)
+                    yield ev
+                    if t == "error":
+                        return
+        finally:
+            eng.TEAM_REQUEST_OBSERVER.reset(observer_token)
+            if co_terminal:
+                self._don_terminal(ctx.session_id)
         yield {"type": "final", "content": "".join(buf)}
+
+    @staticmethod
+    def _don_terminal(sid: str) -> None:
+        """Hết lượt: bỏ bộ tool của phiên khỏi cache hub, dọn thư mục trạng thái nếu không còn
+        tiến trình nền nào (tiến trình còn chạy thì vẫn sống tiếp và báo khi xong)."""
+        try:
+            import mcp_hub
+            mcp_hub.bo_cache_phien(sid)
+        except Exception:
+            pass
+        try:
+            import coding_terminal
+            coding_terminal.don_neu_ranh(sid)
+        except Exception:
+            pass
+
+    def _ngu_canh_terminal(self):
+        """Ngữ cảnh làm việc cho terminal của MỘT lượt việc nền, hoặc None khi lượt này không được.
+
+        Thư mục làm việc là brain của việc. Mỗi lượt một mã phiên riêng (`nen-<tag>-<ngẫu nhiên>`)
+        nên thư mục hiện hành, biến môi trường và tiến trình nền của việc này không lẫn sang việc
+        khác. Tiến trình chạy nền xong thì báo về khung chat của chủ nếu lượt biết (turn_context),
+        còn không thì về Javis Core của brain (`main._report_route`, nhánh khung chat không tồn tại)."""
+        if not self.terminal or not self.vault_root:
+            return None
+        try:
+            import uuid
+            from pathlib import Path
+            import coding_ctx
+            import turn_context
+            goc = str(Path(self.vault_root).resolve())
+            if not Path(goc).is_dir():
+                return None
+            nhan = re.sub(r"[^a-z0-9]+", "-", str(self.tag or "aux").lower()).strip("-")[:40] or "aux"
+            sid = f"nen-{nhan}-{uuid.uuid4().hex[:8]}"
+            turn = turn_context.current() or {}
+            chat = str(turn.get("chat_id") or "") if turn.get("la_chu") else ""
+            ctx = coding_ctx.CodingToolContext(session_id=sid, workspace_root=goc, workspace_roots=(goc,),
+                                               permission_mode=coding_ctx.FULL, chat_id=chat)
+            try:
+                import coding_checkpoint
+                coding_checkpoint.luot_moi(sid)
+            except Exception:
+                pass
+            return ctx
+        except Exception as e:
+            print(f"[aux terminal] {type(e).__name__}: {e}", file=sys.stderr)
+            return None
 
     def _ghi_muc_dung(self, ev: dict) -> None:
         """Cộng lượt việc nền này vào sổ mức dùng.
@@ -457,8 +561,14 @@ class _ApiAuxEngine:
         try:
             import usage_store
             usage_store.record(self.provider, self.model,
-                               ev.get("input", 0), ev.get("output", 0), ev.get("cost", 0) or 0)
+                               ev.get("input"), ev.get("output"), ev.get("cost"),
+                               request_id=ev.get("request_id"), event_id=ev.get("event_id"),
+                               cache_read=ev.get("cache_read"), cache_create=ev.get("cache_create"))
         except Exception as e:  # noqa: BLE001
+            try:
+                usage_store.note_telemetry_error()
+            except Exception:
+                pass
             print(f"[aux usage] {type(e).__name__}: {e}", file=sys.stderr)
 
 
@@ -515,10 +625,13 @@ def cooldown_for(error) -> float:
 
 
 def _cool_key(e) -> str:
-    """provider:model for API links, class:model for CLI links; "" for anything else (never rests)."""
+    """provider:model(:account) for API links, class:model for CLI links; "" for anything else (never rests)."""
     prov = getattr(e, "provider", None)
+    if not (isinstance(prov, str) and prov):
+        prov = getattr(e, "account_provider", None)   # a plan engine pointed at one account (plan_accounts, 0.353.0)
     kind = prov if isinstance(prov, str) and prov else (type(e).__name__ if type(e).__name__ in _COOL_CLASSES else "")
-    return f"{kind}:{getattr(e, 'model', '') or ''}" if kind else ""
+    acc = getattr(e, "account_id", "") if isinstance(getattr(e, "account_id", ""), str) else ""
+    return (f"{kind}:{getattr(e, 'model', '') or ''}" + (f":{acc}" if acc else "")) if kind else ""
 
 
 def _resting(e, now: float) -> float:
@@ -590,6 +703,18 @@ class _FallbackChain:
         key, secs = _cool_key(e), cooldown_for(error)
         if key and secs:
             _COOLDOWN[key] = time.monotonic() + secs
+            # A quota error on one API key rests that ACCOUNT for chat too (model_routing), so the next chat turn and
+            # the next job start on key 2 instead of paying for the same dead key again.
+            acc = getattr(e, "account_id", "")
+            plan = getattr(e, "account_provider", None)
+            if isinstance(plan, str) and plan and secs != COOLDOWN_QUOTA_S:
+                # A plan account rests for chat on quota only: a model this job asked for that the plan lacks, or the
+                # service being down, says nothing about the account (0.355.0).
+                return
+            if isinstance(acc, str) and acc:
+                # Plan engines (Codex, Grok, Claude) carry `account_provider`; API engines carry `provider` (0.353.0).
+                model_routing.mark_rest(getattr(e, "account_provider", None) or getattr(e, "provider", ""), acc,
+                                        seconds=secs)
 
     async def query(self, prompt: str):
         fail = "chuỗi engine việc nền rỗng"
@@ -599,9 +724,11 @@ class _FallbackChain:
                 if not e.is_available():
                     fail = f"{self._name(e)} không sẵn sàng"
                     continue
-                got_final, got_error = False, None
+                got_final, got_error, acted = False, None, False
                 async for ev in e.query(prompt):
                     t = (ev or {}).get("type")
+                    if t == "tool_call":
+                        acted = True
                     if t == "error":
                         got_error = ev.get("content") or f"{self._name(e)} trả error"
                         # Hub bắt buộc không lên: mọi mắt sau lấy tool qua đúng hub đó, chạy tiếp
@@ -631,6 +758,14 @@ class _FallbackChain:
                         got_error = (f"{self._name(e)} mất đăng nhập: "
                                      + (ev.get("content") or "").strip()[:200])
                         break
+                    # Claude Code ends a failed turn (out of plan usage, API 429) with a final flagged
+                    # `is_error` whose text is the provider's message. Passing it on as a success kept
+                    # the next link from ever running, and the job was reported done with that message
+                    # as its result. Codex says the same thing as an `error` event; treat both alike.
+                    if t == "final" and ev.get("is_error"):
+                        got_error = ((ev.get("content") or "").strip()[:300]
+                                     or f"{self._name(e)} kết thúc lỗi ({ev.get('subtype') or 'final'})")
+                        break
                     yield ev
                     if t == "final":
                         got_final = True
@@ -639,6 +774,14 @@ class _FallbackChain:
                     return                                       # mắt này chạy ngon → xong
                 fail = got_error or f"{self._name(e)} kết thúc mà không có final"
                 self._rest(e, fail)
+                if acted:
+                    # 0.350.0 (spec 2.7): this link already called a tool before it broke. Running the prompt again on
+                    # another engine could send the message or post the article twice, so the chain stops here and
+                    # says why. This is what lets `full` jobs have a fallback chain at all.
+                    print(f"[aux router] {self._name(e)} hỏng SAU khi đã gọi công cụ - dừng, không chạy lại "
+                          "bằng engine khác.", file=sys.stderr)
+                    yield {"type": "error", "content": str(fail) + (f" | {dau}" if dau and dau != str(fail) else "")}
+                    return
             except Exception as exc:
                 fail = f"{self._name(e)}: {type(exc).__name__}: {exc}"
                 self._rest(e, fail)
@@ -652,14 +795,28 @@ class _FallbackChain:
         yield {"type": "error", "content": noi}
 
 
+def cli_cho_bash(cli) -> bool:
+    """Engine Claude mà việc nền này đang thay có được chạy Bash không.
+
+    Mọi quyết định an toàn của việc nền (loop bị `_isolate`, task theo năng lực, nhắc hẹn theo
+    mức quyền) đã được tính sẵn thành `allowed_tools` / `disallowed_tools` trên engine Claude.
+    Engine API đọc lại đúng hai thứ đó để quyết có terminal hay không, nên không có đường nào
+    mà đổi bộ não sang API key lại mở ra lệnh máy ở chỗ Claude Code bị chặn."""
+    chan = getattr(cli, "disallowed_tools", None) or []
+    cho = getattr(cli, "allowed_tools", None)
+    return "Bash" not in chan and (cho is None or "Bash" in cho)
+
+
 def _build_api(spec, claude_cli_obj, mode, tag):
+    _mode = mode or getattr(claude_cli_obj, "javis_mode", None) or "full"
     return _ApiAuxEngine(
         provider=spec["provider"],
         model=spec.get("model") or "",
         system_prompt=getattr(claude_cli_obj, "system_prompt", None),
         vault_root=getattr(claude_cli_obj, "javis_vault", None),
-        mode=mode or getattr(claude_cli_obj, "javis_mode", None) or "full",
+        mode=_mode,
         tag=tag or getattr(claude_cli_obj, "tag", "aux"),
+        terminal=_mode == "full" and cli_cho_bash(claude_cli_obj),
     )
 
 
@@ -679,6 +836,14 @@ def _build_codex(spec, claude_cli_obj, mode, tag, codex_profile=None):
             cc.profile = codex_profile()   # profile javis = thấy MCP của Javis (POS, connector...)
         except Exception as e:
             print(f"[aux codex profile] {e}", file=sys.stderr)
+    # The turn key (X-Javis-Turn) rides on every query, as on a chat turn (main._apply_codex_hub). Without it a reminder
+    # or Kanban job on Codex reached the hub as "nobody", so javis_team op=dispatch refused it with "lượt không có danh
+    # tính" and the team never woke up. Only when the profile's `javis` entry IS the hub (hub on): an override under
+    # mcp_servers.javis with no hub entry would be a broken half-entry. No bound turn -> no key, nothing sent.
+    try:
+        cc.hub_turn = bool(cc.profile) and bool(cfgmod.read_settings().get("mcp", {}).get("hub", True))
+    except Exception as e:  # noqa: BLE001 - no key means "nobody", never a broken job
+        print(f"[aux codex turn] {e}", file=sys.stderr)
     try:
         import mcp_hub
         mcp_hub.dat_codex_vault(cc.extra_config, getattr(claude_cli_obj, "javis_vault", None))
@@ -705,8 +870,8 @@ def _build_codex(spec, claude_cli_obj, mode, tag, codex_profile=None):
     return cc
 
 
-# Nhãn lượt của việc nền THEO LỊCH: nhắc hẹn, loop, Kanban ("dispatch:<id>:<hậu tố>"). Mắt dự
-# phòng dựng từ bộ não chính mang thêm hậu tố "-main" (_main_fallback_engine).
+# Nhãn lượt của việc nền THEO LỊCH: nhắc hẹn, loop, Kanban ("dispatch:<id>:<hậu tố>"). The "-main" suffix came from
+# the pre-0.350.0 main-brain link; it is still accepted so old tags read the same.
 _TAG_VIEC_NEN_THEO_LICH = ("reminder", "loop")
 
 
@@ -714,7 +879,8 @@ def la_viec_nen_theo_lich(tag) -> bool:
     t = str(tag or "").strip()
     if t.endswith("-main"):
         t = t[:-len("-main")]
-    return t in _TAG_VIEC_NEN_THEO_LICH or t.startswith("dispatch:")
+    # A reminder's own run is tagged "reminder:<id>" since 0.422.0 (so one run can be stopped).
+    return t in _TAG_VIEC_NEN_THEO_LICH or t.startswith(("dispatch:", "reminder:"))
 
 
 def _hub_bat_buoc_hong(text) -> bool:
@@ -809,54 +975,6 @@ def apply(deps, cli, mode: str = None, tag: str = None):
     return cli
 
 
-def _main_fallback_engine(cli, mode, tag, settings, exclude, codex_profile=None):
-    """Mắt dự phòng dựng từ BỘ NÃO CHÍNH của người dùng, hoặc None nếu không dựng được.
-
-    exclude = tập provider đã có mặt trong chuỗi (aux + Claude) - trùng thì khỏi thêm.
-    Provider không có builder nền (ollama, antigravity-cli) trả None, chuỗi còn lại lo.
-    """
-    sp = main_spec(settings)
-    prov = sp.get("provider") or ""
-    if not prov or prov == CLAUDE or prov in (exclude or set()):
-        return None
-    ok, _why = availability(sp, settings)
-    if not ok:
-        return None
-    t = (tag or getattr(cli, "tag", "aux")) + "-main"
-    try:
-        if prov == CODEX:
-            return _build_codex(sp, cli, mode, t, codex_profile)
-        if prov == GROK_CLI:
-            return _build_grok(sp, cli, mode, t)
-        if prov in API_PROVIDERS:
-            return _build_api(sp, cli, mode, t)
-    except Exception as e:
-        print(f"[aux router] không dựng được mắt não-chính ({prov}): {e}", file=sys.stderr)
-    return None
-
-
-def _co_mat_orfree(chain) -> bool:
-    """Chuỗi đã chứa một mắt OpenRouter model trống (= tự chọn free) chưa - có rồi thì
-    mắt or_free cuối trùng hệt, khỏi thêm."""
-    return any(getattr(e, "provider", "") == "openrouter"
-               and not (getattr(e, "model", "") or "").strip() for e in chain)
-
-
-def _openrouter_free_engine(cli, mode, tag, settings):
-    """Mắt xích CUỐI của router: OpenRouter model free (model '' = tự chọn free mạnh nhất
-    lúc chạy, xem _ApiAuxEngine.query). Chưa có key OpenRouter thì không có mắt này."""
-    if not api_key_for("openrouter", settings):
-        return None
-    return _ApiAuxEngine(
-        provider="openrouter",
-        model="",
-        system_prompt=getattr(cli, "system_prompt", None),
-        vault_root=getattr(cli, "javis_vault", None),
-        mode=mode or getattr(cli, "javis_mode", None) or "full",
-        tag=(tag or getattr(cli, "tag", "aux")) + "-orfree",
-    )
-
-
 def strip_tools(engine, base):
     """Make a swapped engine (or fallback chain) TEXT-ONLY: no hub, no MCP of any kind (0.77.0).
 
@@ -909,85 +1027,134 @@ def strip_tools(engine, base):
     return keep[0] if len(keep) == 1 else _FallbackChain(keep)
 
 
+def _cli_effort(level: str):
+    """Background effort for a Claude Code link. xhigh/ultra go to "high": an older `claude` rejects the top two values,
+    and a background job is never worth a failed run. "off" sends nothing (spec 2.3.4)."""
+    return {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "ultra": "high"}.get(level or "")
+
+
+def _plan_accounts_for(prov: str, settings) -> list:
+    """Usable accounts of a plan card that holds more than one (plan_accounts, 0.353.0); [] = run as before."""
+    try:
+        import plan_accounts
+        s = settings if settings is not None else cfgmod.read_settings()
+        m = s.get("model", {}) or {}
+        if prov == CLAUDE:
+            import claude_auth
+            if claude_auth.che_do(s) == claude_auth.API_KEY:
+                return []                   # Claude on an API key: no plan account to rotate
+        if not plan_accounts.has_extra(m, prov):
+            return []
+        # None usable: the first switched-on account still runs (and reports its quota), never one switched off.
+        fb = plan_accounts.fallback(m, prov)
+        return plan_accounts.usable(m, prov) or ([fb] if fb else [])
+    except Exception as e:  # noqa: BLE001 - account rotation must never cost the step
+        print(f"[aux] tài khoản {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
+def _per_account(prov: str, first, settings, more) -> list:
+    """One link per usable account: `first` takes account 1 of the list, `more()` builds each further link."""
+    accs = _plan_accounts_for(prov, settings)
+    if not accs:
+        return [first]
+    import plan_accounts
+    out = [plan_accounts.use(first, prov, accs[0]["id"])]
+    for a in accs[1:]:
+        out.append(plan_accounts.use(more(), prov, a["id"]))
+    return out
+
+
+def _links_for_step(step: dict, cli, mode, tag, codex_profile, settings, claude_used: list) -> list:
+    """Engines for one step of the background order. An API card gives one link per usable account (key 1, key 2...);
+    a plan card gives one link; a step that cannot run on this machine gives none."""
+    prov = step.get("provider") or CLAUDE
+    sp = {"provider": prov, "model": step.get("model") or ""}
+    level = step.get("reasoning") or "off"
+    if prov == CLAUDE:
+        # The caller's engine carries the allowlist, MCP and sandbox decisions, so the first Claude link IS that engine
+        # (resonance and strip_tools recognise it by identity). A second Claude step is a shallow copy with its own model.
+        import copy
+        e = cli if not claude_used else copy.copy(cli)
+        claude_used.append(e)
+        e.model = sp["model"] or None
+        eff = _cli_effort(level)
+        if eff and hasattr(e, "effort"):
+            e.effort = eff
+
+        def _more():
+            c = copy.copy(e)
+            claude_used.append(c)
+            return c
+        return _per_account(CLAUDE, e, settings, _more)
+    ok, why = availability(sp, settings)
+    if not ok:
+        print(f"[aux] {why} → bỏ bước {prov}.", file=sys.stderr)
+        return []
+    try:
+        if prov == CODEX:
+            return _per_account(CODEX, _build_codex(sp, cli, mode, tag, codex_profile), settings,
+                                lambda: _build_codex(sp, cli, mode, tag, codex_profile))
+        if prov == GROK_CLI:
+            return _per_account(GROK_CLI, _build_grok(sp, cli, mode, tag), settings,
+                                lambda: _build_grok(sp, cli, mode, tag))
+        if prov == ANTIGRAVITY:
+            return [_build_antigravity(sp, cli, mode, tag)]
+        if prov in API_PROVIDERS:
+            s = settings if settings is not None else cfgmod.read_settings()
+            m = s.get("model", {}) or {}
+            field = _KEY_FIELD.get(prov, "")
+            accs = ([] if prov in ("openai-compat", "anthropic-compat", "ollama-local")
+                    else model_routing.usable_accounts(m, prov, field))
+            mk = lambda key="", acc="": _ApiAuxEngine(   # noqa: E731
+                provider=prov, model=sp["model"], system_prompt=getattr(cli, "system_prompt", None),
+                vault_root=getattr(cli, "javis_vault", None),
+                mode=mode or getattr(cli, "javis_mode", None) or "full",
+                tag=tag or getattr(cli, "tag", "aux"), reasoning=level if level in model_routing.LEVELS else "off",
+                api_key=key, account_id=acc,
+                terminal=(mode or getattr(cli, "javis_mode", None) or "full") == "full" and cli_cho_bash(cli))
+            if len(accs) > 1:
+                return [mk(a["key"], a["id"]) for a in accs]
+            if accs:
+                return [mk(accs[0]["key"], accs[0]["id"])]
+            return [mk()]
+    except Exception as e:  # noqa: BLE001 - one broken step must not cost the others
+        print(f"[aux router] không dựng được bước {prov}: {type(e).__name__}: {e}", file=sys.stderr)
+    return []
+
+
 def swap(cli, mode: str = None, tag: str = None, spec: dict = None,
          codex_profile=None, settings: dict = None):
-    """Engine Claude đã dựng -> ROUTER việc nền theo model phụ người dùng chọn.
+    """Engine Claude đã dựng -> ROUTER việc nền (0.350.0, docs/dev/2026-10-model-routing-spec.md part 2.4).
 
-    Chuỗi fallback (mắt trước chết lúc chạy thì mắt sau tiếp quản, xem _FallbackChain):
-      engine phụ user chọn → Claude → BỘ NÃO CHÍNH đang chat (nếu khác hai mắt trước)
-      → OpenRouter model free mạnh nhất (nếu có key).
-    Mắt não-chính là để máy KHÔNG đăng nhập Claude (chỉ chạy Gemini/OpenAI/Groq...) vẫn
-    tự học và chạy việc nền được bằng đúng bộ não người dùng đang dùng, thay vì chết lặng
-    với "Not logged in". Mặc định Claude + không dựng được mắt nào khác thì trả NGUYÊN
-    engine Claude như xưa; hỏng cấu hình kiểu gì việc nền cũng phải chạy được chứ không chết.
+    Order: the background model (or `spec`, e.g. an assistant's own model) -> fallback 1, 2, ... of the Models page
+    usage order, each on its provider's starting config -> MAIN last, on its starting config. An API card contributes
+    one link per usable key. The chain is the same at every permission level: a link that already called a tool and
+    then broke stops the chain (_FallbackChain), so nothing is sent twice. Before 0.350.0 the chain was fixed
+    (Claude, the main brain, OpenRouter free) and `full` jobs had none.
+
+    Broken config still keeps background work alive: no buildable link at all returns the caller's Claude engine.
     """
     try:
-        sp = spec if spec is not None else read_spec(settings)
-        prov = sp.get("provider", CLAUDE)
-        # MỨC FULL KHÔNG CÓ CHUỖI DỰ PHÒNG. Đây là quyết định có chủ ý, không phải bỏ sót.
-        #
-        # Việc ở mức full thường là hành động RA NGOÀI: đăng bài, gửi tin, tạo đơn, đặt lịch.
-        # Ba lý do khiến rơi engine ở đây tệ hơn là chết hẳn:
-        #   1. Engine dự phòng (API) không có tool NATIVE, nên không gọi được connector ambient
-        #      của tài khoản Claude. Việc cần Google Drive/Gmail sẽ dừng giữa chừng.
-        #   2. Model không biết mình vừa bị đổi engine, nên nó suy ra một lý do nghe hợp lý mà
-        #      sai - ca thật: nhắc hẹn đăng Fanpage báo "phiên này bị chặn quyền" trong khi
-        #      user đã bật Toàn quyền, làm người ta đi tìm nhầm chỗ.
-        #   3. Mắt trước có thể đã làm xong MỘT PHẦN việc (đăng được 1 trong 3 bài) rồi mới
-        #      gãy. Chạy lại nguyên prompt bằng engine khác là đăng lại từ đầu.
-        # Thà dừng và nói đúng "Claude gãy vì X" để chủ xử lý, hơn là làm nửa vời trong im lặng.
-        if str(mode or "").strip().lower() == "full":
-            if prov == CLAUDE:
-                cli.model = sp.get("model") or None
-                return cli
-            ok, why = availability(sp, settings)
-            if not ok:
-                print(f"[aux] {why} → việc full tạm dùng lại Claude.", file=sys.stderr)
-                return cli
-            if prov == CODEX:
-                return _build_codex(sp, cli, mode, tag, codex_profile)
-            if prov == GROK_CLI:
-                return _build_grok(sp, cli, mode, tag)
-            if prov == ANTIGRAVITY:
-                return _build_antigravity(sp, cli, mode, tag)
-            if prov in API_PROVIDERS:
-                return _build_api(sp, cli, mode, tag)
+        s = settings if settings is not None else cfgmod.read_settings()
+        m = s.get("model", {}) or {}
+        sp = spec if spec is not None else read_spec(s)
+        first = {"provider": sp.get("provider") or CLAUDE, "model": sp.get("model") or "",
+                 "reasoning": (sp.get("reasoning") if sp.get("reasoning") in model_routing.LEVELS
+                               else model_routing.background_spec(m)["reasoning"] if spec is None else "off")}
+        # Settings not yet moved to 0.350.0 have no stored order: MAIN plus every API card holding a key, which is
+        # exactly what the migration will store.
+        conn = None
+        if not model_routing.stored_order(m):
+            conn = [model_routing.main_provider(m)] + [p for p in API_PROVIDERS if api_key_for(p, s)]
+        chain, claude_used = [], []
+        # A plan's quota belongs to the account, not the model: a second Claude step after Claude ran dry would only
+        # cost another failed call, so each plan provider appears once.
+        for st in model_routing.background_chain(m, conn, first=first, once=(CLAUDE, CODEX, GROK_CLI, ANTIGRAVITY)):
+            chain.extend(_links_for_step(st, cli, mode, tag, codex_profile, s, claude_used))
+        if not chain:
             return cli
-        if prov == CLAUDE:
-            cli.model = sp.get("model") or None
-            # Máy có thể CHƯA đăng nhập Claude (người dùng chỉ chạy Gemini/OpenAI...):
-            # thêm bộ não CHÍNH làm mắt kế để việc nền đi theo đúng bộ não đang sống.
-            chain = [cli]
-            mn = _main_fallback_engine(cli, mode, tag, settings, {CLAUDE}, codex_profile)
-            if mn:
-                chain.append(mn)
-            or_free = _openrouter_free_engine(cli, mode, tag, settings)
-            if or_free and not _co_mat_orfree(chain):
-                chain.append(or_free)
-            return _FallbackChain(chain) if len(chain) > 1 else cli
-        ok, why = availability(sp, settings)
-        if not ok:
-            print(f"[aux] {why} → việc nền tạm dùng lại Claude.", file=sys.stderr)
-            return cli
-        if prov == CODEX:
-            primary = _build_codex(sp, cli, mode, tag, codex_profile)
-        elif prov == GROK_CLI:
-            primary = _build_grok(sp, cli, mode, tag)
-        elif prov == ANTIGRAVITY:
-            primary = _build_antigravity(sp, cli, mode, tag)
-        elif prov in API_PROVIDERS:
-            primary = _build_api(sp, cli, mode, tag)
-        else:
-            return cli
-        chain = [primary, cli]
-        mn = _main_fallback_engine(cli, mode, tag, settings, {CLAUDE, prov}, codex_profile)
-        if mn:
-            chain.append(mn)
-        or_free = _openrouter_free_engine(cli, mode, tag, settings)
-        # Chuỗi đã có mắt openrouter model trống (tự chọn free) thì or_free trùng hệt → khỏi thêm.
-        if or_free and not _co_mat_orfree(chain):
-            chain.append(or_free)
-        return _FallbackChain(chain)
+        return chain[0] if len(chain) == 1 else _FallbackChain(chain)
     except Exception as e:
         print(f"[aux swap] {e} → giữ engine Claude.", file=sys.stderr)
     return cli

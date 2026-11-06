@@ -49,7 +49,14 @@ _CACHE_TTL = 60
 # mất nguồn. Bản thiếu vẫn phải cache (không thì một nguồn chết là mỗi lượt lại đi dò lại từ
 # đầu), chỉ là cache NGẮN để lượt sau còn cơ hội thấy nguồn đã hồi.
 _CACHE_TTL_THIEU = 10
+# 0.382.0: a COMPLETE list past its 60 s is still served (up to this age) while a refresh runs in the background, so a
+# chat turn that opens an engine after a pause does not wait for every source to be dialled again. A partial list
+# keeps the short synchronous rule above; any change to the connection store (mtime) or invalidate_cache() still
+# drops the entry at once.
+_CACHE_STALE_MAX = 900
+_refreshing: set = set()
 _cache = {}          # (mode, vault_root) -> {"tools", "route", "ts", "mtime"}
+_cache_epoch = 0
 _rate = {}           # conn_id -> deque[timestamps]
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic"}
 
@@ -107,9 +114,18 @@ def allow_patterns():
 # `javis_login` (0.251.0) opens pages signed in as the owner (login vault): a customer must never browse as them.
 OWNER_ONLY_TOOLS = frozenset({"javis_reply_policy", "javis_reply_policy_tune", "javis_team", "javis_memory",
                               "javis_watch", "javis_login",
+                              # 0.403.0: changes which notices reach the owner. A customer must never mute the owner.
+                              "javis_notify",
+                              # 2026-11-04: renames Javis Core in the owner's brain. Not a customer's call.
+                              "javis_core_name",
+                              # 2026-10-25: writes code that runs in the server (installed OFF, still owner's call).
+                              "javis_plugin",
                               # 0.259.0: tìm và đọc web. Bot nói chuyện với khách lạ không được biến
                               # máy chủ của chủ thành máy đi đọc web hộ bất kỳ ai nhắn tới.
-                              "javis_web_search", "javis_web_fetch"})
+                              "javis_web_search", "javis_web_fetch",
+                              # 2026-11-05 audit: adds an MCP server to the store EVERY brain shares and dials it
+                              # at once. A customer must never plant a server in the owner's tool list.
+                              "javis_add_mcp"})
 
 
 # ============================================================
@@ -572,8 +588,46 @@ def _list_skills(vault_root):
     return skill_router.enabled_slugs(vault_root)
 
 
+def _rel_trong_goc(p, vault_root, workspace_root):
+    """Path of `p` relative to the brain or a working folder, or None when it sits in neither."""
+    goc = [vault_root] + list(workspace_root if isinstance(workspace_root, (list, tuple)) else
+                              ([workspace_root] if workspace_root else []))
+    for base in goc:
+        if not base:
+            continue
+        try:
+            return Path(p).resolve().relative_to(Path(base).resolve())
+        except (ValueError, TypeError, OSError):
+            continue
+    return None
+
+
+def _ghi_vung_bao_ve(p, vault_root, workspace_root, mode, for_bot=False) -> str:
+    """Refusal text when a run below Full access, or any customer bot, writes a file that runs or configures code.
+
+    Security fix (2026-11-05 audit): plugins/ with `enabled: true` is loaded as Python in the server, Javis/loops,
+    Javis/scripts and reminders run later at Full access, .git/config and .claude/settings.json run commands. Before this
+    only a gated Team step was stopped there, so an "auto" bot steered by a stranger, or an auto loop reading untrusted
+    text, could plant one of these and climb to Full access. Full-access owner runs keep writing them as before (the
+    owner's own chat already has a shell). A gated Team step keeps its approval path below, so it is not refused here.
+    """
+    if mode == team_gate.HUB_MODE:
+        return ""
+    duoi_full = mcp_catalog.effective_perm("full", mode) != "full"
+    if not (duoi_full or for_bot):
+        return ""
+    rel = _rel_trong_goc(p, vault_root, workspace_root)
+    if rel is not None and not team_gate.protected_rel(rel):
+        return ""
+    ai = "chatbot trả lời khách" if for_bot else f"việc chạy ở mức '{mode}' (dưới Toàn quyền)"
+    return (f"ERROR: {ai} không được ghi vào '{rel if rel is not None else p}'. Thư mục plugins/, Javis/ (loop, script, "
+            ".javis), .git, .claude và cấu hình engine là nơi CHỨA MÃ CHẠY hoặc việc chạy toàn quyền, nên chỉ chủ ở mức "
+            "Toàn quyền mới ghi được. Đây là rào bảo mật, không phải lỗi ổ đĩa. Ghi nội dung vào chỗ khác (ví dụ "
+            "drafts/) hoặc đưa nội dung vào câu trả lời để chủ tự xem.")
+
+
 def _builtin_tools(mode, vault_root, include_ambient=False, hidden=None, lang="", staging=False,
-                   bo_qua=None, workspace_root=None, coding_ctx_cua_phien=None):
+                   bo_qua=None, workspace_root=None, coding_ctx_cua_phien=None, for_bot=False):
     """(tools_spec, route) các tool nội bộ cho engine API. Claude/Codex có tool file native
     nên hub HTTP không trả nhóm này (chỉ meta javis_connections).
     include_ambient=True (đường engine Claude): javis_connections kèm cả connector tài khoản
@@ -716,7 +770,7 @@ def _builtin_tools(mode, vault_root, include_ambient=False, hidden=None, lang=""
             rows.append(("[d] " if e.is_dir() else "    ") + e.name)
         return "\n".join(rows) or "(trống)"
 
-    async def _kiem_ghi(args, ten_tool="javis_write_file"):
+    async def _kiem_ghi(args, ten_tool="javis_write_file"):  # noqa: C901
         """(đường dẫn đã duyệt, lỗi). Mọi rào trước khi GHI, dùng chung cho ghi và sửa file."""
         if mcp_catalog.effective_perm("full", mode) == "readonly":
             # Câu này phải NÓI RÕ ĐÂY LÀ QUYỀN CỦA JAVIS, không phải lỗi máy. Bản cũ chỉ ghi
@@ -757,6 +811,9 @@ def _builtin_tools(mode, vault_root, include_ambient=False, hidden=None, lang=""
                         "Nói với người dùng rằng ghi nhớ đang tắt (bật lại ở Javis Core > Trí nhớ).")
         except Exception:
             pass
+        loi_bao_ve = _ghi_vung_bao_ve(p, vault_root, workspace_root, mode, for_bot)
+        if loi_bao_ve:
+            return None, loi_bao_ve
         if mode == team_gate.HUB_MODE:
             # 0.207.0 review: a gated Team step writes its deliverables, never files that run or configure code
             # (plugins/, .claude/, Javis/ loops and reminders...). Those go through the owner's approval like any action.
@@ -829,26 +886,67 @@ def _builtin_tools(mode, vault_root, include_ambient=False, hidden=None, lang=""
             str(args.get("file_glob") or ""), args.get("limit") or coding_files.TIM_MAC_DINH,
             args.get("offset") or 0, args.get("context") or 0, Path(hien_thi))
 
+    def _skill_base_line(root, asset):
+        """0.370.0: a skill that ships its own files (scripts/, references/, rules/...) names them relative to its
+        folder, and Claude Code's own skill loader says where that folder is. Without the same line an engine
+        here gets the SKILL.md text alone and cannot find `scripts/setup.sh` or `rules/x.md` (Store packs that
+        follow their source repo, such as Remotion's skills, rely on this). A skill that is just its SKILL.md
+        gets nothing extra."""
+        try:
+            rel = Path(str(asset.relative_path))
+            if rel.name != "SKILL.md" or rel.is_absolute() or ".." in rel.parts:
+                return ""
+            folder = Path(root).resolve() / rel.parent
+            if not any(p.name != "SKILL.md" for p in folder.iterdir()):
+                return ""
+            return f"Base directory for this skill: {folder}\n\n"
+        except (OSError, ValueError, TypeError):
+            return ""
+
     async def _skill(args):
         name = str((args or {}).get("name") or "").strip()
-        # skill_router.resolve_skill_file đã validate slug + chống traversal, tìm canonical
-        # skills/ → .claude/skills → .agents.
-        f = skill_router.resolve_skill_file(vault_root, name)
-        if not f or not f.is_file():
+        from improvement_task_skill_scope import current, ScopeUnavailable
+        from improvement_blobs import AssetUnavailable
+        import sqlite3
+        def read():
+            scope = current(vault_root)
+            import improvement_activation
+            return scope, (scope.read(name) if scope is not None
+                           else improvement_activation.effective_skill_asset(vault_root, name))
+        try:
+            scope, asset = await asyncio.to_thread(read)
+            if scope is not None and current(vault_root) is not scope:
+                raise ScopeUnavailable('task_skill_scope_changed')
+        except (ScopeUnavailable, AssetUnavailable, OSError, sqlite3.Error):
+            return 'ERROR: task_skill_scope_unavailable'
+        if asset is None:
             return ("ERROR: không có skill đó. Skill khả dụng: "
                     + (", ".join(_list_skills(vault_root)) or "(chưa có)"))
-        text = f.read_text(encoding="utf-8", errors="replace")[:60_000]
+        text = _skill_base_line(vault_root, asset) + asset.text[:60_000]
         # ĐIỂM ĐẾM DUY NHẤT: mọi engine nạp skill qua tool này đều đi ngang đây. Chỉ đếm ở
         # đường THÀNH CÔNG - nhánh trên đã lọc slug sai/skill tắt nên không đếm gõ nhầm.
-        # Dùng f.parent.name (slug canonical trên đĩa) chứ không dùng `name` thô từ engine.
+        # Count the slug verified by the shared reader, not the raw name from the engine.
         # bump có I/O đĩa + fsync trong lock (chặn) → đẩy qua thread để không chẹn event
         # loop (WebSocket/telegram poller/loop scheduler đều chạy chung loop này).
         # bump tự nuốt lỗi → sidecar hỏng không bao giờ làm gãy việc nạp skill.
-        await asyncio.to_thread(skill_usage.bump, vault_root, f.parent.name)
+        await asyncio.to_thread(skill_usage.bump, vault_root, asset.slug)
+        try:  # 0.341.0: automatic learning remembers which skill this chat turn used
+            import auto_learning
+            _turn = turn_context.current() or {}
+            if _turn.get("session_id"):
+                await asyncio.to_thread(auto_learning.note_skill_use_hook, vault_root, _turn["session_id"], asset.slug)
+        except Exception:  # noqa: BLE001 - learning never breaks loading a skill
+            pass
+        try:
+            if scope is not None and current(vault_root) is not scope:
+                raise ScopeUnavailable('task_skill_scope_changed')
+        except (ScopeUnavailable, AssetUnavailable, OSError, sqlite3.Error):
+            return 'ERROR: task_skill_scope_unavailable'
         return text
 
     add("javis_read_file", "Đọc 1 file trong vault (Second Brain). path tương đối so với gốc vault; "
-        "nhận CẢ đường dẫn tuyệt đối của file người dùng vừa đính kèm/dán vào khung chat. File dài: "
+        "nhận CẢ đường dẫn tuyệt đối của file người dùng vừa đính kèm/dán vào khung chat. PDF, Word, Excel "
+        "(.xlsx: mọi sheet, giá trị công thức, ô lỗi) được bóc thành chữ. File dài: "
         "đọc từng đoạn bằng offset/limit (có số dòng).",
         {"path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}},
         ["path"], _read)
@@ -1278,7 +1376,10 @@ def _lazy_tools_and_route(visible_tools, visible_route, pool, full_route, top_k,
         if name not in full_route:
             return (f"ERROR: không có tool '{name}'. Dùng {_LAZY_SEARCH} để lấy đúng tên "
                     "(phải khớp y hệt kết quả tìm).")
-        return await mcp_client.call_route(full_route, name, targs)
+        result = await mcp_client.call_route(full_route, name, targs)
+        # Projection follows the same permission/audit/plugin route and executes only once.
+        from tool_result_view import project_result
+        return project_result(result, (args or {}).get("result_view"), tool_name=name)
 
     tools = list(visible_tools)
     route = dict(visible_route)
@@ -1298,7 +1399,13 @@ def _lazy_tools_and_route(visible_tools, visible_route, pool, full_route, top_k,
                                   "suất áp y như gọi trực tiếp."),
                   "schema": {"type": "object", "properties": {
                       "name": {"type": "string", "description": f"Tên tool lấy từ {_LAZY_SEARCH}"},
-                      "args": {"type": "object", "description": "Tham số tool (object)"}},
+                      "args": {"type": "object", "description": "Tham số tool (object)"},
+                      "result_view": {"type": "object", "description": "Optional explicit JSON view after execution. Keeps errors and source IDs. Does not cache or replay tools.",
+                          "properties": {"pointer": {"type": "string", "description": "JSON pointer, e.g. /data/tasks"},
+                              "fields": {"type": "array", "items": {"type": "string"}},
+                              "offset": {"type": "integer", "minimum": 0},
+                              "limit": {"type": "integer", "minimum": 1, "maximum": 200}},
+                          "additionalProperties": False}},
                       "required": ["name"]}})
     route[_LAZY_SEARCH] = {"call": _search}
     route[_LAZY_RUN] = {"call": _run}
@@ -1385,10 +1492,35 @@ async def discover_all(mode="full", vault_root=None, include_plugins=True, inclu
     key = (mode, str(vault_root or ""), bool(include_plugins), bool(include_ambient),
            bool(force_lazy), lang, bool(staging), _ten_goc(workspace_root), _quyen_ctx, bool(for_bot),
            str(_sid_ctx or ""))
-    ent = _cache.get(key)
+    from improvement_task_skill_scope import current, ScopeUnavailable
+    task_scope = current(vault_root or '')
+    cache = task_scope._hub_cache if task_scope is not None else _cache
+    epoch = _cache_epoch
+    ent = cache.get(key)
     mt = _store_mtime()
     if (not force_refresh and ent and time.time() - ent["ts"] < ent.get("ttl", _CACHE_TTL)
-            and ent["mtime"] == mt):
+            and ent["mtime"] == mt and ent.get('epoch') == epoch):
+        if task_scope is not None:
+            task_scope.manifests(lang)  # fresh enabled/source checks on a private cache hit
+        return ent["tools"], ent["route"]
+    if (not force_refresh and ent and task_scope is None and ent["mtime"] == mt and ent.get("epoch") == epoch
+            and ent.get("ttl", _CACHE_TTL) == _CACHE_TTL and time.time() - ent["ts"] < _CACHE_STALE_MAX):
+        if key not in _refreshing:
+            _refreshing.add(key)
+
+            async def _refresh():
+                try:
+                    await discover_all(mode, vault_root, include_plugins, include_ambient, force_refresh=True,
+                                       force_lazy=force_lazy, staging=staging, workspace_root=workspace_root,
+                                       coding_ctx_cua_phien=coding_ctx_cua_phien, for_bot=for_bot)
+                except Exception as e:  # noqa: BLE001 - the next caller simply dials again
+                    print(f"[hub] background refresh failed: {type(e).__name__}: {e}", file=sys.stderr)
+                finally:
+                    _refreshing.discard(key)
+            try:
+                asyncio.get_running_loop().create_task(_refresh())
+            except RuntimeError:
+                _refreshing.discard(key)
         return ent["tools"], ent["route"]
 
     # Phần đồng bộ của lượt dò (giải mã kho kết nối, đọc mọi SKILL.md, nạp plugin) chạy ở
@@ -1439,7 +1571,7 @@ async def discover_all(mode="full", vault_root=None, include_plugins=True, inclu
 
     b_tools, b_route = await asyncio.to_thread(
         _builtin_tools, mode, vault_root, include_ambient, hidden, lang, staging,
-        bo_qua, workspace_root=workspace_root, coding_ctx_cua_phien=coding_ctx_cua_phien)
+        bo_qua, workspace_root=workspace_root, coding_ctx_cua_phien=coding_ctx_cua_phien, for_bot=for_bot)
     tools_spec += b_tools
     route.update(b_route)
 
@@ -1480,30 +1612,73 @@ async def discover_all(mode="full", vault_root=None, include_plugins=True, inclu
     # Đặt SAU builtin+plugin để chúng luôn hiện; cache lưu bản ĐÃ biến đổi (route lazy vẫn dispatch
     # được vì _run đóng gói route đầy đủ). Đổi setting → làm mới theo TTL cache (60s) hoặc invalidate.
     tools_spec, route = _apply_lazy(tools_spec, route, include_ambient, hidden, force=force_lazy)
-    _cache[key] = {"tools": tools_spec, "route": route, "ts": time.time(), "mtime": mt,
+    if task_scope is not None:
+        if current(vault_root) is not task_scope or _cache_epoch != epoch:
+            raise ScopeUnavailable('task_skill_discovery_changed')
+        task_scope.manifests(lang)
+    elif _cache_epoch != epoch:
+        # invalidate_cache() ran while this dial was out (0.382.0: a background refresh makes that likelier): the
+        # list may predate the change, so hand it to this caller only and do not store it.
+        return tools_spec, route
+    cache[key] = {"tools": tools_spec, "route": route, "ts": time.time(), "mtime": mt, 'epoch': epoch,
                    "ttl": _CACHE_TTL_THIEU if bo_qua else _CACHE_TTL,
                    "inventory_tools": inventory_tools, "inventory_route": inventory_route}
     return tools_spec, route
 
 
 def registry_inventory(mode="full", vault_root=None, include_plugins=True, include_ambient=False,
-                       force_lazy=False, staging=False):
+                       force_lazy=False, staging=False, workspace_root=None, coding_ctx_cua_phien=None):
     """Trả snapshot pre-lazy đã cache; không discover I/O và không lộ ra model."""
     key = ((mode or "full").strip().lower(), str(vault_root or ""),
            bool(include_plugins), bool(include_ambient), bool(force_lazy), bool(staging))
-    ent = _cache.get(key) or {}
+    from improvement_task_skill_scope import current
+    task_scope = current(vault_root or '')
+    if task_scope is not None:
+        try:
+            import localefmt
+            lang = localefmt.ngon_ngu_tra_loi()
+        except Exception:
+            lang = ''
+        task_scope.manifests(lang)
+        key = ((mode or 'full').strip().lower(), str(vault_root or ''), bool(include_plugins),
+            bool(include_ambient), bool(force_lazy), lang, bool(staging), _ten_goc(workspace_root),
+            getattr(coding_ctx_cua_phien, 'permission_mode', '') or '', False,
+            str((getattr(coding_ctx_cua_phien, 'session_id', '') if workspace_root else '') or ''))
+        ent = task_scope._hub_cache.get(key) or {}
+        if ent.get('epoch') != _cache_epoch:
+            ent = {}
+    else:
+        ent = _cache.get(key) or {}
     return list(ent.get("inventory_tools") or ent.get("tools") or []), dict(
         ent.get("inventory_route") or ent.get("route") or {}
     )
 
 
+def bo_cache_phien(sid: str) -> int:
+    """Bỏ khỏi cache các bộ tool dựng cho MỘT phiên (khoá kết thúc bằng mã phiên). Việc nền chạy bằng
+    engine API có terminal (05/11/2026) mỗi lượt một mã phiên, nên không dọn thì một loop 5 phút một
+    lần để lại vài trăm bộ tool mỗi ngày trong RAM. Trả số mục đã bỏ."""
+    sid = str(sid or "")
+    if not sid:
+        return 0
+    bo = [k for k in list(_cache) if isinstance(k, tuple) and k and k[-1] == sid]
+    for k in bo:
+        _cache.pop(k, None)
+    return len(bo)
+
+
 def invalidate_cache():
     """Gọi sau khi thêm/sửa/xoá connection - làm mới tool list + đóng session cũ."""
+    global _cache_epoch
+    _cache_epoch += 1
     _cache.clear()
     _ambient_cache["ts"] = 0.0   # ép nạp lại danh sách connector tài khoản ở lần discover kế
     try:
         for c in mcp_store.list_connections():
-            mcp_client.pool.invalidate(c["id"])
+            # A session still in its first package download is closed as soon as its handshake
+            # is over, not now: killing it mid-install leaves a half-installed npx folder that npx
+            # reuses forever. The new credentials or the disabled state apply right after.
+            mcp_client.pool.invalidate(c["id"], defer_if_starting=True)
     except Exception:
         pass
 
@@ -1690,7 +1865,7 @@ def _chan_doan_thieu_brain(header_hong):
 
 
 async def _handle_one(msg, mode, include_plugins=True, include_ambient=False, vault_root=None,
-                      vault_nguon="", vault_header_hong="", for_bot=False):
+                      vault_nguon="", vault_header_hong="", for_bot=False, gate=None):
     mid = msg.get("id")
     method = msg.get("method") or ""
     params = msg.get("params") or {}
@@ -1717,14 +1892,27 @@ async def _handle_one(msg, mode, include_plugins=True, include_ambient=False, va
         tools, _ = await discover_all(mode, vault_root=vault_root, include_plugins=include_plugins,
                                       include_ambient=include_ambient,
                                       for_bot=for_bot)   # Claude/Codex có tool file native → không builtin file
+        if gate is not None:
+            # Javis Gate (0.440.0): bốn tool chat CHỈ có ở cửa cho AI bên ngoài (chat_bridge.py).
+            import chat_bridge
+            tools = chat_bridge.tool_specs(mode) + list(tools)
         return {"jsonrpc": "2.0", "id": mid, "result": {"tools": [
             {"name": t["fn"], "description": (t.get("description") or t["fn"]),
              "inputSchema": t.get("schema") or {"type": "object", "properties": {}}}
             for t in tools]}}
     if method == "tools/call":
+        name = params.get("name") or ""
+        if gate is not None:
+            import chat_bridge
+            if name in chat_bridge.TOOLS:
+                result = await chat_bridge.goi_tool(name, params.get("arguments") or {}, mode,
+                                                    (gate or {}).get("source") or "")
+                return {"jsonrpc": "2.0", "id": mid, "result": {
+                    "content": [{"type": "text", "text": result}],
+                    "isError": result.startswith("ERROR:"),
+                }}
         _, route = await discover_all(mode, vault_root=vault_root, include_plugins=include_plugins,
                                       include_ambient=include_ambient, for_bot=for_bot)
-        name = params.get("name") or ""
         result = str(await mcp_client.call_route(route, name, params.get("arguments") or {}))
         ghi_chu = _ghi_chu_brain(vault_nguon, vault_root, vault_header_hong)
         if ghi_chu:
@@ -1766,10 +1954,14 @@ async def handle_http(request):
     # ALWAYS bind, even to None: this request must never inherit a turn from whatever context
     # the server happens to run it in.
     tok = turn_context.bind(turn_context.resolve_key(request.headers.get(turn_context.HEADER.lower())))
+    # CLI engines also load skills natively from `.claude/skills`; an improvement overlay served only
+    # through this tool would split one turn across two versions, so these requests see canonical skills.
+    import improvement_activation
     try:
-        return await tra_loi_jsonrpc(request, mode, include_plugins=include_plugins,
-                                     include_ambient=include_ambient,
-                                     raw_vault=request.headers.get("x-javis-vault"), for_bot=for_bot)
+        with improvement_activation.cli_transport():
+            return await tra_loi_jsonrpc(request, mode, include_plugins=include_plugins,
+                                         include_ambient=include_ambient,
+                                         raw_vault=request.headers.get("x-javis-vault"), for_bot=for_bot)
     finally:
         turn_context.reset(tok)
 
@@ -1787,13 +1979,17 @@ async def _handle_one_traced(msg, *args, **kwargs):
 
 
 async def tra_loi_jsonrpc(request, mode, include_plugins=True, include_ambient=False,
-                          raw_vault=None, for_bot=False):
+                          raw_vault=None, for_bot=False, gate=None):
     """Đọc thân JSON-RPC của `request`, chạy qua hub, trả Response. KHÔNG xác thực gì cả.
 
     Tách khỏi `handle_http` để một cửa khác (ví dụ plugin tự lo OAuth qua `register_http`) đi
     ĐÚNG đường này - cùng danh sách tool, cùng mức quyền ép ở lớp cứng, cùng chú thích brain -
     và chỉ khác lớp xác thực phía trước. Hai bản chép của cùng một vòng xử lý là hai chỗ để
     lệch nhau.
+
+    `gate` (0.440.0): cửa Javis Gate truyền `{"source": "<tên AI>"}` để có thêm bốn tool chat của
+    `chat_bridge` (tìm, đọc, gửi vào hội thoại, đọc kết quả). None (mặc định) thì không có, nên
+    Claude Code, Codex và mọi engine của chính Javis không bao giờ thấy chúng.
     """
     vault_root, vault_nguon, vault_header_hong = resolve_vault(raw_vault)
     # "read_docs" opens documents of ONE brain, the bot's, named by the X-Javis-Vault header Javis
@@ -1809,13 +2005,13 @@ async def tra_loi_jsonrpc(request, mode, include_plugins=True, include_ambient=F
         if isinstance(body, list):
             out = [r for r in [await _handle_one_traced(m, mode, include_plugins, include_ambient,
                                                         vault_root, vault_nguon, vault_header_hong,
-                                                        for_bot=for_bot)
+                                                        for_bot=for_bot, gate=gate)
                                for m in body] if r is not None]
             if not out:
                 return Response(status_code=202)
             return JSONResponse(out)
         res = await _handle_one_traced(body, mode, include_plugins, include_ambient, vault_root,
-                                       vault_nguon, vault_header_hong, for_bot=for_bot)
+                                       vault_nguon, vault_header_hong, for_bot=for_bot, gate=gate)
         if res is None:
             return Response(status_code=202)
         return JSONResponse(res)

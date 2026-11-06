@@ -33,9 +33,9 @@ import re
 import sys
 import tempfile
 
-os.environ.setdefault("JAVIS_STATE_DIR", tempfile.mkdtemp(prefix="javis-bgstatus-test-"))
-
 from _paths import ROOT, SERVER, DASHBOARD, SYSTEM  # noqa: E402,F401
+
+os.environ.setdefault("JAVIS_STATE_DIR", tempfile.mkdtemp(prefix="javis-bgstatus-test-"))
 
 import background_status as bg  # noqa: E402
 import channel_context  # noqa: E402
@@ -160,7 +160,7 @@ check("mục đứng im được đánh dấu sẵn để dải khỏi đoán l�
 
 note = bg.promise_note("off")
 check("dòng đính chính nói rõ KHÔNG có việc nền nào", "KHÔNG đặt việc nền nào" in note)
-check("dòng đính chính nêu luôn chuyện điều phối tắt", "trang Việc" in note)
+check("dòng đính chính nêu luôn chuyện điều phối tắt", "trang Nhiệm vụ" in note)   # the Tasks page since 0.422.0
 check("dòng đính chính không dùng em dash (luật CLAUDE.md)", "\u2014" not in note)
 check("promise_note khi điều phối auto thì không đổ lỗi cho điều phối",
       "trang Việc" not in bg.promise_note("auto"))

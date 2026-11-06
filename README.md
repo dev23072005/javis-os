@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="dashboard/logo.svg" width="88" alt="Javis OS logo">
+<a href="https://javisos.com"><img src="docs/assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI. Open source, self-hosted, javisos.com"></a>
 
 # Javis OS
 
-### Your self-hosted AI agent with a swappable brain, and a Second Brain that gets smarter every day.
+### Your AI workforce. Never miss the best AI.
 
-Run it on your laptop or a small VPS. Talk to it by voice. Plug in Claude, ChatGPT, Grok, Gemini or any of 14 providers, keep every tool when you switch, and let it work in the background while you sleep.
+Javis OS turns **Claude, ChatGPT, Gemini, Grok** and the models you choose into one 24/7 workforce on your own machine or server. Each coworker has a role, shares the same memory and tools, and keeps working in the background. When a better model ships, switch and keep everything they learned.
+
+**🌐 Website: [javisos.com](https://javisos.com)** · Open source · Self-hosted · 14 AI providers
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
@@ -35,7 +37,7 @@ Run it on your laptop or a small VPS. Talk to it by voice. Plug in Claude, ChatG
 
 🇬🇧 **English** · [🇻🇳 Tiếng Việt](docs/i18n/vi/README.md) · [🇨🇳 简体中文](docs/i18n/zh/README.md) · [🇪🇸 Español](docs/i18n/es/README.md) · [🇯🇵 日本語](docs/i18n/ja/README.md) · [🇮🇳 हिन्दी](docs/i18n/hi/README.md) · [🇧🇷 Português](docs/i18n/pt-BR/README.md) · [🇰🇷 한국어](docs/i18n/ko/README.md) · [🇷🇺 Русский](docs/i18n/ru/README.md) · [🇩🇪 Deutsch](docs/i18n/de/README.md) · [🇫🇷 Français](docs/i18n/fr/README.md) · [🇮🇩 Bahasa Indonesia](docs/i18n/id/README.md) · [🌍 Help translate](CONTRIBUTING.md#translations)
 
-[Quick start](#-quick-start) · [Why Javis](#-why-javis) · [Brains](#-14-brains-one-toolkit) · [Features](#-features) · [Install](#-installation) · [Docs](docs/en/README.md) · [Support](#-support-javis-os)
+[Website](https://javisos.com) · [Quick start](#-quick-start) · [Why Javis](#-why-javis) · [Brains](#-14-brains-one-toolkit) · [Features](#-features) · [Install](#-installation) · [Docs](docs/en/README.md) · [Support](#-support-javis-os)
 
 <br>
 
@@ -146,7 +148,7 @@ Pick the brain on the **Models** page and change it whenever you like. Javis sup
 Every brain can call your connected MCP servers, read and write the brain, run skills, queue Kanban work, and create agents, workflows, loops and reminders. The CLI engines additionally run **shell commands**, **fetch and search the web**, and **spawn parallel sub-agents**.
 
 > [!WARNING]
-> **Read this before letting a subscription run background work.** Anthropic scopes Claude Pro/Max to **ordinary personal use** of Claude Code. Continuous background execution (loops, reminders, Kanban jobs, chatbots), running on a VPS, or several people sharing one account all fall outside that scope, and accounts **have been suspended** over it. Javis never reads your login token: it runs the real `claude` binary, but that does not make round-the-clock background use legitimate. To be safe, set Claude Code to run on an **API key** on the Models page, or point the **background-work model** at another provider. The same caution applies to the xAI plan. See `server/claude_auth.py`.
+> **A note before letting a subscription run background work.** Anthropic scopes Claude Pro/Ultra to **ordinary personal use** of Claude Code. Continuous background execution (loops, reminders, Kanban jobs, chatbots), running on a VPS, or several people sharing one account fall outside that scope, so there is a risk of the account **being locked**, although Javis has no reported case so far. If it happens to you, please tell the developer through [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose). Javis never reads your login token: it runs the real `claude` binary, but that does not make round-the-clock background use legitimate. To be safe, set Claude Code to run on an **API key** on the Models page, or point the **background-work model** at another provider. The same caution applies to the xAI plan. See `server/claude_auth.py`.
 
 ---
 
@@ -178,8 +180,10 @@ Every brain can call your connected MCP servers, read and write the brain, run s
 ### ⚙️ Work while you sleep
 - **Tasks (Kanban)**: hand over a goal in plain words. The AI writes the spec, picks a worker, runs it in the background and only calls you on exceptions.
 - **Loops and reminders**: background jobs on an interval, a clock time or a cron expression, each checking its own work.
+- **Coworkers** (the Partners page): give each AI coworker a role, its own model, prompt and skills, and switch on **Auto** so it keeps working without you.
+- **Teams**: put several coworkers in one team chat. A leader hands out the work, members answer each other, and you can share a whole team as one file.
 - **Agents and workflows**: specialist assistants with their own memory, chained into multi-step workflows with verification.
-- **Chatbots**: put an agent in front of your customers on its own Telegram, Slack, WhatsApp, Lark or Zalo bot, with a shared inbox you can take over.
+- **Multi-channel chatbots**: put a coworker in front of your customers on WhatsApp, Messenger, Instagram, Telegram, Slack, Lark, Threads, Zalo and Zalo OA, with one shared inbox you can take over.
 
 ### 🔌 Connect anything
 - **MCP connection store** with several accounts per service and three permission levels that Javis **hard-enforces**.
@@ -241,6 +245,8 @@ flowchart LR
 > [!IMPORTANT]
 > Javis runs an AI brain with **full rights** on the machine. When it runs publicly (Docker, VPS, Hostinger), Javis **forces login by itself**: opening the app shows a create-account or sign-in screen, and nobody can drive it without a password.
 
+> 💻 **On your own Windows or Mac computer?** Download the installer and open it like any app: [JavisOS-Setup.exe](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-Setup.exe) (Windows 10/11) or [JavisOS-macOS.dmg](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-macOS.dmg) (macOS 11+). It checks what is missing (Git, Python, Node, AI brains), installs it, and leaves a JAVIS OS icon to click. Steps: [QUICKSTART.en.md](QUICKSTART.en.md).
+
 <details open>
 <summary><b>Option 1: Hostinger Docker Manager (domain + HTTPS, one click)</b></summary>
 
@@ -258,7 +264,7 @@ Set `DOMAIN_NAME` so Hostinger's Traefik issues HTTPS:
 - **Free link** (no domain purchase): `DOMAIN_NAME=javis.<vps-hostname>.hstgr.cloud` (hostname under hPanel → VPS, e.g. `javis.srv1562015.hstgr.cloud`).
 - **Your own domain:** `DOMAIN_NAME=example.com` and point an A record at the VPS IP.
 
-Wait 1-3 minutes for the certificate, then open `https://<DOMAIN_NAME>`.
+Wait 1-3 minutes for the certificate, then open `https://<DOMAIN_NAME>`. No Traefik on the VPS (a plain Ubuntu 26 image)? Use the same link: the bundled `javis-gateway` (Caddy) issues the certificate itself when ports 80/443 are free.
 
 **Three one-time steps:**
 1. **Make the GHCR image Public:** GitHub → repo → **Packages** → `javis-os` → *Package settings* → Visibility = **Public**.
@@ -299,7 +305,7 @@ chmod +x install.sh && ./install.sh
 
 The script installs Python, Node and the CLI brains, creates a venv, registers a service that starts at boot, and prints the address.
 
-🍎 **macOS, open it like an app:** double-click `JAVIS OS.app` (or `Start JAVIS OS.command`). Start at login: `./bin/javis-autostart.sh install`. Details: [bin/README.md](bin/README.md).
+🍎 **macOS, open it like an app:** double-click `JAVIS OS.app` (or `Start JAVIS OS.command`). Since 0.306.0 `./install.sh` makes Javis start at login and open the dashboard (turn off: `./bin/javis-autostart.sh uninstall`). Details: [bin/README.md](bin/README.md).
 
 </details>
 
@@ -320,7 +326,7 @@ Stop:                                  stop-javis.bat
 Dashboard:                             http://localhost:7777
 ```
 
-🪟 **Open it like an app:** after the first run, double-click **`JAVIS OS.bat`**. The server starts in the background and the dashboard opens in **its own window** with its own taskbar entry. Start at login: `javis-autostart.bat install` (remove: `uninstall`).
+🪟 **Open it like an app:** after the first run, double-click **`JAVIS OS.bat`**. The server starts in the background and the dashboard opens in **its own window** with its own taskbar entry. Since 0.306.0 the installer makes Javis start at login and open the dashboard (turn off: `javis-autostart.bat uninstall` or the button in Settings).
 
 </details>
 
@@ -350,13 +356,12 @@ Open Javis and the setup wizard walks you through it, in your browser's language
 
 ## 📖 Using Javis
 
-The left rail groups the pages into **6 groups**. Every page has a guide in [docs/en/](docs/en/README.md).
+The left rail groups the pages into **5 groups**. Every page has a guide in [docs/en/](docs/en/README.md).
 
 | Group | Pages | Guides |
 |---|---|---|
 | **Brain** | Graph, Chat, Files, Self-learning | [Chat and voice](docs/en/02-chat-and-voice.md) · [Knowledge graph](docs/en/03-knowledge-graph.md) · [Sessions](docs/en/04-sessions.md) · [File manager](docs/en/05-file-manager.md) · [Self-learning](docs/en/22-self-learning.md) |
-| **Code** | Terminal, Coding | [Code terminal](docs/en/27-code-terminal.md) |
-| **Capabilities** | Partners (agents and workflows), Chatbot, Skills, Plugins | [Agents and workflows](docs/en/07-agents-and-workflows.md) · [Chatbots](docs/en/25-chatbots.md) · [Customer conversations](docs/en/28-customer-conversations.md) · [Skills](docs/en/06-skills.md) · [Plugins](docs/en/20-plugins.md) |
+| **Capabilities** | Partners (agents and workflows), Chatbot, Skills, Plugins, Terminal | [Agents and workflows](docs/en/07-agents-and-workflows.md) · [Chatbots](docs/en/25-chatbots.md) · [Customer conversations](docs/en/28-customer-conversations.md) · [Skills](docs/en/06-skills.md) · [Plugins](docs/en/20-plugins.md) · [Terminal](docs/en/27-code-terminal.md) |
 | **Work** | Tasks, Scheduled | [Tasks (Kanban)](docs/en/21-kanban-work.md) · [Recurring jobs and reminders](docs/en/08-recurring-jobs.md) |
 | **Connections** | Connections, Javis Store, Channels, Models | [Connections and business data](docs/en/09-connections-and-business-data.md) · [Telegram](docs/en/11-telegram.md) · [Zalo](docs/en/12-zalo-agent-mcp.md) · [Models and engines](docs/en/10-models-and-engines.md) |
 | **System** | Settings, Share links, Account | [Getting started](docs/en/01-getting-started.md) · [Security and accounts](docs/en/14-security-and-accounts.md) · [Usage and cost](docs/en/23-usage-and-cost.md) · [Javis CLI](docs/en/24-cli.md) |
@@ -504,5 +509,6 @@ Can't donate? Using Javis, sending feedback or opening a pull request counts as 
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 Made with ☕ in Vietnam by <b><a href="https://minhquy.vn">Minh Quý</a></b>
 </div>

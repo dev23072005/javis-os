@@ -123,6 +123,9 @@ _DEFAULT = {
         #       chỉ định cho sản phẩm bên thứ ba (xem claude_auth.CANH_BAO_SUBSCRIPTION).
         # Đổi ở trang Models. Cả hai đều giữ NGUYÊN năng lực: Bash, WebFetch, MCP, nối phiên cũ.
         "claude_auth": "subscription",
+        # Daily `claude update` (claude_update.py). The switch sits on the Claude Code card of the
+        # Models page; env JAVIS_CLAUDE_AUTO_UPDATE=0 still forces it off over this value.
+        "claude_auto_update": True,
         "openrouter_key": "",
         "anthropic_api_key": "",               # provider Anthropic API (P2)
         "openai_api_key": "",                  # provider OpenAI (ChatGPT API)
@@ -230,6 +233,9 @@ _DEFAULT = {
     # Messenger (0.134.0): customer bots only, credentials live in the channel-account store.
     # This holds just the handshake string Meta echoes when the webhook is set up (generated).
     "messenger": {"verify_token": ""},
+    # Zalo OA (0.412.0): customer bots only, credentials live in the channel-account store. This
+    # holds the domain verification codes Zalo gives (served as /zalo_verifier<code>.html).
+    "zalo_oa": {"site_codes": []},
     "discord": {"enabled": False, "bot_token": "", "allow": ""},
     "lark": {"enabled": False, "app_id": "", "app_secret": "", "domain": "lark", "allow": ""},
     # Backup brain lên GitHub (repo RIÊNG TƯ). token = GitHub PAT (fine-grained, quyền Contents).
@@ -525,6 +531,9 @@ _SECRET_PATHS = (
     "model.openrouter_key", "model.anthropic_api_key", "model.openai_api_key", "model.gemini_api_key",
     "model.groq_api_key", "model.deepseek_api_key", "model.ollama_key", "model.ollama_local_key", "model.openai_compat_key",
     "model.anthropic_compat_key",
+    # 0.350.0: keys of every account in a provider card (model_routing). Account ids are generated,
+    # so the whole dict is secret.
+    "model.account_keys.*",
     "model.openai_oauth.access_token", "model.openai_oauth.refresh_token", "model.openai_oauth.id_token",
     # Gemini CLI (đăng nhập Google ngay trên dashboard). Refresh token ở đây mở được cả gói
     # Code Assist của tài khoản Google, nên nó ngang hàng mọi secret khác trong danh sách.
@@ -536,6 +545,8 @@ _SECRET_PATHS = (
     "auth.totp.secret",
     # Cloudflare Tunnel token (remote_tunnel.py): whoever holds it can serve any site on the owner's tunnel hostname.
     "remote_tunnel.token",
+    # GitHub inside chat (0.362.0, github_repos.py): pushes code and merges PRs on the owner's repos.
+    "github.token", "github.refresh_token",
 )
 
 
@@ -1130,8 +1141,25 @@ def apply_tool_env(cfg=None):
         print(f"[config] apply_tool_env lỗi: {e}", file=__import__('sys').stderr)
     # Windows: helper Python con (vd video-use) in Unicode ra console cp1252 sẽ crash
     # (UnicodeEncodeError) -> ép UTF-8 cho mọi tiến trình con. Tôn trọng giá trị user tự đặt.
-    if os.name == "nt" and not os.environ.get("PYTHONUTF8"):
-        os.environ["PYTHONUTF8"] = "1"
+    child_utf8_env()
+
+
+def child_utf8_env(env=None, os_name=None) -> dict:
+    """Windows: every child process Javis starts (engine CLIs, and through them the shell commands and Python scripts a
+    Team member or a chat turn runs) prints UTF-8. Without it a Python child writing Vietnamese to a pipe uses the ANSI
+    code page (cp1252) and dies with UnicodeEncodeError (customer report 0.270, codes 5 and 22). PYTHONUTF8 turns on UTF-8
+    mode (3.7+); PYTHONIOENCODING also covers older or embedded interpreters. A value the user set is kept. Applied when
+    this module is imported, so it holds before any engine starts, and again from apply_tool_env. No-op elsewhere."""
+    env = os.environ if env is None else env
+    if (os_name or os.name) == "nt":
+        if not env.get("PYTHONUTF8"):
+            env["PYTHONUTF8"] = "1"
+        if not env.get("PYTHONIOENCODING"):
+            env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
+child_utf8_env()
 
 
 # ---- Mật khẩu ----
@@ -1507,7 +1535,10 @@ def verify_api_token(raw: str, path: str = ""):
     for x in _load_tokens():
         if secrets.compare_digest(str(x.get("hash") or ""), h):
             if str(x.get("scope")) == "chat" and path:
-                if not any(str(path).startswith(p) for p in TOKEN_SCOPE_CHAT):
+                # 2026-11-05 audit: a bare startswith let "/chat" match "/chatbots*" (create, edit, delete bots,
+                # read their logs). A listed path matches itself and what lies under it, nothing that merely
+                # shares its first letters.
+                if not any(str(path) == p or str(path).startswith(p + "/") for p in TOKEN_SCOPE_CHAT):
                     return None
             x["last_used_at"] = _time.time()
             _save_tokens(_load_tokens_touch(x))

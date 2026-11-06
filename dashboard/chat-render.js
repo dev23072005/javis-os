@@ -412,10 +412,34 @@
   function phienBanAnh(u) {
     return (_anhVForRender && /^\/files\/raw\?/.test(u)) ? u + "&v=" + encodeURIComponent(_anhVForRender) : u;
   }
-  function imgHtml(u, alt, rawpath, duPhong) {
+  // The part after | in an Obsidian-style ![[image|..]]: "300" / "300x200" is the image SIZE,
+  // text is alt text. Returns null when empty.
+  function imageSize(s) {
+    s = String(s == null ? "" : s).trim();
+    if (!s) return null;
+    var m = /^(\d{1,5})(?:x(\d{1,5}))?$/i.exec(s);
+    if (m) return { w: +m[1], h: m[2] ? +m[2] : 0 };
+    return { alias: s };
+  }
+  // attrs: extra attributes for the <img> tag (wiki, size, alias). data-vault-path sits ON the
+  // <img> so the editor's turndown rule "wikiimg" recognizes it and saves back exactly ![[..]] /
+  // ![](..); otherwise the image saves as ![x](/files/raw?brain=...) with the brain name baked in.
+  function imgHtml(u, alt, rawpath, duPhong, attrs) {
     u = phienBanAnh(u);
+    attrs = attrs || {};
     var con = (duPhong || []).map(phienBanAnh).filter(function (x) { return x && x !== u; });
-    var img = '<img class="chat-img" src="' + esc(u) + '" alt="' + esc(alt || "") + '"' +
+    var isVault = !!(rawpath && isVaultRel(rawpath));
+    var extra = "";
+    if (isVault) extra += ' data-vault-path="' + esc(String(rawpath).replace(/^\.?\//, "")) + '"';
+    if (attrs.wiki) extra += ' data-img-wiki="1"';
+    if (attrs.size && attrs.size.w) {
+      var sizeAttr = attrs.size.w + (attrs.size.h ? "x" + attrs.size.h : "");
+      extra += ' data-img-size="' + esc(sizeAttr) + '" style="width:' + attrs.size.w + "px" +
+        (attrs.size.h ? ";height:" + attrs.size.h + "px" : "") + '"';
+    } else if (attrs.size && attrs.size.alias) {
+      extra += ' data-img-alias="' + esc(attrs.size.alias) + '"';
+    }
+    var img = '<img class="chat-img" src="' + esc(u) + '" alt="' + esc(alt || "") + '"' + extra +
       (con.length ? ' data-jv-thu="' + esc(con.join("|")) + '"' : "") +
       ' loading="lazy" onerror="jvImgGone(this)">';
     // Bam vao anh = XEM PHONG TO (lightbox), khong phai tai ve. Truoc day anh trong vault duoc
@@ -621,10 +645,12 @@
       return put(code);
     });
     // 3) anh vault ![[..]] + anh markdown ![]() (giu URL qua placeholder de khong bi escape)
-    raw = raw.replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, function (_m, name) {
+    raw = raw.replace(/!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, function (_m, name, after) {
       name = name.trim();
       var uvW = ungVienAnh(name);
-      return put(imgHtml(uvW[0] || resolveSrc(name), name, name, uvW.slice(1)));
+      var size = imageSize(after);
+      return put(imgHtml(uvW[0] || resolveSrc(name), (size && size.alias) || name, name, uvW.slice(1),
+                         { wiki: true, size: size }));
     });
     // 3b) wikilink [[target]] / [[target|alias]] (anh ![[..]] da an o tren) -> link dieu huong nhu Wikipedia
     raw = raw.replace(/\[\[([^\[\]\n|]+?)(?:\|([^\[\]\n]*))?\]\]/g, function (_m, target, alias) {
@@ -645,15 +671,22 @@
       }
       return put(imgHtml(resolveSrc(src), alt, src));
     });
+    // Chu cua link co the boc dam/nghieng: AI hay viet [**Tai file**](...). Link da cat vao
+    // placeholder nen buoc dam/nghieng sau nay khong cham toi, va nguoi doc thay nguyen "**" (video
+    // iPad 05/11/2026). Chi dam va nghieng, sau khi da escape.
+    function chuLink(t) {
+      return esc(t).replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>").replace(/__([^_]+?)__/g, "<strong>$1</strong>")
+        .replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, "$1<em>$2</em>");
+    }
     // 4) link []() : URL ngoai -> tab moi; file/thu muc vault -> mo dung vi tri trong Tep tin; con lai giu cu
     raw = raw.replace(/\[([^\]]+)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, function (_m, t, href) {
       href = href.replace(/\s+(["']).*\1\s*$/, "").trim();
       var appRef = appFileRef(href);
-      if (appRef) return put('<a ' + vaultLink(appRef.path, "", appRef.brain) + ">" + esc(t) + "</a>");
+      if (appRef) return put('<a ' + vaultLink(appRef.path, "", appRef.brain) + ">" + chuLink(t) + "</a>");
       // file:// tro sang brain khac / khong suy ra duoc: van la link vault de cu bam ra khung
       // "khong thay file" (co goi y ten gan dung), thay vi mo tab moi 404 hay khong lam gi ca.
       var fu = fileUriPath(href);
-      if (fu != null) return put('<a ' + vaultLink(fu.replace(/^\/+/, "")) + ">" + esc(t) + "</a>");
+      if (fu != null) return put('<a ' + vaultLink(fu.replace(/^\/+/, "")) + ">" + chuLink(t) + "</a>");
       // Link tro toi mot cong su: "#cs=<agent|workflow>:<slug>[:<ma phien>]". Server dat link
       // nay khi mot quy trinh / tro ly chay xong tu khung Tro chuyen, de nguoi doc nhay thang
       // toi dung cuoc hoi thoai da lam viec do. KHONG phai URL ngoai, khong mo tab moi.
@@ -663,14 +696,14 @@
         // vi chuoi thay the nay dang chay giua .replace(). Giai ma duoc thi dung, khong thi
         // giu nguyen chuoi tho (slug va ma phien deu la ASCII nen van mo dung).
         try { spec = decodeURIComponent(spec); } catch (err) {}
-        return put('<a class="jv-cs" href="' + esc(href) + '" title="' + esc(href) + '" data-cs="' + esc(spec) + '">' + esc(t) + "</a>");
+        return put('<a class="jv-cs" href="' + esc(href) + '" title="' + esc(href) + '" data-cs="' + esc(spec) + '">' + chuLink(t) + "</a>");
       }
-      if (/^(https?:|mailto:)/i.test(href)) return put('<a href="' + esc(href) + '" title="' + esc(href) + '" target="_blank" rel="noopener">' + esc(t) + "</a>");
+      if (/^(https?:|mailto:)/i.test(href)) return put('<a href="' + esc(href) + '" title="' + esc(href) + '" target="_blank" rel="noopener">' + chuLink(t) + "</a>");
       // URL that thi GIU nguyen ma hoa (do la duong dan mang); chi duong dan trong vault moi go
       // ra, vi no se di thang toi ten file tren dia. Xem decodeVaultPath.
       if (isVaultRel(href)) {
         var vp = decodeVaultPath(href);
-        var lk = '<a ' + vaultLink(vp) + ">" + esc(t) + "</a>";
+        var lk = '<a ' + vaultLink(vp) + ">" + chuLink(t) + "</a>";
         // 0.202.0: a voice note or any audio file in the brain gets a player next to its link (server/voice_note.py).
         if (AUDIO_EXT_RE.test(vp.split(/[?#]/)[0])) {
           lk = '<audio class="jv-audio" controls preload="none" src="' + esc(fileUrl(vp.replace(/^\.?\//, ""))) + '"></audio> ' + lk;
@@ -678,7 +711,7 @@
         return put(lk);
       }
       var resolved = resolveSrc(href);
-      return put('<a href="' + esc(resolved) + '" title="' + esc(resolved) + '" target="_blank" rel="noopener">' + esc(t) + "</a>");
+      return put('<a href="' + esc(resolved) + '" title="' + esc(resolved) + '" target="_blank" rel="noopener">' + chuLink(t) + "</a>");
     });
     // 4b) URL tran (AI go thang, khong boc markdown) -> tu thanh link mo tab moi. Chay SAU khi link/anh/
     //     code da cat vao placeholder (sentinel) nen khong dung vao chung; loai dau cau/ngoac o duoi URL.
@@ -780,6 +813,7 @@
     if (!panel) return;
     panel.classList.remove("open");
     document.body.classList.remove("jv-artpanel-open");
+    dropZoom();
     if (elBody) elBody.innerHTML = "";   // don iframe/srcdoc
     curArt = null;
   }
@@ -793,6 +827,7 @@
   }
   function renderTab() {
     var art = curArt; if (!art || !elBody) return;
+    dropZoom();
     if (curTab === "code" || art.type === "code") {
       // SUA DUOC (chu repo bao 29/09: "mo file khong co cho edit"). Van to mau nhu cu; sua
       // xong thi doc lai bang textContent, nen cac <span> to mau bi xe le khong anh huong gi.
@@ -817,17 +852,50 @@
       return;
     }
     if (art.type === "svg") {
-      elBody.innerHTML = "";
-      elBody.appendChild(frame("",   // sandbox rong = KHONG chay script trong svg
-        '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;display:flex;' +
-        "align-items:center;justify-content:center;background:#fff}svg{max-width:100%;max-height:100%}</style>" + art.code));
+      // 0.405.0: an <img> of the svg instead of a sandboxed iframe, so it zooms and pans (owner, 2026-10-29: "cannot
+      // zoom"). An <img> never runs scripts inside the svg, the same guarantee the empty sandbox gave.
+      elBody.innerHTML = '<div class="jv-ap-svg"></div>';
+      var box = elBody.firstChild;
+      var img = document.createElement("img");
+      img.alt = "";
+      img.draggable = false;
+      var nat = svgCodeSize(art.code);
+      try { img.src = URL.createObjectURL(new Blob([art.code], { type: "image/svg+xml" })); } catch (e) { return; }
+      box.appendChild(img);
+      img.onload = function () {
+        try { URL.revokeObjectURL(img.src); } catch (e) {}
+        if (curArt !== art) return;
+        if (!nat) nat = { w: img.naturalWidth || 800, h: img.naturalHeight || 600 };
+        zoomOn(box, img, nat);
+      };
       return;
     }
     if (art.type === "mermaid") {
       elBody.innerHTML = '<div class="jv-ap-mermaid">' + esc(tw("crender.mm_drawing")) + "</div>";
-      renderMermaid(art.code, elBody.querySelector(".jv-ap-mermaid"));
+      renderMermaid(art.code, elBody.querySelector(".jv-ap-mermaid"), function (host) {
+        var svg = host.querySelector("svg");
+        if (svg && curArt === art && window.JavisPanZoom) zoomOn(host, svg, window.JavisPanZoom.svgSize(svg));
+      });
       return;
     }
+  }
+  // Zoom and pan on what the viewer shows (pan-zoom.js). One at a time: a new tab or a closed panel drops the old one.
+  var curPz = null;
+  function zoomOn(box, content, nat) {
+    dropZoom();
+    if (window.JavisPanZoom) curPz = window.JavisPanZoom.attach(box, content, nat);
+  }
+  function dropZoom() { if (curPz) { try { curPz.destroy(); } catch (e) {} curPz = null; } }
+  // Natural size from the svg text (viewBox, else width/height), or null to read it off the loaded <img>.
+  function svgCodeSize(code) {
+    try {
+      var svg = new DOMParser().parseFromString(code, "image/svg+xml").documentElement;
+      var vb = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+      if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) return { w: vb[2], h: vb[3] };
+      var w = parseFloat(svg.getAttribute("width")), h = parseFloat(svg.getAttribute("height"));
+      if (w > 0 && h > 0) return { w: w, h: h };
+    } catch (e) {}
+    return null;
   }
   function onPanelClick(e) {
     // Bam vao chinh LOP PHU (ngoai hop) la dong. An toan tuyet doi o day: khung nay chi de
@@ -842,20 +910,28 @@
     else if (act === "download" && curArt) downloadArt(curArt);
   }
   function copyText(text, btn) {
-    var run = (navigator.clipboard && window.isSecureContext)
-      ? navigator.clipboard.writeText(text) : Promise.reject();
-    run.catch(function () {
-      var ta = document.createElement("textarea");
-      ta.value = text; ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); } catch (e) {}
-      ta.remove();
-    }).then(function () {
+    copyPlain(text).then(function () {
       // Nho lai innerHTML chu KHONG phai textContent: tu 0.62.1 nut Copy la mot icon SVG, ma
       // textContent cua no la chuoi rong - tra lai bang textContent thi sau mot giay nut
       // trong khong, khong con gi de bam.
       if (btn) { var o = btn.innerHTML; btn.innerHTML = ic("check", { cls: "ic-ok" }); setTimeout(function () { btn.innerHTML = o; }, 1000); }
     });
+  }
+  // Copy plain text through the shared helper (chat-acts.js, clipboard API with a textarea fallback on plain HTTP).
+  // chat-acts.js loads after this file but before any click can happen; the inline copy is for pages without it.
+  function copyPlain(text) {
+    if (typeof window !== "undefined" && window.JavisActs && window.JavisActs.copy) return window.JavisActs.copy(text);
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+    return Promise.resolve(true);
+  }
+  function flashCodeCopied(btn, label) {
+    var old = btn.textContent;
+    btn.innerHTML = ic("check", { cls: "ic-ok" }) + " " + tw("app.copied");
+    setTimeout(function () { btn.textContent = label || old; }, 1200);
   }
   function extFor(art) {
     if (art.type === "html") return "html";
@@ -892,7 +968,7 @@
     s.onerror = function () { mmState = 3; var q = mmQueue; mmQueue = []; q.forEach(function (c) { c(false); }); };
     document.head.appendChild(s);
   }
-  function renderMermaid(code, host) {
+  function renderMermaid(code, host, done) {
     if (!host) return;
     loadMermaid(function (ok) {
       if (!ok || !window.mermaid) {
@@ -902,7 +978,7 @@
       }
       var id = "jvmm" + (++mmSeq);
       try {
-        window.mermaid.render(id, code).then(function (res) { host.innerHTML = res.svg; })
+        window.mermaid.render(id, code).then(function (res) { host.innerHTML = res.svg; if (done) done(host); })
           .catch(function () { host.innerHTML = '<div class="jv-ap-note">' + esc(tw("crender.mm_bad")) + '</div><pre class="code-block">' + esc(code) + "</pre>"; });
       } catch (e) {
         host.innerHTML = '<div class="jv-ap-note">' + esc(tw("crender.mm_bad")) + '</div><pre class="code-block">' + esc(code) + "</pre>";
@@ -1035,6 +1111,7 @@
     } catch (e) { return false; }
   }
   var DUOI_ANH_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|heic)$/i;
+  var DUOI_PDF_RE = /\.pdf$/i;
   var DUOI_XEM_RE = /\.(?:png|jpe?g|gif|webp|bmp|svg|heic|pdf|mp4|mov|m4v|webm|mp3|m4a|wav|aac|txt)$/i;
   // Link nao la TAI FILE: co thuoc tinh download, hoac tro toi duong phuc vu file cua may chu
   // (cung origin). Link #open= (mo trinh sua trong app) va link ngoai http khong dinh o day.
@@ -1068,6 +1145,10 @@
   // Mo tab moi, Dong; bam nen den hoac Esc de dong; bam vao anh de doi qua lai giua "vua man"
   // va "co that" (1:1) roi keo xem chi tiet. Tren dien thoai co them pinch va keo mot ngon.
   var _lb = null, _lbUrl = "", _lbTen = "", _lbDayLichSu = false;
+  // 0.358.0 (chu repo 27/10/2026: "xem anh trong doan chat thi khong co slide de vuot trai vuot phai xem luon cac anh
+  // khac"): the lightbox is a gallery of every picture in the same chat. `_lbDs` = [{url, ten}], `_lbI` = the one shown,
+  // `_lbChuyen(buoc)` = go one picture back (-1) or on (+1), set while a lightbox is open (arrow keys use it).
+  var _lbDs = [], _lbI = 0, _lbChuyen = null;
 
   function lightboxPinchStep(state, from, to) {
     var scale = Math.max(1, Math.min(4, state.scale * to.distance / from.distance));
@@ -1075,6 +1156,20 @@
     return { scale: scale,
       x: to.x - (from.x - state.x) * ratio,
       y: to.y - (from.y - state.y) * ratio };
+  }
+
+  // Picture links that open the lightbox: a picture in any chat, and a customer's photo in the inbox (ht-media.js).
+  var LB_LINKS = "a.jv-img-link, a.ht-anh";
+  // Next index of a gallery of `n` pictures from `i` by `buoc` (-1, +1). No wrap: the first and last stay put.
+  function lightboxGalleryStep(n, i, buoc) {
+    if (!(n > 1)) return 0;
+    return Math.max(0, Math.min(n - 1, (Number(i) || 0) + (buoc < 0 ? -1 : buoc > 0 ? 1 : 0)));
+  }
+  // A finished one-finger move -> -1 (swiped right: previous), +1 (swiped left: next) or 0. Needs 50px and a mostly
+  // sideways move, so a tap or a vertical move never changes the picture.
+  function lightboxSwipe(dx, dy) {
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+    return dx < 0 ? 1 : -1;
   }
 
   function lightboxClampPan(state, size) {
@@ -1085,8 +1180,44 @@
       y: Math.max(-maxY, Math.min(maxY, state.y)) };
   }
 
+  // iPhone (0.369.0, chủ repo 28/10/2026: "ấn nút tải về trên điện thoại thì nó đang mở 1 trang mới chứ không tải được
+  // ảnh"). iOS không cho trang web tải ảnh thẳng vào máy; đường lưu ảnh của iOS là bảng chia sẻ, có nút "Lưu hình ảnh".
+  // Bảng đó chỉ mở được NGAY trong cú bấm (đợi mạng xong mới gọi là iOS từ chối), nên ảnh đang xem được tải sẵn thành
+  // File từ lúc hiện lên; bấm Tải về là mở bảng chia sẻ liền. Chưa tải xong hay máy không chia sẻ được thì như cũ: mở ảnh
+  // ở cửa sổ mới để bấm giữ, "Lưu vào Ảnh".
+  var _lbTep = null;   // {url, file} của ảnh đang xem, chỉ trên iOS
+  function _lbDuoi(mime) {
+    var m = /^image\/(png|jpe?g|gif|webp|heic|bmp)/i.exec(mime || "");
+    return m ? "." + m[1].toLowerCase().replace("jpeg", "jpg") : "";
+  }
+  function _lbTenTep(ten, mime) {
+    ten = String(ten || "").split("?")[0] || "anh";
+    return /\.[a-z0-9]{2,5}$/i.test(ten) ? ten : ten + (_lbDuoi(mime) || ".jpg");
+  }
+  function _lbChuanBiTep(url, ten) {
+    _lbTep = null;
+    if (!url || !laIOS() || typeof fetch !== "function" || typeof File !== "function" || !navigator.canShare) return;
+    try {
+      fetch(url, { credentials: "same-origin" }).then(function (r) {
+        if (!r.ok) throw new Error("http " + r.status);
+        return r.blob();
+      }).then(function (b) {
+        if (_lbUrl !== url || !b || !b.size) return;          // đã sang ảnh khác
+        var f = new File([b], _lbTenTep(ten, b.type), { type: b.type || "image/jpeg" });
+        if (navigator.canShare({ files: [f] })) _lbTep = { url: url, file: f };
+      }).catch(function () {});
+    } catch (e) {}
+  }
   function _lbTaiVe() {
     if (!_lbUrl) return;
+    if (laIOS() && _lbTep && _lbTep.url === _lbUrl && navigator.share) {
+      var tep = _lbTep.file, xem = _lbUrl;
+      navigator.share({ files: [tep] }).catch(function (err) {
+        if (err && err.name === "AbortError") return;        // người dùng tự đóng bảng chia sẻ
+        window.open(xem, "_blank");
+      });
+      return;
+    }
     var a = document.createElement("a");
     // /files/raw?...&dl=1 la duong SERVER ep tai kem dung ten file (ke ca ten tieng Viet).
     // Anh ngoai vault khong co duong do -> dua thuoc tinh download, cung lam gi hon duoc.
@@ -1103,7 +1234,7 @@
   // dung cai vua mo.
   function _goLopPhu() {
     if (!_lb) return;
-    _lb.remove(); _lb = null; _lbUrl = ""; _lbTen = "";
+    _lb.remove(); _lb = null; _lbUrl = ""; _lbTen = ""; _lbDs = []; _lbI = 0; _lbChuyen = null; _lbTep = null;
     document.body.classList.remove("jv-lb-open");
   }
   function dongLightbox() {
@@ -1117,35 +1248,118 @@
       try { history.back(); } catch (e) {}
     }
   }
-  function moLightbox(url, ten) {
+  // One picture link of a chat as {url, ten}.
+  function lbMuc(a) {
+    var img = a.querySelector ? a.querySelector("img") : null;
+    var href = a.getAttribute("href") || (img && img.src) || "";
+    if (a.classList && a.classList.contains("ht-anh")) {
+      return { url: href, ten: window.JavisHtMedia && window.JavisHtMedia.tenAnh ? window.JavisHtMedia.tenAnh(href) : "" };
+    }
+    var vp = a.getAttribute("data-vault-path") || "";
+    // `data-img-ten` la ten do NGUOI GUI dat, dung cho anh khong nam trong vault (vd file vua
+    // dan vao khung chat, phuc vu qua /upload/raw?name=...). Suy ten tu href o day ra chu
+    // "raw" - dung ten endpoint lam ten anh, vua sai vua kho hieu.
+    var ten = a.getAttribute("data-img-ten") || "";
+    if (!ten) ten = vp ? vp.split("/").pop() : href.split("/").pop().split("?")[0];
+    return { url: href, ten: ten };
+  }
+  // The chat a picture belongs to: the nearest list that scrolls (main chat, Team chat, customer inbox, a bot test
+  // chat...), so the gallery holds that chat's pictures and nothing from another panel.
+  function lbVung(a) {
+    for (var el = a.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (el.matches && el.matches("[data-lb-scope], .transcript, .tm-msgs, .tm-info-imgs")) return el;
+      var oy = getComputedStyle(el).overflowY;
+      if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight) return el;
+    }
+    return document.body;
+  }
+  // Open the picture `a` with every picture of its chat, in the order they appear (same picture twice counts once).
+  function moTuLink(a) {
+    var links = Array.prototype.slice.call(lbVung(a).querySelectorAll(LB_LINKS));
+    if (links.indexOf(a) < 0) links = [a];
+    var ds = [], thay = {}, viTri = 0;
+    links.forEach(function (l) {
+      if (l.classList.contains("hong")) return;
+      var m = lbMuc(l);
+      if (!m.url) return;
+      if (l === a) viTri = thay[m.url] !== undefined ? thay[m.url] : ds.length;
+      if (thay[m.url] !== undefined) return;
+      thay[m.url] = ds.length;
+      ds.push(m);
+    });
+    var muc = ds[viTri] || lbMuc(a);
+    moLightbox(muc.url, muc.ten, ds, viTri);
+  }
+
+  // `ds` (optional): every picture of the chat as [{url, ten}], `viTri` the index of this one. Without it the lightbox
+  // shows the one picture, as before (a file opened from the vault tree).
+  function moLightbox(url, ten, ds, viTri) {
     _goLopPhu();
     _lbUrl = url; _lbTen = ten || "";
+    _lbDs = Array.isArray(ds) && ds.length ? ds : [{ url: url, ten: ten || "" }];
+    _lbI = Math.max(0, Math.min(_lbDs.length - 1, Number(viTri) || 0));
+    var nhieu = _lbDs.length > 1;
     _lb = document.createElement("div");
-    _lb.className = "jv-lb";
+    _lb.className = "jv-lb" + (nhieu ? " co-ds" : "");
     _lb.innerHTML =
       '<div class="jv-lb-bar">' +
         '<span class="jv-lb-ten"></span>' +
+        (nhieu ? '<span class="jv-lb-dem" aria-live="polite"></span>' : "") +
         '<span class="jv-lb-nut">' +
           '<button type="button" data-lb="tai" title="' + esc(tw("crender.lb_dl_title")) + '">' + ic("download") + " " + esc(tw("common.download")) + "</button>" +
           '<button type="button" data-lb="tab" title="' + esc(tw("crender.lb_tab")) + '">' + ic("external-link") + "</button>" +
           '<button type="button" data-lb="dong" title="' + esc(tw("crender.close_esc")) + '">' + ic("x") + "</button>" +
         "</span>" +
       "</div>" +
-      '<div class="jv-lb-khung"><img class="jv-lb-img" alt="" draggable="false"></div>';
-    // Ten file dat bang textContent, KHONG noi vao innerHTML: ten do nguoi dung dat, noi thang
-    // la mo duong cho HTML la lot vao trang.
-    _lb.querySelector(".jv-lb-ten").textContent = _lbTen;
+      '<div class="jv-lb-khung"><img class="jv-lb-img" alt="" draggable="false"></div>' +
+      (nhieu ? '<button type="button" class="jv-lb-di jv-lb-truoc" data-lb="truoc" aria-label="' + esc(tw("crender.lb_prev")) +
+        '" title="' + esc(tw("crender.lb_prev")) + '">' + ic("chevron-left") + "</button>" +
+        '<button type="button" class="jv-lb-di jv-lb-sau" data-lb="sau" aria-label="' + esc(tw("crender.lb_next")) +
+        '" title="' + esc(tw("crender.lb_next")) + '">' + ic("chevron-right") + "</button>" : "");
     var img = _lb.querySelector(".jv-lb-img");
     var khung = _lb.querySelector(".jv-lb-khung");
-    // An image from another site (a customer's Zalo photo on zdn.vn) is shown with no referrer, the same way the
-    // inbox thumbnail is, or the CDN refuses it (0.231.0).
-    try {
-      if (/^https?:/i.test(url) && new URL(url).origin !== location.origin) img.referrerPolicy = "no-referrer";
-    } catch (e) {}
-    img.src = url;
-    img.alt = _lbTen;
     var zoom = { scale: 1, x: 0, y: 0 };
-    var lanTruoc = null, keoTruoc = null, vuaKeoLuc = 0;
+    var lanTruoc = null, keoTruoc = null, vuaKeoLuc = 0, vuot = null;
+
+    // Show picture `i` of the gallery: name, counter, arrows, back to fit-the-screen.
+    function hienAnh(i) {
+      _lbI = i;
+      var muc = _lbDs[i] || { url: url, ten: ten };
+      _lbUrl = muc.url; _lbTen = muc.ten || "";
+      // Ten file dat bang textContent, KHONG noi vao innerHTML: ten do nguoi dung dat, noi thang
+      // la mo duong cho HTML la lot vao trang.
+      _lb.querySelector(".jv-lb-ten").textContent = _lbTen;
+      var dem = _lb.querySelector(".jv-lb-dem");
+      if (dem) dem.textContent = tw("crender.lb_count").replace("{i}", String(i + 1)).replace("{n}", String(_lbDs.length));
+      var truoc = _lb.querySelector(".jv-lb-truoc"), sau = _lb.querySelector(".jv-lb-sau");
+      if (truoc) truoc.disabled = i <= 0;
+      if (sau) sau.disabled = i >= _lbDs.length - 1;
+      zoom = { scale: 1, x: 0, y: 0 };
+      _lb.classList.remove("that", "pinch");
+      img.style.transform = "";
+      // An image from another site (a customer's Zalo photo on zdn.vn) is shown with no referrer, the same way the
+      // inbox thumbnail is, or the CDN refuses it (0.231.0).
+      img.referrerPolicy = "";
+      try {
+        if (/^https?:/i.test(_lbUrl) && new URL(_lbUrl).origin !== location.origin) img.referrerPolicy = "no-referrer";
+      } catch (e) {}
+      img.src = _lbUrl;
+      img.alt = _lbTen;
+      _lbChuanBiTep(_lbUrl, _lbTen);
+      // The next and previous pictures load now, so a swipe shows them at once.
+      [i - 1, i + 1].forEach(function (k) {
+        if (k < 0 || k >= _lbDs.length) return;
+        var pre = new Image();
+        if (/^https?:/i.test(_lbDs[k].url)) pre.referrerPolicy = "no-referrer";
+        pre.src = _lbDs[k].url;
+      });
+    }
+    function chuyen(buoc) {
+      var k = lightboxGalleryStep(_lbDs.length, _lbI, buoc);
+      if (k !== _lbI) hienAnh(k);
+    }
+    _lbChuyen = chuyen;
+    hienAnh(_lbI);
 
     function tam(touch) {
       var rect = khung.getBoundingClientRect();
@@ -1189,6 +1403,8 @@
       } else if (ev.touches.length === 1) {
         keoTruoc = tam(ev.touches[0]);
         lanTruoc = null;
+        // A one-finger swipe on a picture at screen size goes to the previous or next picture (touchend decides).
+        vuot = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
       }
     }, { passive: false });
     khung.addEventListener("touchmove", function (ev) {
@@ -1227,6 +1443,12 @@
       }
     }, { passive: false });
     function ketThucCham(ev) {
+      if (vuot && ev.type === "touchend" && !ev.touches.length && ev.changedTouches && ev.changedTouches[0] &&
+          zoom.scale <= 1 && !_lb.classList.contains("that")) {
+        var buoc = lightboxSwipe(ev.changedTouches[0].clientX - vuot.x, ev.changedTouches[0].clientY - vuot.y);
+        if (buoc) { vuaKeoLuc = Date.now(); chuyen(buoc); }
+      }
+      if (ev.touches.length !== 1) vuot = null;
       lanTruoc = ev.touches.length >= 2 ? haiNgon(ev.touches) : null;
       keoTruoc = ev.touches.length === 1 ? tam(ev.touches[0]) : null;
     }
@@ -1249,7 +1471,9 @@
         ev.stopPropagation();
         var act = b.getAttribute("data-lb");
         if (act === "tai") return _lbTaiVe();
-        if (act === "tab") return window.open(url, "_blank", "noopener");
+        if (act === "tab") return window.open(_lbUrl, "_blank", "noopener");
+        if (act === "truoc") return chuyen(-1);
+        if (act === "sau") return chuyen(1);
         return dongLightbox();
       }
       if (Date.now() - vuaKeoLuc < 400 && ev.target.closest(".jv-lb-khung")) return;
@@ -1269,9 +1493,13 @@
   if (typeof document !== "undefined") {
     // Gan o TRONG khoi nay: file con duoc require duoi node de test ham thuan, ma duoi node
     // khong co `window` - gan o ngoai la module nem ngay luc nap.
-    window.JavisLightbox = { open: moLightbox, close: dongLightbox };
+    window.JavisLightbox = { open: moLightbox, close: dongLightbox, openFrom: moTuLink };
     document.addEventListener("keydown", function (e) {
       if (_lb && e.key === "Escape") { e.preventDefault(); dongLightbox(); }
+      else if (_lb && _lbChuyen && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        _lbChuyen(e.key === "ArrowLeft" ? -1 : 1);
+      }
     });
     window.addEventListener("popstate", function () {
       if (!_lb) return;
@@ -1289,14 +1517,7 @@
       if (e.target.closest('[contenteditable="true"], .jvfe-modal, .note-editor')) return;
       e.preventDefault();
       e.stopPropagation();
-      var img = a.querySelector("img");
-      var vp = a.getAttribute("data-vault-path") || "";
-      // `data-img-ten` la ten do NGUOI GUI dat, dung cho anh khong nam trong vault (vd file vua
-      // dan vao khung chat, phuc vu qua /upload/raw?name=...). Suy ten tu href o day ra chu
-      // "raw" - dung ten endpoint lam ten anh, vua sai vua kho hieu.
-      var ten = a.getAttribute("data-img-ten") || "";
-      if (!ten) ten = vp ? vp.split("/").pop() : (a.getAttribute("href") || "").split("/").pop().split("?")[0];
-      moLightbox(a.getAttribute("href") || (img && img.src) || "", ten);
+      moTuLink(a);
     }, true);
     // TAI FILE TREN IPHONE (0.64.46). App cai ra man hinh chinh (standalone) KHONG co nut Back.
     // Mot link tai file (<a download>, hay link toi /files/raw, /files/zip, /upload/raw) ma di
@@ -1315,15 +1536,27 @@
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button > 0) return;
       var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
       if (!a || !laLinkTaiFile(a)) return;
-      if (a.target === "_blank") return;                 // da mo cua so moi san, iOS co nut Xong
       if (e.target.closest('[contenteditable="true"]')) return;
-      e.preventDefault();
-      e.stopPropagation();
       var href = a.href || a.getAttribute("href") || "";
-      if (/^(blob|data):/i.test(href)) { chiaSeBlob(href, a.getAttribute("download") || "file"); return; }
       var xem = href.replace(/([?&])dl=1(&|$)/, function (m, dau, sau) { return sau ? dau : ""; });
       var ten = a.getAttribute("data-vault-path") || a.getAttribute("download") || "";
-      ten = (ten || decodeURIComponent((/[?&]path=([^&]*)/.exec(href) || [0, ""])[1] || "")).split("/").pop();
+      ten = (ten || decodeURIComponent((/[?&](?:path|name)=([^&]*)/.exec(href) || [0, ""])[1] || "")).split("/").pop();
+      // PDF (video iPad cua chu repo 05/11/2026): link PDF trong chat co target="_blank", truoc day cho
+      // iOS tu mo. Tren iPad cai ra man hinh chinh, iOS KHONG mo lop Safari co nut Xong ma THAY
+      // ca app bang trang PDF: khong nut quay lai, khong nut tai, phai tat app. Nen PDF (bam xem
+      // hay bam tai deu vay) mo trong khung xem NGAY TRONG APP: nut Dong, nut Back, nut Tai ve
+      // qua bang chia se cua iOS. Khung xem do khong co link nao nen khong quay lai day.
+      var moPdf = window.JavisFileEditor && window.JavisFileEditor.openPdf;
+      if (DUOI_PDF_RE.test(ten || xem.split("?")[0]) && typeof moPdf === "function" && !/^(blob|data):/i.test(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        moPdf(xem, ten);
+        return;
+      }
+      if (a.target === "_blank") return;                 // da mo cua so moi san, iOS co nut Xong
+      e.preventDefault();
+      e.stopPropagation();
+      if (/^(blob|data):/i.test(href)) { chiaSeBlob(href, a.getAttribute("download") || "file"); return; }
       // Anh: xem ngay trong app. Dang o trong lightbox (nut Tai ve) thi KHONG mo lightbox chong
       // len nua, ma mo cua so moi de nguoi dung bam giu anh -> "Luu vao Anh".
       if (DUOI_ANH_RE.test(ten || xem.split("?")[0]) && !_lb) { moLightbox(xem, ten); return; }
@@ -1412,6 +1645,17 @@
       // de nguoi dung bam anh ma sua binh thuong (tranh bung editor long nhau).
       if (trongTrinhSua(e.target)) return;
     });
+    // Copy button of a code block (codeBlockHtml). Delegated on the document so it works in every container that
+    // renders markdown: the main chat, the Team chat, the file viewer. Before this the only handler sat on the main
+    // chat's #chatArea, so the button was dead everywhere else.
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains("code-copy")) return;
+      var wrap = t.closest(".code-wrap");
+      var pre = wrap && wrap.querySelector("pre");
+      if (!pre) return;
+      copyPlain(pre.innerText).then(function () { flashCodeCopied(t, "\u29c9 Copy"); });
+    });
     document.addEventListener("keydown", function (e) {
       if ((e.key === "Enter" || e.key === " ") && document.activeElement &&
           document.activeElement.classList && document.activeElement.classList.contains("jv-art")) {
@@ -1444,10 +1688,11 @@
     module.exports = { mdToHtml: mdToHtml, visibleMarkdown: visibleMarkdown,
       highlight: highlight, wkResolve: wkResolve,
       appFilePath: appFilePath, appFileRef: appFileRef, fileUriPath: fileUriPath,
-      isDownloadFile: isDownloadFile,
+      isDownloadFile: isDownloadFile, imageSize: imageSize,
       laLinkTaiFile: laLinkTaiFile, laIOS: laIOS,
       // Xuat them de test chay THAT chuoi du phong cua anh (xem ungVienAnh / imgGone).
       ungVienAnh: ungVienAnh, ghepDuong: ghepDuong, imgGone: imgGone,
-      lightboxPinchStep: lightboxPinchStep, lightboxClampPan: lightboxClampPan };
+      lightboxPinchStep: lightboxPinchStep, lightboxClampPan: lightboxClampPan,
+      lightboxGalleryStep: lightboxGalleryStep, lightboxSwipe: lightboxSwipe, lightboxFileName: _lbTenTep };
   }
 })();

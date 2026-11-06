@@ -136,7 +136,9 @@ Ba lệnh phiên đứng đầu danh sách:
 
 Trên bản web, `/new` và `/reset` cùng mở một hội thoại mới.
 
-Ngay bên dưới là **mười hai lệnh hệ thống** (xem mục tiếp theo), rồi tới **toàn bộ skill của brain đang chọn**, mỗi dòng gồm `/slug`, tên skill và một dòng mô tả.
+Ngay bên dưới là **mười hai lệnh hệ thống** (xem mục tiếp theo), rồi tới **toàn bộ skill của brain đang chọn**. Từ 0.290.0 mỗi dòng gọn trên một hàng: cột `/lệnh` rộng bằng nhau nên tên và mô tả thẳng một cột, các nhóm (Lệnh, Cộng sự, Quy trình, Skill) có tiêu đề nhỏ. Khi đang gõ chữ để lọc, tiêu đề nhóm ẩn đi và nhãn nhóm nằm cuối dòng.
+
+Lệnh đã gõ vào ô nhập (ở đầu tin, hoặc tên skill có thật ở giữa câu) được **tô màu cam**, để bạn thấy ngay phần nào Javis sẽ hiểu là lệnh. Đang gõ dở một chữ chưa khớp lệnh nào thì chưa tô.
 
 Cách điều khiển menu:
 
@@ -206,9 +208,15 @@ Javis đề xuất "xong hay chưa", còn **việc có chạy tiếp hay không 
 - hai vòng liền báo còn thiếu y hệt nhau (không có tiến triển);
 - Javis hỏi ngược bạn một câu cần bạn quyết;
 - một vòng bị lỗi, hoặc Javis không báo được mục tiêu đã đạt hay chưa;
-- **bạn gõ một tin mới, bấm Dừng, mở hội thoại khác hoặc gõ `/goal clear`** - lời của bạn luôn lên trước.
+- bạn gõ `/goal clear` hoặc bấm nút thùng rác trên thanh mục tiêu.
 
-Khi dừng, mục tiêu tự tắt và câu báo luôn kèm việc bạn có thể làm tiếp (gỡ chỗ thiếu rồi gõ `/goal` lại). Chế độ này chạy trong **tab chat đang mở**: đóng tab hay tải lại trang thì dừng (các dòng vòng đã chạy vẫn còn để xem lại). Khác với `/plan`, `/goal` làm việc thật (đúng quyền hạn bạn đã cấp cho Javis), nên hãy viết mục tiêu cụ thể, kiểm chứng được.
+Khi dừng vì những lý do trên, mục tiêu tự tắt và câu báo luôn kèm việc bạn có thể làm tiếp (gỡ chỗ thiếu rồi gõ `/goal` lại). Khác với `/plan`, `/goal` làm việc thật (đúng quyền hạn bạn đã cấp cho Javis), nên hãy viết mục tiêu cụ thể, kiểm chứng được.
+
+**Thanh mục tiêu (từ 0.290.0).** Khi có mục tiêu, một thanh hiện ngay trên khung nhập, ở mọi khung chat: biểu tượng, chữ mục tiêu, đồng hồ đếm thời gian đã chạy, rồi ba nút **xoá**, **tạm dừng / chạy tiếp** và **mũi tên** mở chi tiết (đủ chữ mục tiêu, vòng mấy trên năm, phần còn thiếu). Có nhiều mục tiêu (mỗi hội thoại một cái) thì **ô số** ở đầu thanh cho biết có bao nhiêu; bấm vào đó xổ ra danh sách, bấm một dòng để mở đúng hội thoại của nó.
+
+- **Tạm dừng thay vì tắt:** bấm Dừng của khung chat hay gõ một tin mới giữa chừng thì mục tiêu chỉ tạm dừng (đồng hồ đứng), lời của bạn vẫn lên trước. Bấm chạy tiếp trên thanh là Javis đi vòng sau.
+- **Sang hội thoại khác:** mục tiêu không mất mà chờ. Nó chỉ chạy tiếp khi hội thoại của nó đang mở, vì vòng tự động là trình duyệt gửi tin vào khung chat bạn đang xem. Mở lại hội thoại đó là nó đi tiếp.
+- **Tải lại trang:** mục tiêu còn nguyên trên thanh ở trạng thái tạm dừng; bấm chạy tiếp là đi vòng sau. Trần 5 vòng vẫn giữ.
 
 #### Trên Telegram
 
@@ -233,7 +241,7 @@ Bạn có thể đưa file hoặc ảnh vào tin nhắn để Javis đọc. Ba c
 2. **Kéo - thả** file từ máy vào cửa sổ Javis (một lớp phủ hiện lên báo chỗ thả).
 3. **Dán** trực tiếp bằng Ctrl + V.
 
-Chuyện dán có một mẹo riêng: dán **ảnh** thì thành file đính kèm như thường, còn dán **văn bản quá dài** (trên 1500 ký tự hoặc trên 25 dòng) vào ô chat thì Javis tự đóng gói thành file `.txt` đính kèm thay vì nhồi nguyên bài vào ô gõ. Javis vẫn đọc trọn vẹn, còn màn hình chỉ hiện một thẻ gọn. Việc này chỉ áp dụng cho ô chat; dán vào các ô nhập khác vẫn ra chữ bình thường.
+Chuyện dán có một mẹo riêng: dán **ảnh** thì thành file đính kèm như thường. Dán **văn bản** đến **12.000 ký tự và 150 dòng** thì chữ vào thẳng ô chat để bạn xem và sửa trước khi gửi. Đoạn dài hơn một trong hai ngưỡng sẽ mở hộp **Xem trước đoạn dán** (cuộn đọc được toàn văn) với ba nút: **Dán vào chat**, **Đính kèm .txt** hoặc **Hủy**. Chọn đính kèm thì Javis vẫn đọc trọn vẹn, màn hình chỉ hiện một thẻ gọn. Quy tắc này áp dụng cho ô chat chính và ô chat Nhóm; dán vào các ô nhập khác vẫn ra chữ bình thường.
 
 File hiện thành thẻ nhỏ phía trên thanh nhập. Đợi thẻ báo tải xong, sau đó gõ hoặc nói yêu cầu rồi gửi như bình thường. Bấm dấu ✕ trên thẻ để bỏ file khỏi tin nhắn.
 
@@ -276,6 +284,7 @@ Thẻ ghi thêm số dòng và chữ "bam de xem", bên phải là nút **Mo ▸
 - Hai tab **Xem truoc** và **Ma nguon** (mã nguồn dài thì chỉ có tab mã nguồn).
 - Nút **⧉** copy mã nguồn, nút **⇩** tải về thành file, nút **✕** đóng panel.
 - Nhấn **Esc** cũng đóng panel.
+- Từ 0.405.0, sơ đồ và ảnh SVG **phóng to, kéo được**: lăn chuột hoặc chụm hai ngón để phóng to, thu nhỏ; giữ chuột hoặc một ngón để kéo; chạm đúp để phóng to nhanh hoặc trả về vừa khung. Góc dưới có nút **−**, **+** và **Vừa khung**. Ảnh mở trong trình sửa cũng vậy.
 
 Sơ đồ mermaid cần tải thư viện vẽ từ mạng; đang offline thì panel báo không tải được thư viện và hiện thẳng mã nguồn. Khối ```` ```dataview ```` và ```` ```tasks ```` không thành artifact mà chạy thành bảng kết quả, xem [Task & Dataview trong note](19-task-va-dataview.md).
 
@@ -331,17 +340,22 @@ Rê chuột vào một tin nhắn (của bạn hay của Javis đều được) 
 | Nút | Gợi ý khi rê chuột | Làm gì |
 |---|---|---|
 | Giờ gửi | Ngày đầy đủ, ví dụ "Thứ tư, 29/07/2026 14:05" | Chỉ để xem |
-| ↻ | "Gửi lại câu này" (tin của bạn) hoặc "Trả lời lại câu hỏi phía trên" (tin của Javis) | Gửi lại đúng chữ gốc thành một lượt MỚI ở cuối hội thoại, không xoá gì của lượt cũ |
-| ✎ | "Sửa lại rồi gửi" | Chỉ có ở tin của bạn. Đổ chữ gốc vào ô nhập để bạn sửa; **không** tự gửi |
+| ↺ | "Tua lại từ câu này" | Chỉ có ở tin của bạn. Hỏi xác nhận, rồi **xoá câu này cùng mọi thứ bên dưới** và đưa câu hỏi về ô nhập để sửa hoặc gửi lại; hội thoại đi tiếp từ đó như thể các lượt đã xoá chưa từng có |
 | ⧉ | "Sao chép nội dung" | Copy cả tin nhắn, nút đổi thành "✓ Đã copy" trong giây lát |
+| Đinh ghim | "Ghim vào mục lục" | Chỉ có ở câu trả lời của Javis. Ghim câu trả lời vào **mục lục** của cuộc trò chuyện (dải mốc bên phải, hay nút ≡ trên điện thoại): nó đứng đúng chỗ của nó giữa các câu hỏi, có dấu ghim thay cho số thứ tự, bấm là nhảy tới. Bấm lần nữa để bỏ ghim. Câu đã ghim luôn hiện hàng nút, đinh ghim màu cam |
+| Loa | "Đọc thành tiếng" | Chỉ có ở câu trả lời của Javis. Đọc to câu trả lời đó, kể cả khi không trong cuộc gọi. Đang đọc thì nút thành ô vuông "Dừng đọc", bấm là dừng |
 
 Vài điểm hay gặp:
 
-- Đang chạy một lượt thì nút ↻ mờ đi và không bấm được, tránh chồng lượt.
-- Tin chỉ có ảnh mà không kèm chữ thì không có nút ↻ và ✎ (không có gì để gửi lại).
+- Đang chạy một lượt thì nút ↺ mờ đi và không bấm được: bấm Dừng trước rồi mới tua lại.
+- Tua lại xoá thật, kể cả trên máy chủ (F5 vẫn mất) và trong trí nhớ của bộ não đang chat: lượt sau Javis chỉ còn biết phần phía trên. Không hoàn tác được, nên Javis hỏi lại trước khi xoá.
+- Muốn hỏi lại y nguyên một câu: tua lại rồi bấm gửi luôn.
+- Tin chỉ có ảnh mà không kèm chữ thì không có nút ↺ (không có chữ để đưa về ô nhập).
 - Tin lưu từ trước bản có mốc giờ thì phần giờ được ẩn đi chứ không lấy giờ hiện tại đắp vào.
 - Tin **dài** của bạn (trên 10 dòng hoặc trên 900 ký tự) được thu gọn, có nút **Xem thêm** / **Thu gọn** để mở ra đóng lại.
 - Mỗi khối code có nút **⧉ Copy** riêng ở góc.
+- Câu trả lời đang chạy chưa có nút ghim: nút hiện ra ngay khi câu trả lời được lưu. Ghim lưu trên máy chủ, mở cuộc trò chuyện ở máy khác vẫn còn; tua lại xoá câu trả lời thì ghim của nó đi theo.
+- Dòng nhỏ dưới câu trả lời chỉ còn engine, model và chế độ ngữ cảnh. Số token đã bỏ khỏi khung chat; xem ở trang **Mức dùng**.
 - Khi bạn đang cuộn lên đọc lại mà Javis trả lời tiếp, khung chat KHÔNG giật xuống; một nút **↓ Tin mới** hiện ở đáy để bấm nhảy xuống khi sẵn sàng.
 
 ## Chọn model, Effort và badge engine
@@ -413,7 +427,13 @@ Danh sách giọng tuỳ đường gọi:
 - **Live qua API key**: các giọng của hãng đang dùng, không có nút nghe thử.
 - **Cơ bản**: 7 giọng Edge miễn phí là Emma (mặc định), Hoài My, Nam Minh, Ava, Andrew, Brian, William. Có OpenAI API key ở trang **Models** thì có thêm 11 giọng OpenAI (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer, verse). Cuối danh sách là **Giọng ElevenLabs của bạn**. **▶ Nghe thử** đọc một câu mẫu.
 
-Chọn giọng là chọn luôn nhà cung cấp (Edge, OpenAI hay ElevenLabs). Giọng Edge và tốc độ đọc được lưu trên chính thiết bị này; cập nhật không ghi đè giọng bạn đã chọn.
+Chọn giọng là chọn luôn nhà cung cấp (Edge, OpenAI hay ElevenLabs). Từ 0.298.0 giọng Edge được lưu cả trên máy chủ, nên chọn trên máy tính thì điện thoại và ghi chú giọng nói gửi qua Telegram, Zalo cũng dùng đúng giọng đó. Tốc độ đọc vẫn lưu trên từng thiết bị.
+
+**Nam hay nữ, và giọng nào nói lúc nào (từ 0.298.0).** Mỗi giọng trong danh sách ghi rõ Nữ hay Nam, xếp thành nhóm Giọng nữ, Giọng nam. Đầu thẻ ghi bằng chữ bạn sẽ nghe gì: "Bấm mic sẽ gọi qua ChatGPT Live, giọng: Juniper · Nữ" và "Đọc câu trả lời bằng giọng: Hoài My · Nữ".
+
+- Ở đường **ChatGPT Live** hay **Live qua API key**, thẻ có hai ô riêng: **Giọng khi gọi** (giọng của cuộc gọi) và **Giọng đọc câu trả lời** (đọc tin trong khung chat và ghi chú giọng nói). Đổi ô dưới không đổi giọng cuộc gọi.
+- Hai ô khác giới (ví dụ gọi giọng nam, đọc giọng nữ) thì thẻ hiện cảnh báo vàng kèm nút **Dùng ... khi gọi** để đổi giọng gọi sang cùng giới chỉ một chạm.
+- Lưu xong, dòng **Đã lưu** hiện ngay dưới ô vừa đổi.
 
 Nếu giọng trả phí gặp lỗi (hết hạn mức, sai key, mất mạng), Javis báo lỗi để bạn thử lại hoặc chọn giọng khác; không tự chuyển giọng.
 

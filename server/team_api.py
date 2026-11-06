@@ -16,9 +16,10 @@ import asyncio
 import contextlib
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -36,6 +37,30 @@ REMIND_EVERY_S = 3600.0     # nhịp nhắc việc bị chặn quá 24 giờ
 RECONCILE_EVERY_S = 60.0    # nhịp đối soát sổ lượt chung với team_turns (T2, thiết kế 9.1)
 FINISHED_SHOWN = 30          # việc đã xong hiện ở tab Việc của nhóm (0.193.0)
 PINNED_SHOWN = 20            # tin đã ghim hiện ở dải trên khung chat (0.192.0), như Sổ quyết định của lượt
+
+
+# Performance (2026-11-05): the usage block of GET /teams/{id} reads the usage index, its events log and two more
+# databases, on every team open and on every refetch an agent message triggers. It feeds a side panel, so a few
+# seconds of staleness is invisible, while computing it each time made switching teams wait on it.
+_USAGE_TTL_S = 15.0
+_usage_cache: Dict[str, tuple] = {}
+_usage_lock = threading.Lock()
+
+
+def _team_usage_cached(team_id: str) -> dict:
+    import team_usage
+    now = time.monotonic()
+    with _usage_lock:
+        hit = _usage_cache.get(team_id)
+        if hit and now - hit[0] < _USAGE_TTL_S:
+            return hit[1]
+    val = team_usage.team_usage(team_id)
+    with _usage_lock:
+        _usage_cache[team_id] = (now, val)
+        if len(_usage_cache) > 256:
+            for k in sorted(_usage_cache, key=lambda k: _usage_cache[k][0])[:128]:
+                _usage_cache.pop(k, None)
+    return val
 DESCRIBE_TIMEOUT_S = 120.0   # tả ảnh đính kèm trước lượt thành viên (0.192.0): quá thì lượt vẫn chạy, không có mô tả
 
 
@@ -71,6 +96,11 @@ class TeamApiDeps:
     check_command: Optional[Callable[[str, Any], dict]] = None
     brain_root: Optional[Callable[[dict], Any]] = None   # team -> Path of its brain (acceptance product paths)
     work_dir: Optional[Callable[[dict], str]] = None     # team -> pinned working folder, "" when none (0.260.0)
+    job_done: Optional[Callable[[dict, dict], Any]] = None  # (team, task) after a job closed as done (0.449.0)
+    skill_block: Optional[Callable[[dict, list], str]] = None  # (team, slugs) -> skills named by /skill (0.449.0)
+    # 0.357.0: report a job Javis Core gave the team back where it was asked (main._notify_owner):
+    # (owner_chat, text, *, kind, label, source, ngan, brain, dedup) -> (ok, error), sync or async. None: no reports.
+    report: Optional[Callable[..., Any]] = None
 
 
 async def _body(request: Request) -> dict:
@@ -118,6 +148,15 @@ class TeamApi:
 
     def _spawn(self, value: Any) -> None:
         if asyncio.iscoroutine(value):
+            # Issue #798: route bodies run in a worker thread (`io` -> run_io), where `ensure_future` has no event loop,
+            # so a recheck scheduled there never ran and the job stayed in acceptance_checking. Hand it to the main loop.
+            loop = self._loop
+            if loop is not None and threading.get_ident() != self._loop_thread and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(self._spawn, value)
+                    return
+                except RuntimeError:   # the loop closed in between: fall through and report below
+                    pass
             try:
                 task = self.deps.spawn(value)
             except Exception as ex:  # noqa: BLE001
@@ -165,7 +204,7 @@ class TeamApi:
                 learning=self.deps.learning() if self.deps.learning is not None else None,
                 contrib_reader=self.deps.contrib_reader, docs_block=self.deps.docs_block,
                 check_command=self.deps.check_command, brain_root=self.deps.brain_root,
-                work_dir=self.deps.work_dir)
+                work_dir=self.deps.work_dir, job_done=self.deps.job_done, skill_block=self.deps.skill_block)
             if self._loop is not None:
                 self._runner._loop, self._runner._loop_thread = self._loop, self._loop_thread
         return self._runner
@@ -289,6 +328,8 @@ class TeamApi:
                     busy=self.runner().busy_view(team["team_id"]),
                     authority=self.runner().authority_view(team["team_id"]),
                     usage=self.runner().usage(team["team_id"]),
+                    quality_policy=self.runner().quality.policy(team["team_id"]),
+                    acceptance_template=self.runner().quality.template(team["team_id"]),
                     mandate=self.mandate_summary(team["team_id"]))
 
     def mandate_summary(self, team_id: str) -> Optional[dict]:
@@ -358,6 +399,11 @@ class TeamApi:
                 finally:
                     self._mandate_busy = False
             self._spawn(_observe())
+        # 0.436.0: jobs blocked by a temporary error whose retry time has come go back to the queue before dispatch.
+        try:
+            await r._io(r.retry_due)
+        except Exception as ex:  # noqa: BLE001 - one broken retry must not stop the team loop
+            print(f"[team retry] {type(ex).__name__}: {ex}", file=sys.stderr)
         await r.dispatch_once(wait=False)
         # T3 phần J: lần chờ của bộ phán xử quá 30 phút thì hết hạn (nhóm và chat riêng), xử lý nền.
         await r._io(r.judge_tick)
@@ -368,6 +414,29 @@ class TeamApi:
         if now - self._last_remind >= REMIND_EVERY_S:
             self._last_remind = now
             await r._io(r.remind_blocked)
+        await self.core_reports()
+
+    async def core_reports(self) -> int:
+        """0.357.0 (issue #826): jobs Javis Core gave a team report back to the chat that asked, once per state worth
+        reporting (done, cancelled, stopped for the owner). A failed send is retried next tick; the inbox copy dedupes."""
+        if self.deps.report is None:
+            return 0
+        import team_dispatch
+        sent = 0
+        for it in await self.io(team_dispatch.due_reports, self):
+            try:
+                res = self.deps.report(it["report_to"], it["text"], kind="report", label=localefmt.chu("Team", "Team"),
+                                       source="team", ngan=it["short"], brain=it["brain"], dedup=it["dedup"])
+                if asyncio.iscoroutine(res):
+                    res = await res
+            except Exception as ex:  # noqa: BLE001 - one bad channel never stops the team loop
+                print(f"[team core report] {type(ex).__name__}: {ex}", file=sys.stderr)
+                continue
+            if isinstance(res, tuple) and res and not res[0]:
+                continue
+            await self.io(self.deps.task_store().team_core_said, it["task_id"], it["key"], it["closed"])
+            sent += 1
+        return sent
 
     async def _judge_tick_without_teams(self) -> None:
         """Chưa có kho nhóm (chỉ dùng chat riêng): vẫn cho lần chờ của tin chủ động ở chat riêng hết hạn đúng giờ."""
@@ -546,6 +615,14 @@ class TeamOps:
             self.deps.session_store().delete(sid)
         except Exception:  # noqa: BLE001
             pass
+        # 0.449.0: the team chat's GitHub worktrees go with it, except one still holding unsaved or unpushed work.
+        try:
+            import github_repos
+            import github_store
+            github_repos.forget_session(sid)
+            github_store.store().delete_session(sid)
+        except Exception:  # noqa: BLE001 - cleanup is best effort
+            pass
 
 
 _CURRENT: list = [None]
@@ -656,7 +733,9 @@ def register(app, deps: TeamApiDeps) -> TeamApi:
             pinned = [{"id": m["id"], "ts": m["ts"], "author_kind": m["author_kind"], "author_ref": m["author_ref"],
                        "content": str(m.get("content") or "")[:400]}
                       for m in deps.session_store().team_decisions(team["session_id"], PINNED_SHOWN)]
-            return {"ok": True, "team": api.view(team), "typing": api.teams().active_turns(team_id), "pinned": pinned}
+            view = api.view(team)
+            view["quality_usage"] = _team_usage_cached(team_id)
+            return {"ok": True, "team": view, "typing": api.teams().active_turns(team_id), "pinned": pinned}
         return await api.io(_do)
 
     @app.patch("/teams/{team_id}")
@@ -826,7 +905,12 @@ def register(app, deps: TeamApiDeps) -> TeamApi:
             for m in msgs:
                 m["reaction"] = got.get(int(m["id"]))
                 m["agent_reactions"] = api.runner().agent_reactions_view(team, agents.get(int(m["id"])))
-            return {"ok": True, "task": task, "steps": api.teams().steps(task_id), "messages": msgs}
+            import team_usage
+            acceptance = api.runner().acceptance_view(team, task_id)
+            return {"ok": True, "task": task, "steps": api.teams().steps(task_id), "messages": msgs,
+                    "acceptance": acceptance,
+                    "completion_valid": acceptance.get("completion_valid", False) if acceptance else False,
+                    "usage": team_usage.task_usage(team_id, task_id)}
         return await api.io(_do)
 
     @app.post("/teams/{team_id}/tasks/{task_id}/cancel")
@@ -1276,6 +1360,83 @@ def register(app, deps: TeamApiDeps) -> TeamApi:
             return {"ok": True, "work_mode": mode}
         return await api.io(_do)
 
+    # Quality policy and default acceptance templates are owner settings, never agent directives.
+    def _quality_error(ex: ValueError) -> JSONResponse:
+        code = getattr(ex, "code", "invalid_quality_setting")
+        conflict = code in ("version_conflict", "stale_version")
+        return _err(409 if conflict else 400, "Thiết lập chất lượng chưa hợp lệ",
+                    "The quality setting is invalid", quality_code=code, detail=str(ex))
+
+    @app.get("/teams/{team_id}/quality-policy")
+    async def teams_quality_policy_get(team_id: str, brain: str = "brain"):
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            return {"ok": True, "policy": api.runner().quality.policy(team_id)}
+        return await api.io(_do)
+
+    @app.put("/teams/{team_id}/quality-policy")
+    async def teams_quality_policy_put(team_id: str, request: Request, brain: str = "brain"):
+        body = await _body(request)
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            try:
+                policy = api.runner().quality.set_policy(team_id, body)
+            except ValueError as ex:
+                return _quality_error(ex)
+            api.runner()._state(team_id)
+            return {"ok": True, "policy": policy}
+        return await api.io(_do)
+
+    @app.get("/teams/{team_id}/acceptance-template")
+    async def teams_acceptance_template_get(team_id: str, brain: str = "brain"):
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            return {"ok": True, "template": api.runner().quality.template(team_id)}
+        return await api.io(_do)
+
+    @app.put("/teams/{team_id}/acceptance-template")
+    async def teams_acceptance_template_put(team_id: str, request: Request, brain: str = "brain"):
+        body = await _body(request)
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            try:
+                template = api.runner().quality.set_template(team_id, body)
+            except ValueError as ex:
+                return _quality_error(ex)
+            api.runner()._state(team_id)
+            return {"ok": True, "template": template}
+        return await api.io(_do)
+
+    @app.get("/teams/{team_id}/usage")
+    async def teams_usage_get(team_id: str, brain: str = "brain"):
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            import team_usage
+            return {"ok": True, "usage": team_usage.team_usage(team_id)}
+        return await api.io(_do)
+
+    @app.get("/teams/{team_id}/tasks/{task_id}/usage")
+    async def teams_task_usage_get(team_id: str, task_id: str, brain: str = "brain"):
+        def _do():
+            team, err = _team(team_id, brain)
+            if err:
+                return err
+            if not _own_task(team_id, task_id):
+                return _err(404, "Không có việc này trong nhóm", "No such job in this team")
+            import team_usage
+            return {"ok": True, "usage": team_usage.task_usage(team_id, task_id)}
+        return await api.io(_do)
+
     # ───────────── 0.209.0: product acceptance ─────────────
 
     @app.get("/teams/{team_id}/tasks/{task_id}/acceptance")
@@ -1329,7 +1490,11 @@ def register(app, deps: TeamApiDeps) -> TeamApi:
                     return None
             out = api.runner().decide_acceptance(team_id, task_id, str(body.get("decision") or "").lower(),
                                                  note=str(body.get("note") or "")[:2000],
-                                                 revision=_int(body.get("revision")), round_=_int(body.get("round")))
+                                                 revision=_int(body.get("revision")), round_=_int(body.get("round")),
+                                                 contract_version=_int(body.get("contract_version")),
+                                                 output_manifest_hash=(str(body["output_manifest_hash"])
+                                                     if body.get("output_manifest_hash") is not None else None),
+                                                 decision_key=str(body.get("decision_key") or "")[:200])
             if not out.get("ok"):
                 msgs = {"not_found": ("Việc này chưa có tiêu chí nghiệm thu", "This job has no acceptance criteria"),
                         "not_waiting": ("Việc không ở bước chờ nghiệm thu", "The job is not waiting for acceptance"),

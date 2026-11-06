@@ -85,6 +85,24 @@
   --link-ink: #7fb0ff;
   --on-accent: #1a1400;      /* chữ đặt TRÊN nền màu nhấn/vàng đặc */
 
+  /* --- Buttons (shared by .gcard-btn, .s-btn-ghost, .mp-btn, .ws-btn and the banners).
+         Owner report 25/10/2026 ("nhiều nút vẫn hơi mờ"): secondary buttons were edged with
+         --hairline or --border, about 1.2:1 to 1.6:1 against the card, so a ghost button read
+         as loose text. --btn-line is a border you can actually see (about 2.5:1), --btn-fill a
+         faint body so the button reads as a button before the pointer reaches it. --ctl-h is
+         the one height a button and the field beside it share, so a row lines up. --- */
+  --btn-line: rgba(255, 255, 255, 0.28);
+  --btn-fill: rgba(255, 255, 255, 0.07);
+  --btn-fill-hover: rgba(255, 255, 255, 0.12);
+  --ctl-h: 40px;
+  /* Violet solid button (.s-btn). White on #7c3aed is 5.7:1; the old dark text on #8b5cf6 was 4.3:1. */
+  --accent2-solid: #7c3aed;
+  --on-accent2: #ffffff;
+  /* Text and wash for destructive buttons. Many rules already read var(--danger-ink, #b3261e), whose
+     fallback is 2.4:1 on the dark theme; declaring the token makes them readable there. */
+  --danger-ink: #ff8a8a;
+  --danger-bg: rgba(244, 86, 90, 0.18);
+
   /* --- Trạng thái: cảnh báo / nguy hiểm / xong. Mỗi trạng thái một bộ ba
          mực-nền-viền để dùng nhất quán ở mọi thẻ, banner, badge. --- */
   --warn-ink: #e0a04a;
@@ -180,6 +198,13 @@
 
   --link-ink: #1d4ed8;
   --on-accent: #ffffff;      /* nền vàng tông sáng là #a16207 (sẫm) nên chữ phải trắng */
+
+  /* Buttons on paper: a warm brown edge at about 2.4:1 and an even fainter body than --surface-1. */
+  --btn-line: rgba(60, 42, 24, 0.42);
+  --btn-fill: rgba(60, 42, 24, 0.045);
+  --btn-fill-hover: rgba(60, 42, 24, 0.09);
+  --danger-ink: #b42318;
+  --danger-bg: #f5dcdc;
 
   /* Trên giấy, nền trạng thái phải NHẠT hơn hẳn (7-10% thay vì 14-16%) còn mực
      thì ĐẬM hơn hẳn - ngược chiều với nền tối. */
@@ -384,7 +409,20 @@ button, input, select, textarea { font-family: inherit; }
 }
 .noti-kind.marketing { color: var(--accent2-ink); background: var(--accent2-wash); }
 .noti-kind.community { color: var(--info-ink); background: var(--info-wash); }
+.noti-kind.security { color: var(--warn-ink); background: var(--warn-wash); }
 .noti-time { color: var(--text3); font-size: 10.5px; }
+/* 0.408.0: X on every card, beside the time. Muted until hovered: it is the second thing on the card, not the first. */
+.noti-top-r { display: inline-flex; align-items: center; gap: 4px; }
+.noti-x { display: inline-grid; place-items: center; width: 26px; height: 26px; margin: -4px -6px -4px 0; padding: 0;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text3); cursor: pointer; }
+.noti-x svg { width: 15px; height: 15px; }
+.noti-x:hover, .noti-x:focus-visible { color: var(--text-hi); background: var(--surface-3); }
+@media (pointer: coarse) { .noti-x { width: 34px; height: 34px; } .noti-x svg { width: 17px; height: 17px; } }
+/* "Show N read notices" / "Hide read notices" under the list. */
+.noti-read-toggle { display: block; margin: 8px auto 4px; font-size: 13px; }
+/* What Javis Core learned from "Not needed", shown once above the list after that card left it. */
+.noti-flash { margin: 2px 4px 8px; padding: 9px 11px; border-radius: 9px; font-size: 13px; line-height: 1.5;
+  color: var(--text2); background: var(--surface-2); }
 .noti-card h4 { margin: 8px 0 4px; color: var(--text); font-size: 14px; line-height: 1.35; }
 .noti-card p { margin: 0; color: var(--text2); font-size: 12px; line-height: 1.5; }
 .noti-card-summary,
@@ -438,6 +476,41 @@ button, input, select, textarea { font-family: inherit; }
 }
 /* 0.204.0: display above beat the hidden attribute, so an empty tab showed a "0" pill. */
 .noti-tab-count[hidden] { display: none; }
+/* 0.403.0: Javis Core as the notification commander. Filter tab, filtered notices, feedback row, filter view. */
+.noti-tab-filter { margin-left: auto; }
+.noti-why { display: inline-block; margin: 8px 8px 0 0; padding: 2px 7px; border-radius: 6px; font-size: 11px;
+  color: var(--text3); background: var(--surface-2); }
+.noti-react { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.noti-axis { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border: 1px solid var(--hairline);
+  border-radius: 999px; background: var(--surface-1); color: var(--text2); font: 600 12px var(--font); cursor: pointer; }
+.noti-axis svg { width: 14px; height: 14px; }
+.noti-axis:hover { border-color: var(--accent-line); color: var(--text); }
+.noti-axis.on { border-color: var(--accent); background: var(--accent-wash); color: var(--accent-ink); }
+.noti-axis.no.on { border-color: var(--warn-ink); background: var(--warn-wash); color: var(--warn-ink); }
+.noti-react-note { flex-basis: 100%; margin-top: 2px !important; font-size: 12px !important; color: var(--text2) !important; }
+.noti-sub-head { display: flex; align-items: center; gap: 8px; padding: 6px 4px 10px; }
+.noti-sub-head b { font-size: 14px; color: var(--text); }
+.noti-sub-head .noti-text-btn { display: inline-flex; align-items: center; gap: 2px; }
+.noti-sub-head svg { width: 15px; height: 15px; }
+.noti-filter { padding: 0 4px 8px; font-size: 13px; color: var(--text2); }
+.noti-filter .info-pair { display: block; margin-bottom: 8px; }
+.noti-fg { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0;
+  border-bottom: 1px solid var(--hairline); }
+.noti-fg-n { display: flex; flex-direction: column; color: var(--text); font-weight: 500; }
+.noti-fg-n small { color: var(--accent-ink); font-size: 11px; font-weight: 600; }
+.noti-fg select { height: 34px; max-width: 58%; padding: 0 8px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg2); color: var(--text); font: 500 13px var(--font); }
+.noti-filter h5 { margin: 14px 0 6px; font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; }
+.noti-fl { list-style: none; margin: 0; padding: 0; }
+.noti-fl li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0;
+  border-bottom: 1px solid var(--hairline); line-height: 1.45; }
+.noti-fl li small { color: var(--text3); }
+.noti-fl-empty { margin: 0; color: var(--text3); }
+@media (pointer: coarse) {
+  .noti-axis { height: 36px; font-size: 14px; }
+  .noti-filter { font-size: 15px; }
+  .noti-fg select { height: 40px; font-size: 15px; }
+}
 /* Công tắc thông báo đẩy - nằm ngay trên chân panel, thấy được lúc đang đọc thư. */
 .noti-push {
   flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -483,6 +556,10 @@ button, input, select, textarea { font-family: inherit; }
 .theme-toggle .ic-sun { display: none; }
 :root[data-theme="light"] .theme-toggle .ic-moon { display: none; }
 :root[data-theme="light"] .theme-toggle .ic-sun { display: block; }
+/* Nút âm thanh hiệu ứng: loa có sóng khi đang bật, loa gạch chéo khi đang tắt (báo trạng thái hiện tại). */
+.sound-toggle .ic-soff { display: none; }
+.sound-toggle[aria-pressed="false"] .ic-son { display: none; }
+.sound-toggle[aria-pressed="false"] .ic-soff { display: block; }
 
 /* BODY 3 cols */
 .hud-body {
@@ -754,7 +831,7 @@ body.vault-thu .hud-body > .hud-left > .vault-expand:hover { color: var(--accent
   flex: 1; background: var(--accent-solid); color: var(--on-accent); border: none; border-radius: 7px;
   padding: 7px; font-size: 14px; cursor: pointer; font-weight: 600;
 }
-.loop-btn.ghost { background: none; border: 1px solid var(--border); color: var(--text2); }
+.loop-btn.ghost { background: none; border: 1px solid var(--btn-line); color: var(--text2); }
 .loop-btn:hover { filter: brightness(1.1); }
 .loop-btn:disabled { opacity: .5; cursor: default; }
 .loop-status { font-size: 13px; color: var(--text3); font-family: var(--font); }
@@ -816,8 +893,8 @@ body.vault-thu .hud-body > .hud-left > .vault-expand:hover { color: var(--accent
 .set-mini { background: none; border: 1px solid var(--border); color: var(--text2); border-radius: 5px; font-size: 12px; padding: 1px 7px; cursor: pointer; margin-left: 6px; }
 .set-mini:hover { color: var(--accent); border-color: var(--accent); }
 .set-actions { display: flex; gap: 8px; }
-.settings-body .s-btn { align-self: flex-start; background: var(--accent-solid); color: var(--on-accent); border: none; border-radius: 7px; padding: 7px 14px; font-size: 14px; cursor: pointer; }
-.settings-body .s-btn-ghost { background: none; border: 1px solid var(--border); color: var(--text2); border-radius: 7px; padding: 7px 14px; font-size: 14px; cursor: pointer; }
+.settings-body .s-btn { align-self: flex-start; background: var(--accent-solid); color: var(--on-accent); border: 1px solid transparent; border-radius: 7px; padding: 7px 14px; font-size: 16px; line-height: 1.25; cursor: pointer; }
+.settings-body .s-btn-ghost { background: var(--btn-fill); border: 1px solid var(--btn-line); color: var(--text); border-radius: 7px; padding: 7px 14px; font-size: 16px; font-weight: 500; line-height: 1.25; cursor: pointer; }
 
 /* Markdown bảng + code trong chat */
 .md-table { border-collapse: collapse; margin: 6px 0; font-size: 14px; width: 100%; }
@@ -1056,6 +1133,8 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   color: var(--text3); font-size: 14px; font-style: italic;
 }
 .msg { animation: fadeIn 0.2s ease; }
+/* A bubble drawn from history (chat opened, F5, older messages loaded): no fade-in. See chatAppend in app.js. */
+.msg.msg-tinh { animation: none; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; }
 .msg-user .bubble {
@@ -1063,6 +1142,8 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   padding: 8px 12px; border-radius: 12px 12px 3px 12px; max-width: 90%;
   line-height: 1.55; font-size: 16px; font-family: var(--font-chat);
 }
+/* 0.440.0: label above a message an outside AI posted through Javis Gate ("từ ChatGPT"). */
+.msg-user .msg-via { font-size: 14px; color: var(--text3); margin: 0 4px 3px; }
 /* Bong bóng câu trả lời: giới hạn chiều dài dòng, nền nhẹ và nhịp chữ riêng để đoạn dài
    vẫn dễ quét. Khối mã và bảng có cơ chế cuộn riêng; khung hẹp tự co theo màn hình. */
 .msg-javis .bubble {
@@ -1103,12 +1184,12 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg3);
   color: var(--text3); pointer-events: none; transition: background .12s ease, color .12s ease, transform .12s ease; }
 .msg-swipe-mark svg { width: 18px; height: 18px; }
-.msg.is-armed .msg-swipe-mark { background: var(--accent); color: #fff; transform: scale(1.1); }
+.msg.is-armed .msg-swipe-mark, .tm-msg.is-armed .msg-swipe-mark { background: var(--accent); color: #fff; transform: scale(1.1); }
 .msg-act { background: none; border: 1px solid transparent; color: var(--text3);
   border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1; padding: 3px 6px; }
 .msg-act:hover { color: var(--text-hi); border-color: var(--border); }
 /* Đang chạy một lượt thì không cho bấm gửi lại (app.js gắn .busy vào #chatArea) */
-.transcript.busy .msg-act[data-act="retry"] { opacity: 0.35; pointer-events: none; }
+.transcript.busy .msg-act[data-act="rewind"] { opacity: 0.35; pointer-events: none; }
 
 /* 0.177.0 reactions on answers (chat-reactions.js + reactions.js), like Zalo (owner, 2026-10-16). A zero-height anchor
    right after the bubble, as wide as the bubble (same max-width, same font so `ch` matches), holds the corner on the
@@ -1116,6 +1197,19 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
    for older ones. Pressing it likes; hovering it opens six native emoji in a floating pill; a long press does the same on a
    phone. No reasons, axis or comment panel any more. */
 .msg-javis > .jr-chat { display: block; max-width: min(72ch, 100%); font-size: 16px; font-family: var(--font-chat); min-width: 0; }
+/* Wide tables on the Chat page (0.444.0, idea from PR #958 by @hwangrin). At 72ch a table of 4 or more columns
+   is squeezed into ~600px and has to be scrolled sideways while half the pane is empty. On a desktop such an answer,
+   and the reaction row under it, may grow to 1200px; the prose inside keeps its 72ch measure (0.26.1: long lines tire
+   the eye) and only the table uses the extra room. Narrow tables and every other answer stay exactly as before. */
+@media (min-width: 861px) {
+  #chatPage .msg-javis > .bubble:has(.md-table tr > :nth-child(4)),
+  #chatPage .msg-javis:has(> .bubble .md-table tr > :nth-child(4)) > .jr-chat {
+    max-width: min(1200px, 100%);
+  }
+  #chatPage .msg-javis > .bubble:has(.md-table tr > :nth-child(4)) > :not(.md-tablewrap):not(pre):not(.code-wrap) {
+    max-width: 72ch;
+  }
+}
 .jr-chat[hidden] { display: none; }
 .jr-anchor { position: relative; height: 0; }
 .jr-rx { position: absolute; right: -6px; top: -16px; z-index: 3; }
@@ -1165,8 +1259,6 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   white-space: nowrap; }
 @media (hover: none) {
   .jr-rx-btn { min-width: 36px; height: 36px; }
-  /* Long press on an answer opens the emoji: switch off iOS's own long-press menu on answers that have a message id. */
-  .msg-javis[data-mid] { -webkit-touch-callout: none; }
   .jr-react-err .ws-btn { min-height: 44px; }
 }
 @media (max-width: 480px) {
@@ -1202,18 +1294,19 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
    Hai dạng: mặc định là nút TRÒN chỉ có mũi tên (chỉ để nhảy xuống, không cần chữ);
    thêm .has-new khi có tin mới thì nở ra thành viên thuốc có chữ để nó đập vào mắt.
    flex: none BẮT BUỘC: .transcript là flex dọc, nút là flex item nên mặc định BỊ CO theo
-   chiều chính (chiều cao). Thiếu nó thì nút tròn 32px bị bóp còn 15px, méo thành bầu dục. */
-#newMsgBtn { position: sticky; bottom: 6px; align-self: center; display: none; z-index: 3;
+   chiều chính (chiều cao). Thiếu nó thì nút tròn 32px bị bóp còn 15px, méo thành bầu dục.
+   .jv-new-msg: the same button in the Team chat (chat-scroll.js). */
+#newMsgBtn, .jv-new-msg { position: sticky; bottom: 6px; align-self: center; display: none; z-index: 3;
   flex: none; align-items: center; justify-content: center; gap: 5px;
   background: var(--panel-solid); border: 1px solid var(--text3); color: var(--text);
   width: 32px; height: 32px; padding: 0; border-radius: 50%;
   /* Bóng đậm hơn --shadow-1 vì nút NỔI ĐÈ lên chữ của tin nhắn; bóng nhạt là nó chìm vào nền chữ. */
   font-size: 13px; cursor: pointer; box-shadow: var(--shadow-2);
   transition: color 0.15s, border-color 0.15s, background 0.15s; }
-#newMsgBtn.has-new { width: auto; height: auto; padding: 5px 14px; border-radius: 16px;
+#newMsgBtn.has-new, .jv-new-msg.has-new { width: auto; height: auto; padding: 5px 14px; border-radius: 16px;
   border-color: var(--accent); color: var(--accent); }
-#newMsgBtn.show { display: inline-flex; }
-#newMsgBtn:hover { background: var(--accent-wash-2); color: var(--accent); border-color: var(--accent); }
+#newMsgBtn.show, .jv-new-msg.show { display: inline-flex; }
+#newMsgBtn:hover, .jv-new-msg:hover { background: var(--accent-wash-2); color: var(--accent); border-color: var(--accent); }
 
 /* Mồi tải tin cũ ở ĐẦU khung chat (app.js). Cuộn tới đây là tự kéo khúc cũ hơn về; nút chỉ
    là đường lui khi trình duyệt không có IntersectionObserver, nên để nhạt, đừng tranh mắt
@@ -1346,6 +1439,20 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 /* Bên máy tính số thứ tự là thừa: dãy vạch đã nói vị trí bằng hình rồi. */
 #chatMarks .cm-so { display: none; }
 
+/* 0.374.0: answers pinned into the contents (pin button under an answer, chat-marks.js). They sit among the questions
+   in conversation order, marked by a pin instead of a number, in the accent colour on the rail as well. */
+.cm-vach.cm-ghim { height: 3px; background: var(--accent); opacity: .7; }
+#chatMarks .cm-muc.cm-ghim .cm-so { display: inline-flex; }
+.cm-muc.cm-ghim .cm-so { display: inline-flex; vertical-align: -2px; color: var(--accent); }
+.cm-muc.cm-ghim .cm-so svg { width: 13px; height: 13px; }
+.msg-javis.cm-vua-nhay .bubble { animation: cmNhay 1.2s ease; }
+/* The pin button appears once the answer is saved (it has a message id); while it streams there is nothing to pin. */
+.msg-javis:not([data-mid]) .msg-act[data-act="pin"] { display: none; }
+.msg-act svg { width: 14px; height: 14px; vertical-align: -2px; }
+.msg-act.on { color: var(--accent); }
+/* A pinned answer keeps its button row visible, so the filled pin says it is in the contents. */
+.msg-javis[data-pinned] .msg-acts { opacity: 1; }
+
 /* Điện thoại: nút đứng TRÊN HÀNG NHÃN (JS cắm vào .panel-acts hoặc .chatpage-bar), không
    còn là lớp dính trong khung cuộn - xem ngoại lệ ở đầu chat-marks.js. Ở đó khối bọc phải là
    một ô bình thường trên hàng, và nút không được định vị tuyệt đối nữa. */
@@ -1421,6 +1528,8 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   text-align: center; color: var(--text3); font-size: 12px; font-family: var(--font);
   padding: 2px 12px; opacity: 0.85;
 }
+/* 0.354.0: the turn moved to the next route (out of quota). Stays in the chat, readable on a phone. */
+.msg-ghichu.msg-doiduong { font-size: 16px; opacity: 1; padding: 4px 12px; }
 /* Trả lời của lệnh "/" hệ thống (/status, /usage, /tasks...). Nền nhạt, chữ nhỏ hơn và viền
    trái màu nhấn: nhìn ra ngay đây là KẾT QUẢ LỆNH của giao diện chứ không phải lời của model. */
 .msg-lenh .bubble {
@@ -1495,14 +1604,14 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .cp-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cp-chips { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; }
 .cp-gap { flex: 1 1 auto; }
-.cp-plus, .cp-fast {
+.cp-plus, .cp-limit {
   flex: none; width: 32px; height: 32px; border-radius: 50%; padding: 0;
   border: 1px solid var(--border); background: transparent; color: var(--text2);
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
   transition: border-color .15s, color .15s, background .15s;
 }
-.cp-plus:hover, .cp-plus[aria-expanded="true"], .cp-fast:hover { border-color: var(--accent); color: var(--accent); }
-.cp-plus:focus-visible, .cp-fast:focus-visible, .cp-eff:focus-visible, .mic-big:focus-visible,
+.cp-plus:hover, .cp-plus[aria-expanded="true"], .cp-limit:hover, .cp-limit[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.cp-plus:focus-visible, .cp-limit:focus-visible, .cp-eff:focus-visible, .mic-big:focus-visible,
 .send-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cp-eff {
   flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
@@ -1510,20 +1619,42 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
   color: var(--accent-ink); font-family: var(--font); font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .cp-eff:hover, .cp-eff[aria-expanded="true"] { border-color: var(--accent); }
-/* Fast mode bolt: still when off; when on, an orange background with a moving shine and a gently pulsing bolt. */
-.cp-fast[aria-pressed="true"] {
+.cp-limit[hidden] { display: none; }
+/* Plan usage ring (plan-limit.js, 0.329.0): fills with the larger of the 5-hour and weekly meters,
+   green, then amber from 50%, red from 80%. Grey while no number has come in yet. */
+.cp-limit svg { transform: rotate(-90deg); }
+.cp-limit circle { fill: none; stroke-width: 4.5; }
+.cp-limit .lim-bg { stroke: var(--border); }
+.cp-limit .lim-fg { stroke-linecap: round; stroke: var(--text3); transition: stroke-dasharray .4s ease, stroke .2s; }
+.cp-limit[data-muc="ok"] .lim-fg { stroke: var(--green, #3fb27f); }
+.cp-limit[data-muc="warn"] .lim-fg { stroke: var(--warn-ink); }
+.cp-limit[data-muc="bad"] .lim-fg { stroke: var(--red); }
+.cp-limit[data-muc="bad"] { border-color: var(--red); }
+/* Fast mode, now in the Effort popover's top-right corner: still when off; when on, an orange background with a
+   moving shine and a gently pulsing bolt. The chip shows a small bolt while it is on. */
+.cp-eff-fast { display: inline-flex; color: var(--accent); }
+.cp-eff-fast[hidden] { display: none; }
+.eff-fast {
+  margin-left: auto; flex: none; width: 32px; height: 32px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text2);
+  display: inline-flex; align-items: center; justify-content: center; align-self: center;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.eff-fast:hover { border-color: var(--accent); color: var(--accent); }
+.eff-fast:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eff-fast[aria-pressed="true"] {
   color: var(--on-accent); border-color: var(--accent);
   background: linear-gradient(110deg, var(--accent) 0%, var(--accent-ink) 25%, var(--accent) 50%, var(--accent-solid) 75%, var(--accent) 100%);
   background-size: 250% 100%; animation: fastWave 1.6s linear infinite;
 }
-.cp-fast[aria-pressed="true"] svg { animation: fastZap 1.6s ease-in-out infinite; }
-.cp-fast[aria-disabled="true"] { opacity: .45; cursor: help; }
+.eff-fast[aria-pressed="true"] svg { animation: fastZap 1.6s ease-in-out infinite; }
+.eff-fast[aria-disabled="true"] { opacity: .45; cursor: help; }
 @keyframes fastWave { to { background-position: -250% 0; } }
 @keyframes fastZap { 50% { transform: scale(1.12); } }
 @media (prefers-reduced-motion: reduce) {
-  .cp-fast[aria-pressed="true"], .cp-fast[aria-pressed="true"] svg { animation: none; }
+  .eff-fast[aria-pressed="true"], .eff-fast[aria-pressed="true"] svg { animation: none; }
 }
-/* Pinned working folder chip, right after the bolt (composer-folder.js, 0.158.0). */
+/* Pinned working folder chip, right after the usage ring (composer-folder.js, 0.158.0). */
 .cp-pin { display: inline-flex; align-items: center; gap: 5px; height: 30px; max-width: 190px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text2);
   font: inherit; font-size: 12.5px; cursor: pointer; flex: 0 1 auto; min-width: 0; }
@@ -1590,6 +1721,11 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 @media (max-width: 860px) {
   .dict-cancel, .dict-stop { width: 40px; height: 40px; }
   .dict-bar { height: 40px; }
+}
+/* 0.409.0: on a touch screen the box is only a display while recording; a tap on it must not focus it and bring the
+   keyboard (and iOS's AutoFill bubble) back (composer-dictate.js). */
+@media (pointer: coarse) {
+  .hud-voice.dictating .voice-input { pointer-events: none; }
 }
 .voice-input {
   flex: none; background: transparent; border: none; border-radius: 0;
@@ -1864,11 +2000,16 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .panel-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .panel-bar h3 { font-size: 16px; color: var(--text); }
 .pb-actions { display: flex; gap: 8px; }
-.s-btn { background: var(--accent2); color: var(--on-accent); border: none; padding: 8px 16px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+/* Primary and secondary button pair. Both carry a 1px border (transparent on the solid one) and the same
+   line-height, so a .s-btn and a .s-btn-ghost side by side are the same height. */
+.s-btn { background: var(--accent2-solid); color: var(--on-accent2); border: 1px solid transparent; padding: 7px 16px; border-radius: 8px; font-size: 16px; font-weight: 600; line-height: 1.25; cursor: pointer; }
 .s-btn:hover { opacity: 0.88; }
-.s-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.s-btn-ghost { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); padding: 7px 14px; border-radius: 8px; font-size: 14px; cursor: pointer; }
-.s-btn-ghost:hover { color: var(--text); border-color: var(--accent2); }
+.s-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Orange solid variants take the dark-on-orange ink: white on the dark theme's orange is only 2.6:1. */
+.s-btn.run, .s-btn.sk3-new { color: var(--on-accent); }
+.s-btn-ghost { background: var(--btn-fill); color: var(--text); border: 1px solid var(--btn-line); padding: 7px 14px; border-radius: 8px; font-size: 16px; font-weight: 500; line-height: 1.25; cursor: pointer; }
+.s-btn-ghost:hover { color: var(--text); background: var(--btn-fill-hover); border-color: var(--accent2); }
+.s-btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .empty { color: var(--text3); font-size: 15px; padding: 30px; text-align: center; grid-column: 1/-1; line-height: 1.7; }
 .dim { color: var(--text3); font-size: 13px; }
@@ -1924,7 +2065,7 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .wps-task { font-size: 13px; color: var(--text); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .wps-name { font-size: 11px; color: var(--text3); margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.s-btn.run { background: var(--accent-solid); padding: 6px 12px; font-size: 14px; }
+.s-btn.run { background: var(--accent-solid); padding: 6px 12px; font-size: 16px; }
 @keyframes wf-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(168,139,250,0); }
   50% { box-shadow: 0 0 0 5px var(--accent2-wash-2); }
@@ -2288,13 +2429,9 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .cside-more:hover { background: var(--info-wash); border-color: var(--info-line);
   color: var(--text); }
 
-/* nút Lịch sử (sessions-ui): nằm INLINE trong hàng nút header (.hud-actions) để không đè
-   lên các nút Cài đặt/Đọc/Reset như khi còn position:fixed. Bấm vào là sang trang Trò chuyện. */
-#jv-sess-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
-  border-radius: 20px; white-space: nowrap; flex-shrink: 0;
-  border: 1px solid var(--info-line); background: var(--info-wash); color: var(--info-ink);
-  font: 600 12px/1 var(--font, system-ui); cursor: pointer; }
-#jv-sess-btn:hover { border-color: var(--info-line); color: var(--text-hi); }
+/* Nút Lịch sử và nút Reset hội thoại ở thanh trên cùng đã bỏ (06/11/2026, chủ repo: "không cần thiết").
+   #resetBtn vẫn nằm trong DOM nhưng ẩn: nút "+" hội thoại mới trên điện thoại (mobile-chat.js) bấm hộ nó. */
+#resetBtn { display: none !important; }
 
 /* ===== Thanh chọn model + effort ngay trên khung chat ===== */
 /* KHÔNG đặt overflow:hidden lên hàng này. Popup đổi model (.mb-pop) là con position:absolute
@@ -2320,6 +2457,13 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .mb-pin[hidden] { display: none; }
 .mb-pin svg, .mb-pin .ic { width: 12px; height: 12px; }
 .mb-chip.is-pin-broken .mb-pin { color: var(--warn-ink); }
+/* Owner, 05/11/2026: a fallback card is answering (the chosen one is out of quota): amber dot and border. */
+.mb-chip.is-fallback .mb-dot { background: var(--warn-ink); }
+.mb-chip.is-fallback { border-color: var(--warn-ink); }
+.mb-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px;
+  font-weight: 600; line-height: 1.5; vertical-align: middle; white-space: nowrap; }
+.mb-tag.is-limited { color: var(--warn-ink); border: 1px solid var(--warn-ink); }
+.mb-tag.is-running { color: var(--green); border: 1px solid var(--green); }
 
 .mb-caret { opacity: .6; font-size: 10px; }
 .mb-pop { position: absolute; bottom: calc(100% + 6px); left: 8px; z-index: 60; width: 340px;
@@ -2359,7 +2503,30 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .cp-pin-here { color: var(--accent-ink, var(--accent)); font-weight: 600; }
 @media (pointer: coarse) { .cp-in { width: 44px; height: 44px; } }
 .eff-pop { padding: 14px 16px; width: min(330px, calc(100vw - 32px)); }
-.eff-head { display: flex; align-items: baseline; gap: 8px; font-size: 15px; }
+.eff-head { display: flex; align-items: baseline; gap: 8px; font-size: 15px; min-height: 32px; }
+.eff-head .eff-lbl, .eff-head .eff-val { align-self: center; }
+/* Plan usage popover (plan-limit.js): two meters with their reset times, like Claude's "Plan usage limits". */
+.lim-pop { width: min(320px, calc(100vw - 32px)); }
+.lim-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.lim-h { font-size: 16px; font-weight: 600; color: var(--text); }
+.lim-who { font-size: 13px; color: var(--text3); }
+.lim-row { margin-top: 12px; }
+.lim-row-h { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; color: var(--text); }
+.lim-pct { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.lim-pct.lim-ok { color: var(--text2); }
+.lim-pct.lim-warn { color: var(--warn-ink); }
+.lim-pct.lim-bad { color: var(--red); }
+.lim-bar { height: 8px; border-radius: 999px; background: var(--bg3); overflow: hidden; margin: 6px 0 4px; }
+.lim-bar i { display: block; height: 100%; border-radius: 999px; min-width: 4px; }
+.lim-bar i.lim-ok { background: var(--green, #3fb27f); }
+.lim-bar i.lim-warn { background: var(--warn-ink); }
+.lim-bar i.lim-bad { background: var(--red); }
+.lim-reset { font-size: 13px; color: var(--text3); }
+.lim-het { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--red) 12%, transparent); }
+.lim-het-h { margin: 0; font-size: 14px; font-weight: 600; color: var(--red); }
+.lim-het-r { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--text2); }
+.lim-at, .lim-none { margin: 12px 0 0; font-size: 13px; line-height: 1.45; color: var(--text3); }
+.lim-none { color: var(--text2); }
 .eff-lbl { color: var(--text2); }
 .eff-val { color: var(--accent-ink); font-weight: 600; }
 .eff-ends { display: flex; justify-content: space-between; font-size: 13px; color: var(--text2); margin: 12px 0 6px; }
@@ -2383,6 +2550,9 @@ li.task-done > .dv-ttext { text-decoration: line-through; text-decoration-color:
 .mb-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
   font-size: 13px; color: var(--text); cursor: pointer; }
 .mb-item:hover { background: var(--bg3); }
+.mb-follow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 6px;
+  border: 1px dashed var(--border); border-radius: 8px; background: none; color: var(--text); font-size: 13px; cursor: pointer; }
+.mb-follow:hover { background: var(--bg3); }
 .mb-item.cur { background: var(--accent-wash-2); color: var(--accent); }
 .mb-item .tick { width: 14px; color: var(--green); flex: none; }
 .mb-empty { font-size: 12px; color: var(--text3); padding: 4px 10px 8px; }
@@ -2467,6 +2637,22 @@ body.jv-lb-open { overflow: hidden; }        /* khoá cuộn nền để lăn ch
 @media (max-width: 700px) {
   .jv-lb-bar { padding: 8px 10px; }
   .jv-lb-nut button { padding: 6px 9px; }
+}
+/* 0.358.0: a gallery of every picture in the chat. Counter "2 / 4" in the bar, round arrows on the sides (a swipe does
+   the same on a phone), the first and last picture dim the arrow that leads nowhere. */
+.jv-lb-dem { color: #fff; font-size: 16px; font-variant-numeric: tabular-nums; flex: none; opacity: .9; }
+.jv-lb-di { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; display: inline-flex; align-items: center;
+  justify-content: center; width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.45); color: #fff; cursor: pointer; font-size: 20px; }
+.jv-lb-di:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); }
+.jv-lb-di:disabled { opacity: .25; cursor: default; }
+.jv-lb-truoc { left: calc(12px + env(safe-area-inset-left, 0px)); }
+.jv-lb-sau { right: calc(12px + env(safe-area-inset-right, 0px)); }
+.jv-lb.that .jv-lb-di, .jv-lb.pinch .jv-lb-di { display: none; }
+@media (max-width: 700px) {
+  .jv-lb-di { width: 44px; height: 44px; background: rgba(0, 0, 0, 0.3); }
+  .jv-lb-truoc { left: calc(4px + env(safe-area-inset-left, 0px)); }
+  .jv-lb-sau { right: calc(4px + env(safe-area-inset-right, 0px)); }
 }
 
 /* Code block: header nhan ngon ngu + nut Copy + to mau cu phap */
@@ -2595,6 +2781,22 @@ body.jv-artpanel-open { overflow: hidden; }
 .jv-ap-mermaid { min-height: 100%; display: flex; align-items: center; justify-content: center;
   padding: 16px; background: var(--bg); color: var(--text2); }
 .jv-ap-mermaid svg { max-width: 100%; height: auto; }
+/* SVG picture in the viewer: an <img> on white, zoomed by pan-zoom.js (0.405.0). */
+.jv-ap-svg { height: 100%; background: #fff; }
+/* pan-zoom.js: the box clips, the content moves from its top left corner, touch gestures stay with the box. */
+.jv-pz { position: relative; overflow: hidden !important; padding: 0 !important; display: block !important;
+  height: 100%; min-height: 0; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.jv-pz.jv-pz-grab { cursor: grabbing; }
+.jv-pz > .jv-pz-item { position: absolute; left: 0; top: 0; transform-origin: 0 0; border-radius: 0; }
+.jv-pz-bar { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 12px; background: var(--panel-solid, var(--bg2)); border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .25); cursor: default; z-index: 2; }
+.jv-pz-bar button { width: 36px; height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--text2);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.jv-pz-bar button:hover { background: var(--bg3); color: var(--text-hi, var(--text)); }
+.jv-pz-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jv-pz-bar svg { width: 18px; height: 18px; }
+.jv-pz-pct { min-width: 52px; text-align: center; font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; }
 /* MẶC ĐỊNH XUỐNG DÒNG. `overflow-wrap: anywhere` để một chuỗi dài không có dấu cách (URL,
    chuỗi base64, đường dẫn) cũng ngắt được - thiếu nó thì "xuống dòng" vẫn đẩy ngang một dòng
    duy nhất ra ngoài hộp. Không còn nút tắt (bỏ 0.64.79): chủ repo không hiểu nó để làm gì. */
@@ -2757,8 +2959,38 @@ body.ne-full-on .cview { z-index: 250; }
 .ne-body.mode-preview .ne-prev { border-left: none; }
 .ne-img { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; }
 .ne-img img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+/* Images inserted into a note (note-images.js): an image never overflows the editor; an image
+   with a dragged size keeps that size and only shrinks when the frame is narrower. The resize
+   grip floats (position:fixed) at the bottom-right corner. The grip and the status toast sit at z-index 3100 so they stay above the full-screen editor
+   (.ne-full, 1000) and the file-editor modal (3000). */
+.ne-wys img.chat-img { max-width: 100%; height: auto; }
+.ni-grip { position: fixed; z-index: 3100; width: 14px; height: 14px; border-radius: 4px; display: none;
+  background: var(--accent-solid); border: 2px solid var(--bg); cursor: ew-resize; }
+.ni-grip.show { display: block; }
+body.ni-dragging, body.ni-dragging * { cursor: ew-resize !important; user-select: none; }
+.ni-status { position: fixed; z-index: 3100; right: 18px; bottom: 18px; max-width: 360px; padding: 8px 12px;
+  border-radius: 8px; font-size: 16px; color: var(--text); background: var(--panel-solid);
+  border: 1px solid var(--border); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.ni-status.show { opacity: 1; }
+.ni-status.ni-ok { border-color: var(--green); }
+.ni-status.ni-err { border-color: var(--red); }
 /* .pdf xem tại chỗ (nền trắng vì trình xem PDF của trình duyệt tự vẽ trên nền của nó) */
 .ne-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+/* 0.332.0: the PDF scrolls inside this box. Safari on an iPhone grows a PDF iframe to the whole document;
+   without a scrolling box of its own the page scrolled instead and took the toolbar with it. */
+.ne-pdf { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+.ne-pdf .ne-frame { display: block; }
+/* Round close button floating over a PDF on a phone: reachable however far the PDF was scrolled.
+   Bottom right, clear of the toolbar's own close button and of the iPhone home bar. */
+.pdf-float-close { display: none; }
+@media (max-width: 860px), (pointer: coarse) {
+  .pdf-float-close { display: flex; align-items: center; justify-content: center; position: fixed; z-index: 3500;
+    right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    width: 52px; height: 52px; padding: 0; border-radius: 50%; cursor: pointer;
+    background: rgba(20, 20, 28, .82); color: #fff; border: 1px solid rgba(255, 255, 255, .35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .35); }
+  .pdf-float-close .ic, .pdf-float-close svg { width: 24px; height: 24px; }
+}
 .ne-dl { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   color: var(--text2); padding: 24px; text-align: center; }
 .ne-dl .ne-dl-ico { font-size: 46px; }
@@ -2848,32 +3080,143 @@ body.ne-full-on .cview { z-index: 250; }
   mask: var(--ic-check) center/contain no-repeat;
 }
 
-/* Menu lệnh / (chat-slash.js) */
+/* Menu lệnh / (chat-slash.js). 0.290.0: một dòng mỗi lệnh, cột lệnh chung một bề rộng (--slash-cmdw do JS tính
+   theo lệnh dài nhất, font đơn cách) nên mô tả thẳng hàng; chữ nhỏ lại theo yêu cầu chủ repo 22/10 ("font chữ hơi
+   to quá"). Trước đó mỗi dòng hai tầng, cột lệnh tự co theo từng lệnh nên mô tả lệch nhau. */
 .slash-menu {
   position: fixed;
   z-index: 999;
-  max-height: 280px;
+  max-height: min(320px, 50vh);
   overflow-y: auto;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: var(--shadow-2);
   padding: 4px;
+  font-size: 14px;
+  --slash-cmdw: 9ch;
 }
+.slash-head {
+  padding: 8px 10px 3px; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  color: var(--text3); text-transform: uppercase;
+}
+.slash-head:first-child { padding-top: 4px; }
 .slash-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "cmd name" "cmd desc";
-  gap: 0 10px;
-  padding: 6px 10px;
-  border-radius: 7px;
+  display: flex; align-items: center; gap: 12px;
+  min-height: 32px; padding: 5px 10px;
+  border-radius: 8px;
   cursor: pointer;
 }
 .slash-item.active, .slash-item:hover { background: var(--bg3); }
-.slash-cmd { grid-area: cmd; align-self: center; font-weight: 600; color: var(--accent); white-space: nowrap; }
-/* name + desc: mỗi cái CẮT 1 DÒNG, tràn thì "..." (min-width:0 để ellipsis chạy trong grid) */
-.slash-name { grid-area: name; font-size: 13px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slash-desc { grid-area: desc; font-size: 11px; color: var(--text3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slash-cmd {
+  flex: none; width: var(--slash-cmdw); font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Tên và mô tả nối tiếp trên CÙNG một dòng, tràn thì "..." (min-width:0 để ellipsis chạy trong flex). */
+.slash-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.35; }
+.slash-name { color: var(--text); font-size: 14px; }
+.slash-desc { color: var(--text3); font-size: 13px; margin-left: 8px; }
+.slash-kind {
+  flex: none; font-size: 12px; color: var(--text3); padding: 1px 7px; border-radius: 999px; background: var(--bg);
+}
+@media (max-width: 520px) {
+  /* Điện thoại hẹp: mô tả xuống dòng dưới tên thay vì bị cắt còn vài chữ. */
+  .slash-item { align-items: flex-start; }
+  .slash-cmd { padding-top: 1px; width: min(var(--slash-cmdw), 12ch); }
+  .slash-text { white-space: normal; }
+  .slash-name, .slash-desc { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Lệnh đã gõ trong ô nhập được tô màu (chat-slash.js syncHl): lớp gương .ci-hl nằm DƯỚI ô nhập, chữ y hệt,
+   riêng token lệnh bọc <mark>. Lúc đó chữ của ô nhập trong suốt, chỉ còn con trỏ. Nền của mark mở rộng bằng
+   box-shadow chứ không bằng padding: padding làm chữ gương lệch khỏi chữ thật. */
+.ci-hl {
+  position: absolute; margin: 0; border: 0; box-sizing: border-box; overflow: hidden; pointer-events: none;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; color: var(--text);
+}
+.ci-hl[hidden] { display: none; }
+.ci-hl .ci-cmd {
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 4px;
+  font-weight: inherit;
+}
+.voice-input.has-cmd { position: relative; color: transparent; caret-color: var(--text); }
+.voice-input.has-cmd::selection { color: transparent; background: color-mix(in srgb, var(--accent) 28%, transparent); }
+
+/* ===== Thanh MỤC TIÊU của /goal ngay trên khung nhập (chat-goal.js, 0.290.0) =====
+   Một dòng như thanh "Pursuing goal" của Codex: biểu tượng, nhãn trạng thái, mục tiêu (cắt "..."), đồng hồ,
+   xoá, tạm dừng/chạy tiếp, mở chi tiết. Nhiều mục tiêu thì có ô số ở đầu, bấm xổ danh sách lên trên. */
+.goal-bar {
+  position: relative; flex: none; margin: 0 16px 6px; min-width: 0;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--bg2); color: var(--text2);
+  font-size: 14px;
+}
+.goal-bar[hidden] { display: none; }
+.gb-row { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 3px 6px 3px 8px; min-width: 0; }
+.gb-ic { flex: none; display: inline-flex; color: var(--accent); }
+.gb-paused .gb-ic, .gb-waiting .gb-ic { color: var(--text3); }
+.gb-main {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 4px 2px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.gb-lbl { flex: none; color: var(--text3); }
+.gb-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.gb-time { flex: none; font-variant-numeric: tabular-nums; color: var(--text3); font-size: 13px; padding: 0 4px; }
+.gb-btn {
+  flex: none; width: 30px; height: 30px; border-radius: 8px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; color: var(--text2);
+}
+.gb-btn:hover { background: var(--bg3); color: var(--text); }
+.gb-del:hover { color: var(--red); }
+.gb-exp svg { transform: rotate(180deg); transition: transform .15s; }
+.gb-exp[aria-expanded="true"] svg { transform: none; }
+.gb-btn:focus-visible, .gb-main:focus-visible, .gb-count:focus-visible, .gb-open:focus-visible, .gb-item-main:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+.gb-count {
+  flex: none; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--accent-line, var(--border)); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); font: inherit; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.gb-count[aria-expanded="true"] { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.gb-detail { padding: 2px 14px 10px 36px; display: flex; flex-direction: column; gap: 4px; }
+.gb-full { color: var(--text); font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gb-meta { color: var(--text2); font-size: 14px; line-height: 1.4; }
+.gb-open {
+  align-self: flex-start; margin-top: 4px; padding: 5px 12px; min-height: 32px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: none; color: var(--text2); font: inherit; font-size: 14px;
+}
+.gb-open:hover { color: var(--accent); border-color: var(--accent); }
+/* Danh sách nhiều mục tiêu: bật lên PHÍA TRÊN thanh, không đẩy khung chat. */
+.gb-pop {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60;
+  width: min(460px, calc(100vw - 32px)); max-height: min(55vh, 420px); overflow: auto;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-3); padding: 6px;
+}
+.gb-pop-head { padding: 6px 8px 6px; font-weight: 600; color: var(--text); font-size: 15px; }
+.gb-item { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border-radius: 10px; }
+.gb-item:hover { background: var(--bg3); }
+.gb-item.gb-cur { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.gb-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text3); }
+.gb-item.gb-running .gb-dot { background: var(--green, #3fb27f); animation: bgPulse 1.4s ease-in-out infinite; }
+.gb-item.gb-waiting .gb-dot { background: var(--warn-ink); }
+.gb-item-main {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 4px 2px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.gb-item-txt { color: var(--text); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gb-item-meta { color: var(--text3); font-size: 13px; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .gb-item.gb-running .gb-dot { animation: none; } .gb-exp svg { transition: none; } }
+@media (max-width: 860px) {
+  .goal-bar { margin: 0 12px 6px; }
+  .gb-btn { width: 34px; height: 34px; }
+  /* Điện thoại: bỏ nhãn trạng thái để nhường chỗ cho chữ mục tiêu. Biểu tượng (cam là đang chạy, xám là dừng
+     hay chờ) và nút chạy tiếp/tạm dừng đã nói trạng thái; khung chi tiết ghi đủ bằng chữ. */
+  .gb-lbl { display: none; }
+  .gb-detail { padding-left: 14px; }
+}
 
 /* ==========================================================================
    ICON (Lucide) - dashboard/icons.js dựng thẻ <svg class="ic">
@@ -3047,6 +3390,25 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .cb-nhomcho-d { font-size: 12.5px; line-height: 1.5; color: var(--text3); }
 .cb-nhomcho-a { display: flex; gap: 6px; flex-wrap: wrap; }
 .cb-acts { display: flex; gap: 6px; margin-top: 2px; }
+/* 0.309.0: a long error (a raw API reply, a Google link) used to run out of the card. Wrap anywhere. */
+.cb-err, .cb-quyen-t, .cb-nhomcho-t, .cb-nhomcho-d { overflow-wrap: anywhere; word-break: break-word; }
+/* Status row on the card: counts only, the details open in a popup (owner, 25/10/2026). */
+.cb-st { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  min-height: 40px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-3); color: var(--text); font: inherit; font-size: 16px; cursor: pointer; text-align: left; }
+.cb-st.err { border-color: var(--danger-line); background: var(--danger-wash); }
+.cb-st.warn { border-color: var(--warn-line); background: var(--warn-wash); }
+.cb-st.wait { border-color: var(--info-line); background: var(--info-wash); }
+.cb-st:hover { filter: brightness(0.97); }
+.cb-st-chips { display: flex; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.cb-st-chip { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.cb-st-chip.err { color: var(--red); }
+.cb-st-chip.warn { color: var(--warn-ink); }
+.cb-st-chip.wait { color: var(--text); }
+.cb-st-more { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--text3); }
+.cb-st-body { display: flex; flex-direction: column; gap: 10px; }
+.cb-st-body .cb-err, .cb-st-body .cb-quyen, .cb-st-body .cb-nhomcho-d { font-size: 16px; }
+.cb-st-body .cb-nhomcho-t { font-size: 16px; }
 .cb-empty { grid-column: 1 / -1; text-align: center; color: var(--text3); padding: 40px 16px;
   font-size: 14px; line-height: 1.7; }
 .cb-empty b { color: var(--text); display: block; margin: 8px 0 4px; font-size: 15px; }
@@ -3115,6 +3477,8 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 /* Active hours (0.130.0): start and end side by side, they read as one range. */
 .cb-gio-truc { display: flex; gap: 12px; }
 .cb-gio-truc label { flex: 1; min-width: 0; }
+.cb-tag-list { margin: 6px 0 8px; }
+#cbTagMore { width: 100%; }
 /* Ba ô có mặc định dùng được ngay (ngôn ngữ tự nhận, không chuyển người thật, chưa khai nhóm)
    gấp vào đây. Ô mức quyền thì KHÔNG: đọc sót nó là mất tiền thật. */
 .cb-nangcao { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 4px; }
@@ -3200,8 +3564,9 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
    và nhãn "Trả lời:" xuống dòng giữa chừng. Ép về block để câu chảy tự nhiên. */
 .cb-meta.cb-tt .cb-tt-t { display: block; color: var(--text2); line-height: 1.5; }
 .cb-meta.cb-tt .cb-tt-t svg { vertical-align: -2px; margin-right: 4px; }
-.cb-mn { position: relative; margin-left: auto; }
-.cb-mn-b { font-size: 18px; line-height: 1; padding: 4px 10px; }
+/* flex on the wrapper so the "..." button stretches to the row: it used to sit 8px shorter than Sửa/Thử. */
+.cb-mn { position: relative; margin-left: auto; display: flex; }
+.cb-mn-b { font-size: 18px; line-height: 1; padding: 4px 12px; }
 .cb-mn-l { position: absolute; right: 0; bottom: calc(100% + 4px); min-width: 170px; z-index: 5;
   background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 4px;
   box-shadow: var(--shadow-3, 0 10px 30px rgba(0, 0, 0, .35)); display: flex; flex-direction: column; }
@@ -3259,13 +3624,14 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .inud-nut { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .inud-day { flex: 1 1 auto; }
 .inud-nut button {
-  border-radius: 9px; font: 600 13px var(--font); cursor: pointer; padding: 9px 14px;
-  border: 1px solid var(--border); background: none; color: var(--text2);
+  border-radius: 9px; font: 600 16px/1.25 var(--font); cursor: pointer; padding: 9px 14px; min-height: var(--ctl-h);
+  border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--text);
 }
-.inud-tat { font-weight: 500 !important; color: var(--text3) !important; border-color: transparent !important; padding-left: 0 !important; }
+.inud-tat { font-weight: 500 !important; color: var(--text3) !important; border-color: transparent !important; background: none !important; padding-left: 0 !important; }
 .inud-tat:hover { color: var(--text2) !important; }
-.inud-sau:hover { color: var(--text); border-color: var(--info-line); }
-.inud-cai { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+.inud-sau:hover { color: var(--text); background: var(--btn-fill-hover); border-color: var(--info-line); }
+/* --accent-solid + --on-accent: white on the brand orange was 2.6:1 (dark) and 3.4:1 (light). */
+.inud-cai { background: var(--accent-solid) !important; border-color: var(--accent-solid) !important; color: var(--on-accent) !important; }
 .inud-cai:disabled { opacity: .6; cursor: default; }
 
 /* ===== Chip project + ngăn kéo Hướng dẫn / File / Link ==========================
@@ -3455,6 +3821,12 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .pd-panel.tha-file { outline: 2px dashed var(--accent); outline-offset: -5px; }
 .pd-panel.tha-file .pd-drop { border-color: var(--accent-line); color: var(--accent); }
 .pd-frow { display: flex; gap: 7px; }
+/* Báo ngay trong form link: ô trống, link đã có sẵn, server từ chối, hoặc đã thêm xong. */
+.pd-fmsg { font-size: 13px; line-height: 1.5; color: var(--text2); }
+.pd-fmsg.loi { color: var(--danger-ink); }
+/* Hàng vừa thêm hoặc trùng với link vừa dán sáng lên một nhịp để mắt tìm thấy ngay. */
+.pd-row.nhay { animation: pdNhay 1.6s ease-out; }
+@keyframes pdNhay { 0%, 35% { background: var(--accent-wash); } 100% { background: transparent; } }
 .pd-ok, .pd-huy { padding: 7px 13px; border-radius: 8px; cursor: pointer;
   font-family: inherit; font-size: 13px; border: 1px solid var(--border); }
 .pd-ok { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
@@ -3708,6 +4080,12 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
   filter: drop-shadow(0 0 5px var(--pet-face, #f28c28));
 }
 .pet-rig { transform-origin: 160px 160px; }
+/* Nghỉ yên (pet.js, 0.418.0): vòng vẽ JS dừng, vành quay bằng hoạt ảnh này (pet.js đặt thời lượng và steps để chỉ đổi
+   10 lần mỗi giây, bắt đầu từ đúng chỗ vành đang đứng qua --vanh0), mắt liếc bằng transition. Transition cũng theo
+   steps(10): đổi transform của nhóm SVG bắt trình duyệt dàn lại bố cục MỖI khung, đo được bận 17% so với 14% khi chỉ
+   đổi 10 lần cho cả cú liếc (mỗi lần dịch chưa tới 1px, mắt không thấy bậc). */
+@keyframes petVanh { from { stroke-dashoffset: var(--vanh0, 0); } to { stroke-dashoffset: calc(var(--vanh0, 0) - 360); } }
+.pet.pet-nghi .pet-rig, .pet.pet-nghi .pet-eyes { transition: transform 2.4s steps(10); }
 
 /* PHẢN ỨNG TẠM của linh vật (pet.js -> dienPhanUng, 0.64.39). Gắn lên <svg> chứ không lên
    .pet-body: .pet-body đang giữ transform trượt ra/nép vào, đè lên đó là pet giật về mép.
@@ -3762,6 +4140,54 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .pet-menu button:hover span { background: var(--accent-wash-2); color: var(--accent); }
 .pet-menu button span svg { width: 16px; height: 16px; }
 .pet-menu button b { font-weight: 500; }
+/* A feature that cannot run right now (pet-menu.js): greyed out, the reason on a second line under its name. */
+.pet-menu button[disabled] {
+  display: grid; grid-template-columns: 28px auto; column-gap: 10px; align-items: center;
+  cursor: not-allowed; opacity: .62; white-space: normal; width: 250px; max-width: 70vw; text-align: left;
+}
+.pet-menu button[disabled]:hover { background: transparent; color: var(--text2); }
+.pet-menu button[disabled] span { grid-row: span 2; }
+.pet-menu button small { font-size: 12px; line-height: 1.3; color: var(--text3); }
+/* Mascot menu card of Settings > Mascot (pet-menu.js): rows reuse the Reorder box's, readable on a phone. */
+.pm-card .pm-desc { margin: 2px 0 10px; font-size: 16px; color: var(--text2); }
+.pm-card .pm-alert { margin: 0 0 10px; font-size: 16px; color: var(--red, #d64545); display: flex; gap: 6px; align-items: flex-start; }
+.pm-card .pm-alert svg { width: 16px; height: 16px; flex: none; margin-top: 3px; }
+.pm-list { display: flex; flex-direction: column; gap: 2px; margin: 0 -6px 10px; max-height: min(60vh, 520px); overflow-y: auto; }
+.pm-row .bp-label, .pm-opt .bp-label { font-size: 16px; }
+.pm-name { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 1px; }
+.pm-why, .pm-sub { font-size: 14px; color: var(--text3); line-height: 1.35; overflow-wrap: anywhere; }
+.pm-row.pm-off .bp-label, .pm-opt.pm-off .bp-label { color: var(--text2); }
+.pm-row .bp-grip { cursor: grab; touch-action: none; border: 0; background: none; padding: 0; font: inherit; }
+.pm-row .bp-grip:focus-visible, .pm-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pm-eye { flex: none; width: 38px; height: 38px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg3);
+  color: var(--text2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.pm-eye:hover:not(:disabled) { color: var(--text); }
+.pm-eye:disabled { opacity: .4; cursor: not-allowed; }
+.pm-eye svg { width: 17px; height: 17px; }
+.pm-x:hover:not(:disabled) { color: var(--red, #d64545); border-color: var(--red, #d64545); }
+.pm-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pm-row .bp-grip.pm-nograb { cursor: not-allowed; opacity: .4; }
+.pm-actions { flex-wrap: wrap; }
+.pm-actions .gcard-btn svg { width: 15px; height: 15px; vertical-align: -2px; }
+.pm-actions .gcard-btn:disabled { opacity: .45; cursor: not-allowed; }
+.pm-status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 16px; }
+.pm-status svg { width: 16px; height: 16px; flex: none; }
+.pm-search { padding: 0 16px 10px; }
+.pm-search input { width: 100%; font-size: 16px; }
+.pm-pick-list { padding-bottom: 12px; }
+.pm-opt { width: 100%; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.pm-opt[disabled] { cursor: default; opacity: .7; }
+.pm-opt[disabled]:hover { background: none; }
+.pm-tag { flex: none; max-width: 45%; font-size: 14px; color: var(--text3); text-align: right; }
+.pm-empty { padding: 14px 10px; font-size: 16px; color: var(--text2); }
+@media (hover: none), (pointer: coarse) {
+  .pm-row { min-height: 58px; }
+  .pm-eye { width: 44px; height: 44px; }
+  .pm-row .bp-grip { width: 44px; height: 44px; }
+  .pm-row .bp-label, .pm-opt .bp-label { font-size: 17px; }
+  .pm-opt { min-height: 58px; }
+  .pm-why, .pm-sub, .pm-tag { font-size: 15px; }
+}
 /* translateY(-50%) phải nằm TRONG keyframe: hoạt ảnh ghi đè cả thuộc tính transform, nên để
    nó ở luật tĩnh thôi là menu nhảy xuống nửa chiều cao suốt lúc hoạt ảnh chạy. */
 @keyframes petMenuVao {
@@ -3994,8 +4420,8 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
 .rsa-goals-title { font-size: 13px; font-weight: 600; color: var(--text2); margin-top: 12px; }
 /* 0.175.0: các câu giải thích của Auto gập lại, mở khi cần đọc. */
 /* Nút "i" mở lời giải thích (0.175.0, info-tip.js): chủ repo thấy tab Cài đặt "nhiều thông tin quá". Nút tròn nhỏ cạnh tiêu đề
-   mục, đứng cùng dòng chữ; vùng chạm nới ra 44px trên cảm ứng bằng một lớp trong suốt, không đẩy chữ. Khối giải thích là một ô
-   nền nhạt ngay dưới tiêu đề. */
+   mục, đứng cùng dòng chữ; vùng chạm nới ra 44px trên cảm ứng bằng một lớp trong suốt, không đẩy chữ. Từ 0.399.0 khối giải
+   thích luôn ẩn trong trang và mở trong popup (.info-pop, bên dưới). */
 .info-i { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
   margin-left: 6px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text3); cursor: pointer;
   vertical-align: middle; flex: none; }
@@ -4007,6 +4433,23 @@ div.cb-quyen > svg { flex: none; margin-top: 2px; }
   font-size: 16px; line-height: 1.55; font-weight: 400; display: block; overflow-wrap: anywhere;
   text-align: left; text-transform: none; letter-spacing: normal; }
 .info-body[hidden] { display: none; }
+/* 0.399.0 (owner, 2026-10-29): the (i) opens a popup next to the button instead of unfolding the block in the page
+   (info-tip.js). Above every modal (3210) and drawer; a sheet from the bottom on a phone, with a dimmed backdrop. On a
+   computer the backdrop is clear and only catches the click that closes the popup. */
+.info-pop-bg { position: fixed; inset: 0; z-index: 3400; background: transparent; }
+.info-pop { position: fixed; z-index: 3401; width: min(360px, calc(100vw - 16px)); max-height: min(60vh, 480px); overflow-y: auto;
+  box-sizing: border-box; padding: 12px 40px 12px 14px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--panel-solid, var(--bg2)); color: var(--text2); box-shadow: var(--shadow-2); font-size: 14px; line-height: 1.55;
+  text-align: left; text-transform: none; letter-spacing: normal; font-weight: 400; overflow-wrap: anywhere; outline: none; }
+.info-pop-c > * { margin: 0; font-size: inherit; }
+.info-pop-c > :is(div, p, ul, ol, pre) + :is(div, p, ul, ol, pre) { margin-top: 6px; }
+.info-pop-x { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; display: inline-flex; align-items: center;
+  justify-content: center; border: 0; border-radius: 8px; background: none; color: var(--text3); cursor: pointer; padding: 0; }
+.info-pop-x:hover { background: var(--surface-2); color: var(--text); }
+.info-pop-x svg { width: 16px; height: 16px; }
+.info-pop.sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 70vh; border-radius: 18px 18px 0 0;
+  padding: 18px 48px 22px 18px; font-size: 16px; }
+@media (max-width: 600px) { .info-pop-bg { background: var(--scrim, rgba(0, 0, 0, .45)); } .info-pop-x { width: 40px; height: 40px; } }
 div.info-body > * { margin: 0; font-size: inherit; }
 /* Block, not flex (review 0.214.0): a folded sentence often mixes <b>, <code> and <a> with text, and flex turned each of
    those into its own stacked line. Block children (one line per div, p or list) still get a small gap. */
@@ -4080,10 +4523,12 @@ div.info-body > * { margin: 0; font-size: inherit; }
    selects the nearest selectable text when the spot under the finger is not, and the card, the lifted copy and the
    time row under a bubble were still selectable. Now the whole message and the whole layer are not; fields stay.
    Android too (owner): pointer: coarse catches phones that misreport hover, and html.mp-holding (set by msg-press.js
-   while the card is open) switches selection off on the whole page, whatever the browser. */
+   while the card is open) switches selection off on the whole page, whatever the browser.
+   0.266.0 (owner): main chat messages (.msg) are selectable again; there only the reaction corner opens the menu
+   (msg-press.js holdOnly), and holding the text gives the phone's own selection and Copy. */
 @media (hover: none), (pointer: coarse) {
-  .mp-host .msg, .mp-host .tm-msg, .mp-host .jr-rx-btn, .mp-host .tm-rx-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-  .mp-host .msg :is(input, textarea, [contenteditable]), .mp-host .tm-msg :is(input, textarea, [contenteditable]) { -webkit-user-select: text; user-select: text; }
+  .mp-host .tm-msg, .mp-host .jr-rx-btn, .mp-host .tm-rx-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  .mp-host .tm-msg :is(input, textarea, [contenteditable]) { -webkit-user-select: text; user-select: text; }
 }
 .mp-layer, .mp-layer *, html.mp-holding, html.mp-holding * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .mp-layer { position: fixed; inset: 0; z-index: 3200; }
@@ -4138,3 +4583,371 @@ div.info-body > * { margin: 0; font-size: inherit; }
 select option, select optgroup { background-color: var(--bg2); color: var(--text); }
 /* 0.206.0: a message sent while Javis works shows where it is (read by the running turn, or waiting to run next). */
 .msg-user .steer-note { font-size: 12px; color: var(--text3); text-align: right; margin: 3px 4px 0; }
+
+/* Facebook Messenger card on the Connections page (0.311.0) */
+.msc .msc-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 12px; max-width: 760px; }
+.msc .msc-new { max-width: 760px; margin-bottom: 12px; }
+.msc-form-head { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 8px; }
+.msc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.msc-field label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text2); margin-bottom: 4px; }
+.msc-field .js-input { width: 100%; box-sizing: border-box; }
+.msc-warn { border-left: 3px solid var(--warn, #e0a33e); padding: 6px 10px; margin: 6px 0 10px; display: flex; align-items: center; gap: 6px; }
+.msc-sum { margin-top: 12px; font-weight: 600; }
+.msc-sum.ok { color: var(--green, #2c7a4b); }
+.msc-sum.bad { color: var(--danger-ink, #b3261e); }
+.msc-checks { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.msc-row { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+.msc-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+.msc-mark svg { width: 14px; height: 14px; }
+.msc-row.ok .msc-mark { background: color-mix(in srgb, var(--green, #2c7a4b) 18%, transparent); color: var(--green, #2c7a4b); }
+.msc-row.bad .msc-mark { background: color-mix(in srgb, var(--danger-ink, #b3261e) 16%, transparent); color: var(--danger-ink, #b3261e); }
+.msc-row.warn .msc-mark { background: color-mix(in srgb, var(--warn, #e0a33e) 20%, transparent); color: var(--warn-ink, #b9821f); }
+.msc-row-detail { color: var(--text2); font-size: 13px; word-break: break-all; }
+.msc-row-fix { color: var(--text2); font-size: 14px; margin-top: 2px; }
+/* 0.434.0: Log in with Facebook (addresses to copy, Page picker) and the comment mode. 16px fields stop iOS zoom. */
+.msc-copy, .msc-cmt-row { margin-top: 10px; }
+.msc-copy-row { display: flex; gap: 8px; align-items: center; }
+.msc-copy-row .js-input { flex: 1; min-width: 0; font-size: 16px; }
+.msc-copy-row .s-btn-ghost { flex: none; }
+.msc-cmt { width: 100%; box-sizing: border-box; font-size: 16px; min-height: 44px; }
+.msc-manual-toggle { margin-top: 14px; }
+.msc-manual { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.msc-pick-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.msc-pick-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; min-height: 44px; border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; font-size: 16px; }
+.msc-pick-row input { width: 20px; height: 20px; flex: none; }
+.msc-pick-pic { width: 32px; height: 32px; border-radius: 50%; flex: none; object-fit: cover; display: inline-flex;
+  align-items: center; justify-content: center; }
+.msc-pick-name { display: flex; flex-direction: column; min-width: 0; }
+.msc-result { margin-top: 14px; }
+/* 0.436.1: link to the GitHub guide at the end of the form heading. */
+.msc-guide { margin-left: auto; font-size: 15px; font-weight: 500; color: var(--link-ink); white-space: nowrap; }
+
+/* Searchable agent picker (agent-picker.js). The native <select> stays in the DOM, hidden; this button opens a
+   popover on desktop and a bottom sheet on phones. Every text here is at least 16px (owner rule, also stops iOS zoom). */
+.ap-native { display: none !important; }
+.agent-picker { position: relative; min-width: 0; }
+.ap-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; box-sizing: border-box;
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--field-bg);
+  color: var(--text); font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
+.ap-btn:hover { border-color: var(--text3); }
+.ap-btn:focus-visible, .ap-btn[aria-expanded="true"] { outline: none; border-color: var(--info-line); }
+.ap-btn:disabled { opacity: .6; cursor: default; }
+.ap-btn-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.ap-btn-name, .ap-btn-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+.ap-btn-name { font-weight: 600; }
+.ap-btn-desc { color: var(--text3); }
+.ap-btn-chev { flex: 0 0 auto; display: inline-flex; color: var(--text3); font-size: 18px; }
+.ap-layer { position: fixed; inset: 0; z-index: 3400; }
+.ap-pop { position: fixed; display: flex; flex-direction: column; min-height: 0; box-sizing: border-box;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-2);
+  overflow: hidden; }
+.ap-head { display: none; }
+.ap-search { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin: 8px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--field-bg); color: var(--text3); font-size: 18px; }
+.ap-search:focus-within { border-color: var(--info-line); }
+.ap-q { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text);
+  font: inherit; font-size: 16px; padding: 10px 0; }
+.ap-q::placeholder { color: var(--text3); }
+.ap-list { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 6px; }
+.ap-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.ap-row.is-active { background: var(--surface-2); }
+.ap-row.is-sel { background: var(--accent-wash-2); }
+.ap-row.is-sel.is-active { background: var(--accent-wash-2); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.ap-row.is-off { opacity: .5; cursor: default; }
+.ap-row-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ap-row-name { font-size: 16px; font-weight: 600; color: var(--text); line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-row-desc { font-size: 16px; color: var(--text3); line-height: 1.4; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ap-row-check { flex: 0 0 auto; width: 20px; display: inline-flex; color: var(--accent-ink); font-size: 18px; }
+.ap-empty { padding: 14px 16px 18px; font-size: 16px; color: var(--text3); overflow-wrap: anywhere; }
+/* Phone: a bottom sheet with a title row and a close button, tall enough to scroll, rows with a full touch height. */
+.ap-layer.is-phone { background: var(--scrim); }
+.ap-layer.is-phone .ap-pop { left: 0; right: 0; bottom: 0; top: auto; width: auto; height: 82vh; height: 82dvh;
+  max-height: none; border-radius: 16px 16px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: ap-up .18s ease-out; }
+.ap-layer.is-phone .ap-pop:focus { outline: none; }
+.ap-layer.is-phone .ap-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 0 16px; }
+.ap-title { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-x { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--text2); font-size: 22px; cursor: pointer; }
+.ap-x:hover { background: var(--surface-2); }
+.ap-layer.is-phone .ap-row { min-height: 56px; padding: 10px 12px; }
+.ap-layer.is-phone .ap-list { padding: 0 8px 12px; }
+@keyframes ap-up { from { transform: translateY(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ap-layer.is-phone .ap-pop { animation: none; } }
+/* Workflow steps (studio.js): the picker takes the old select's place and hides with it when the step is folded. */
+.step-header .agent-picker { flex: 1; }
+.step-row:not(.open) .step-header .agent-picker { display: none; }
+.st-verify .agent-picker { flex: 1; min-width: 160px; }
+
+/* GitHub inside chat (0.362.0, github-connect.js): the built-in card on Connections and the repo chip. */
+.gh-card .gh-local { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+/* Same 32px as the logos of the other connection cards (.ico-img), not the 18px menu icon (0.438.1). */
+.gh-card .conn-ico.gh-logo { display: inline-flex; align-items: center; justify-content: center; }
+.gh-card .conn-ico.gh-logo .cp-ic { width: 32px; height: 32px; }
+.gh-card .gh-acc { cursor: default; }
+.gh-card .gh-acc:hover { background: transparent; }
+.gh-local-head { font-weight: 600; font-size: 16px; }
+.gh-local-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 16px; }
+.gh-local-name { font-weight: 600; word-break: break-all; }
+.gh-local-meta { color: var(--text2); flex: 1; min-width: 120px; }
+.gh-chip svg { width: 15px; height: 15px; flex: none; }
+/* Repos of this brain (owner, 06/11/2026): the look of the Tasks page (tasks.css .nv-rrow, .nv-sw, .nv-dots, .nv-sheet).
+   tasks.css loads only on that page, so the dialog carries its own copy under gh-* names. */
+.gh-rlist { display: flex; flex-direction: column; gap: 8px; }
+.gh-rrow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--hairline, var(--border));
+  border-radius: 12px; background: var(--surface-1, var(--bg2)); font-size: 16px; }
+.gh-rav { width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3, var(--bg3)); color: var(--text); }
+.gh-rav .cp-ic { width: 20px; height: 20px; }
+.gh-rbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.gh-rti { font-weight: 600; font-size: 16.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-rown { color: var(--text3); font-weight: 500; }
+.gh-rrow.off .gh-rti { color: var(--text2); }
+.gh-rmeta { display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--text3); font-size: 14px; }
+.gh-rmeta > span { display: inline-flex; align-items: center; gap: 5px; }
+.gh-rmeta .ic, .gh-rmeta .cp-ic { width: 14px; height: 14px; flex: none; }
+.gh-rmeta .gh-on { color: var(--green); }
+.gh-sw { position: relative; width: 44px; height: 26px; flex: none; border-radius: 999px; border: 0; background: var(--surface-3, var(--bg3)); cursor: pointer; padding: 0; }
+.gh-sw span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s; }
+.gh-sw[aria-checked="true"] { background: var(--accent); }
+.gh-sw[aria-checked="true"] span { left: 21px; }
+.gh-dots { width: 36px; height: 36px; flex: none; border: 0; border-radius: 10px; background: none; color: var(--text3); cursor: pointer; display: grid; place-items: center; }
+.gh-dots:hover, .gh-dots:focus-visible { background: var(--surface-2, var(--bg3)); color: var(--text); }
+.gh-dots:disabled { opacity: .45; cursor: default; }
+.gh-sheet-scrim { position: fixed; inset: 0; z-index: 210; background: var(--scrim, rgba(0,0,0,.45)); }
+.gh-sheet { position: fixed; z-index: 211; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100vw - 32px)); max-height: 80vh;
+  overflow: auto; background: var(--panel-solid, var(--bg2)); border: 1px solid var(--hairline, var(--border)); border-radius: 16px; box-shadow: var(--shadow-3); padding: 12px; font-size: 16px; }
+.gh-sheet-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-left: 12px; }
+.gh-sheet-h b { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-x { width: 38px; height: 38px; flex: none; border: 0; border-radius: 10px; background: none; color: var(--text2); cursor: pointer; display: grid; place-items: center; }
+.gh-x:hover { background: var(--surface-2, var(--bg3)); }
+.gh-sheet-b { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.gh-mi { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; }
+.gh-mi:hover, .gh-mi:focus-visible { background: var(--surface-2, var(--bg3)); }
+.gh-mi .ic { width: 18px; height: 18px; flex: none; }
+.gh-mi.danger { color: var(--red); }
+@media (max-width: 600px) {
+  .gh-rrow { gap: 10px; padding: 12px; }
+  .gh-rav { width: 34px; height: 34px; }
+  /* A sheet from the bottom on a phone, as the info popups do. */
+  .gh-sheet { top: auto; bottom: 0; transform: translateX(-50%); width: 100vw; border-radius: 18px 18px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+}
+/* Repo and branch picker in the + menu (0.368.0, after Claude Code's picker): sections, grouped rows, two-line names. */
+.gh-sec { padding: 10px 10px 4px; font-size: 12.5px; color: var(--text3); font-weight: 600; }
+.gh-group { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.gh-group > .cp-mi { border-radius: 0; }
+.gh-group > .cp-mi + .cp-mi { border-top: 1px solid var(--border); }
+.gh-group > .cp-mi:hover, .gh-group > .cp-mi:focus-visible { background: var(--bg2); }
+.cp-menu [hidden] { display: none; }
+.gh-two { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gh-owner { font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-tick { flex: none; display: inline-flex; color: var(--accent, #3b82f6); }
+.gh-tick svg { width: 18px; height: 18px; }
+.gh-results { display: flex; flex-direction: column; gap: 2px; }
+/* "Add repos on GitHub" is a link styled as a menu row, and the same link inline in the empty list (0.438.1). */
+a.cp-mi.gh-more-conn { text-decoration: none; color: inherit; }
+.gh-results .cp-empty a[data-gh-add] { color: var(--accent, #3b82f6); text-decoration: underline; }
+/* Pinned to the bottom of the scrolling + menu so a long repo list never hides it (0.432.4). The negative bottom and
+   margins cover the menu's 6px padding, so rows do not show through underneath. */
+.gh-foot { position: sticky; bottom: -6px; z-index: 1; display: flex; flex-direction: column; gap: 2px; margin: 8px -6px -6px;
+  padding: 4px 6px 6px; background: var(--bg2); border-top: 1px solid var(--border); }
+.gh-repo .cp-mi-hint { display: inline-flex; align-items: center; gap: 4px; }
+.gh-repo .cp-mi-hint .cp-ic { width: 14px; height: 14px; }
+.gh-chip-br { display: inline-flex; align-items: center; gap: 3px; color: var(--text2); font-size: 12px; max-width: 90px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.gh-chip-br .cp-ic { width: 12px; height: 12px; }
+.cp-pin.gh-chip { max-width: 260px; }
+.cp-pin.gh-chip > span:first-of-type { min-width: 3ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) { .cp-pin.gh-chip { max-width: 200px; } .gh-chip-br { max-width: 64px; } }
+.gh-checks-box { width: 100%; min-height: 160px; font-family: var(--mono, ui-monospace, monospace); font-size: 16px; line-height: 1.45; resize: vertical; }
+/* "Sign in with GitHub" (0.430.0): one wide button first, the token box under a thin "or" rule, a big readable code. */
+.gh-signin { display: flex; align-items: center; gap: 8px; }
+.gh-signin-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; font-size: 17px; }
+.gh-signin-btn .cp-ic { width: 20px; height: 20px; }
+.gh-or { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; color: var(--text3); font-size: 15px; }
+.gh-or::before, .gh-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.gh-code { margin: 14px 0; padding: 14px 10px; text-align: center; font-family: var(--mono, ui-monospace, monospace); font-size: 32px;
+  font-weight: 700; letter-spacing: 4px; border: 1px dashed var(--border); border-radius: 12px; user-select: all; overflow-wrap: anywhere; }
+.gh-form .lv-form-act a.s-btn, .gh-card a.conn-chip { text-decoration: none; display: inline-flex; align-items: center; }
+@media (max-width: 480px) { .gh-code { font-size: 26px; letter-spacing: 2px; } }
+/* GitHub status icon per conversation (0.365.0, spec 12.1): right of the title in the chat list, and in the repo chip. */
+.cside-item.has-gh { position: relative; }
+.cside-item.has-gh .ci-title { padding-right: 36px; }
+.gh-st { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; border-radius: 6px; padding: 2px; line-height: 1; }
+.cside-item .gh-st { position: absolute; right: 8px; top: 7px; }
+.gh-st svg { width: 17px; height: 17px; }
+.gh-st b { font-size: 16px; font-weight: 700; line-height: 1; }
+.gh-st:hover, .gh-st:focus-visible { background: var(--info-wash); outline: none; }
+.gh-working { color: var(--accent, #c06a2b); }
+.gh-working svg { animation: gh-pulse 1.6s ease-in-out infinite; }
+.gh-ready { color: var(--green, #2c7a4b); }
+.gh-merged { color: #8957e5; }
+.gh-broken, .gh-warn { color: var(--danger-ink, #b3261e); }
+.gh-sub-stuck::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--danger-ink, #b3261e); margin-left: 1px; }
+@keyframes gh-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .gh-working svg { animation: none; } }
+.gh-chip .gh-st { margin-left: 2px; padding: 0; }
+.gh-detail-body { display: flex; flex-direction: column; gap: 14px; padding: 6px 2px 4px; font-size: 16px; max-height: 70vh; overflow-y: auto; }
+.gh-row { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.gh-row-head code { font-size: 16px; word-break: break-all; }
+.gh-row-state { color: var(--text2); }
+.gh-checks { margin: 0; padding-left: 18px; color: var(--text2); }
+.gh-chk-failure, .gh-chk-timed_out { color: var(--danger-ink, #b3261e); }
+.gh-chk-success { color: var(--green, #2c7a4b); }
+.gh-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; cursor: pointer; }
+.gh-table-wrap { overflow-x: auto; margin-top: 10px; }
+.gh-table { border-collapse: collapse; width: 100%; font-size: 16px; }
+.gh-table th, .gh-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+
+/* Long paste preview (0.430.1, chat-paste.js): the whole pasted text, then paste inline / attach .txt / cancel. */
+.jv-paste-overlay {
+  position: fixed; inset: 0; z-index: 9999; padding: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .48);
+}
+.jv-paste-dialog {
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(720px, 100%); max-height: min(90vh, 800px); min-height: 0;
+  background: var(--panel-solid, var(--surface-1)); color: var(--text);
+  border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+  box-shadow: 0 14px 50px rgba(0, 0, 0, .25);
+}
+.jv-paste-dialog h2 { margin: 0; font-size: 19px; font-weight: 650; }
+.jv-paste-dialog p { color: var(--text2); font-size: 15px; line-height: 1.5; margin: 0; }
+.jv-paste-preview {
+  box-sizing: border-box; display: block; width: 100%; min-height: 160px; flex: 1 1 auto;
+  height: min(48vh, 380px); resize: vertical; padding: 12px 14px;
+  font-size: 15px; line-height: 1.6; font-family: inherit; white-space: pre-wrap;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; overflow: auto;
+}
+.jv-paste-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.jv-paste-actions .gcard-btn { min-height: 42px; font-size: 15px; }
+@media (max-width: 520px) {
+  .jv-paste-dialog { padding: 14px; }
+  .jv-paste-preview { font-size: 16px; }
+  .jv-paste-actions .gcard-btn { flex: 1 1 auto; }
+}
+
+/* .html in the brain editor (0.430.2, html-preview.js): the page itself fills the editor, white like a browser tab. */
+.ne-html-prev { padding: 0; display: flex; flex-direction: column; border-left: none; background: #fff; }
+.ne-html-prev .jv-html-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; display: block; }
+
+/* Brain picker (0.431.0, brain-picker.js): drawn by Javis over the hidden #graphSource, the same on every device. */
+.graph-select.bp-native { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0;
+  pointer-events: none; overflow: hidden; clip: rect(0 0 0 0); margin: 0; padding: 0; border: 0; }
+.bp-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 240px; height: 30px;
+  padding: 0 8px 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3);
+  color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.bp-btn:hover, .bp-btn[aria-expanded="true"] { border-color: var(--accent); }
+.bp-btn-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bp-btn-n { flex: none; font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.bp-btn-chev { flex: none; display: inline-flex; color: var(--text2); }
+.bp-btn-chev svg { width: 15px; height: 15px; }
+
+.bp-shade { position: fixed; inset: 0; z-index: 1000; display: none; }
+.bp-shade.open { display: block; }
+.bp-pop { position: fixed; z-index: 1001; display: none; flex-direction: column; max-height: min(70vh, 520px);
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 18px 50px var(--shadow-veil, rgba(0,0,0,.35)); overflow: hidden; }
+.bp-pop.open { display: flex; }
+.bp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 12px 8px 16px; }
+.bp-title { font-size: 15px; font-weight: 650; }
+.bp-head-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--text2); font: inherit; font-size: 13px; cursor: pointer; }
+.bp-head-btn svg { width: 15px; height: 15px; }
+.bp-head-btn:hover { color: var(--text); border-color: var(--accent); }
+.bp-head-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); font-weight: 600; }
+.bp-head-btn[hidden] { display: none; }
+.bp-search-wrap { position: relative; margin: 0 12px 8px; }
+.bp-search-wrap[hidden] { display: none; }
+.bp-search-ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text3); display: inline-flex; }
+.bp-search-ic svg { width: 15px; height: 15px; }
+.bp-search { width: 100%; box-sizing: border-box; height: 36px; padding: 0 10px 0 32px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; outline: none; }
+.bp-search:focus { border-color: var(--accent); }
+.bp-hint { margin: 0 16px 8px; font-size: 13px; color: var(--text2); line-height: 1.45; }
+.bp-err { margin: 0 16px 8px; font-size: 13px; color: var(--red, #e5484d); }
+.bp-hint[hidden], .bp-err[hidden] { display: none; }
+.bp-list { overflow-y: auto; padding: 0 6px 8px; overscroll-behavior: contain; }
+.bp-group { padding: 10px 10px 4px; font-size: 11px; letter-spacing: .8px; text-transform: uppercase; color: var(--text3); }
+.bp-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px; border-radius: 10px;
+  cursor: pointer; outline: none; position: relative; background: var(--bg2); }
+.bp-row:hover, .bp-row:focus-visible { background: var(--bg3); }
+.bp-row.on { background: var(--accent-wash-2, rgba(255,140,60,.12)); }
+.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 14px; font-weight: 700; background: var(--bg3); color: var(--text2);
+  border: 1px solid var(--border); }
+.bp-row.on .bp-dot { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.bp-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bp-label { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-sub { font-size: 12.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.bp-check { flex: none; width: 20px; color: var(--accent); display: inline-flex; }
+.bp-check svg { width: 18px; height: 18px; }
+.bp-empty { padding: 18px 12px; text-align: center; color: var(--text3); font-size: 14px; }
+.bp-move { cursor: default; }
+.bp-grip { flex: none; width: 30px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text3); cursor: grab; touch-action: none; border-radius: 8px; }
+.bp-grip:hover { color: var(--text); background: var(--bg3); }
+.bp-grip svg { width: 17px; height: 17px; }
+.bp-arrow { flex: none; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3);
+  color: var(--text2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.bp-arrow svg { width: 16px; height: 16px; }
+.bp-arrow:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.bp-arrow:disabled { opacity: .35; cursor: default; }
+.bp-row.dragging { z-index: 2; box-shadow: 0 8px 24px var(--shadow-veil, rgba(0,0,0,.3)); background: var(--bg3); }
+.bp-row.dragging .bp-grip { cursor: grabbing; }
+.bp-list .bp-row:not(.dragging) { transition: transform .12s ease; }
+
+/* Phone: a sheet from the bottom, bigger text and rows for a thumb. */
+@media (max-width: 860px) {
+  .rail-sys .bp-btn { flex: 1 1 calc(100% - 34px); min-width: 0; max-width: 100%; height: 42px; font-size: 16px; padding: 0 10px 0 12px; }
+  .rail-sys .bp-btn-n { font-size: 13px; }
+  .bp-shade.open { background: var(--scrim, rgba(0,0,0,.45)); }
+  .bp-pop.sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 78dvh;
+    border-radius: 18px 18px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .bp-pop.sheet::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px;
+    background: var(--border); margin: 8px auto 0; }
+  .bp-pop.sheet .bp-head { padding: 10px 14px 10px 18px; }
+  .bp-pop.sheet .bp-title { font-size: 17px; }
+  .bp-pop.sheet .bp-head-btn { height: 38px; font-size: 15px; padding: 0 14px; }
+  .bp-pop.sheet .bp-search { height: 42px; font-size: 16px; }
+  .bp-pop.sheet .bp-hint, .bp-pop.sheet .bp-err { font-size: 14px; }
+  .bp-pop.sheet .bp-row { min-height: 58px; padding: 8px 12px; }
+  .bp-pop.sheet .bp-label { font-size: 17px; }
+  .bp-pop.sheet .bp-sub { font-size: 14px; }
+  .bp-pop.sheet .bp-dot { width: 36px; height: 36px; font-size: 16px; }
+  .bp-pop.sheet .bp-arrow { width: 42px; height: 42px; }
+  .bp-pop.sheet .bp-grip { width: 38px; height: 44px; }
+}
+
+/* Meta connection card (0.446.0): the apps one connection covers, and Disconnect on each Page */
+.msc-apps { display: inline-flex; align-items: center; gap: 5px; margin: 4px 0 2px; flex-wrap: wrap; }
+.msc-app { display: inline-flex; line-height: 0; }
+.msc-app.soon { opacity: .38; filter: grayscale(.6); }
+.msc-acc .lv-actions .msc-del { color: var(--danger-ink, #b3261e); border-color: color-mix(in srgb, var(--danger-ink, #b3261e) 40%, transparent); }
+/* Instagram on the Meta card (0.447.0) */
+.msc-ig-tick { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-size: 15px; cursor: pointer; }
+.msc-ig-tick input { width: 20px; height: 20px; }
+.msc-ig-row label, .msc-ig-none { display: inline-flex; align-items: center; gap: 6px; }
+/* Meta card actions: Facebook Page and Threads side by side (0.448.0) */
+.msc-cat-act { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.msc-cat-act .gcard-btn { flex: 1 1 auto; }
+
+/* Nút "Cài lên điện thoại" ở chân menu (0.450.0, install-nudge.js gắn khi CHƯA chạy dạng app).
+   Cùng khuôn với "Tặng sao" ngay dưới (star-nudge.css): hàng riêng trải hết bề ngang, nhưng tông
+   cam thương hiệu thay vì vàng sao để hai nút không lẫn vào nhau. Chỉ dành cho điện thoại. */
+.rail-foot .rf-install {
+  order: 3; flex: 1 0 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; margin: 2px 0 0; padding: 0 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--accent-solid); background: var(--accent-solid); color: var(--on-accent);
+  font: 600 15px/1.2 var(--font);
+}
+.rail-foot .rf-install .ic { width: 17px; height: 17px; flex: none; }
+.rail-foot .rf-install .rf-install-chu { overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 861px) and (pointer: fine) { .rail-foot .rf-install { display: none; } }

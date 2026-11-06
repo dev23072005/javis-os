@@ -141,7 +141,7 @@ def _skill_frontmatter(name: str, desc: str, group: str, today: str) -> str:
 #
 # SKILL có thêm HAI rào nữa, vì hai đường hỏng dưới đây không tồn tại với agent/workflow:
 #   5. Skill HỆ THỐNG (javis-builder, ingest-source, query-wiki, lint-wiki, notes,
-#      html-to-webcake) là CẤM. Chúng do app ship và tự cập nhật theo bản mới; đụng vào một
+#      html-to-webcake, security-audit) là CẤM. Chúng do app ship và tự cập nhật theo bản mới; đụng vào một
 #      cái là nó thành bản của người dùng và app ngừng cập nhật đè lên - mất im lặng một
 #      năng lực mặc định. `system_sync.is_system_skill` là nguồn chuẩn duy nhất.
 #   6. Skill user đã TẮT (nằm trong `.disabled/`) cũng cấm - sửa nó là hồi sinh thứ người
@@ -408,6 +408,10 @@ class LearnDeps:
     # Đổi engine việc nền theo model phụ người dùng chọn (Claude / Codex / API rẻ).
     # None = giữ nguyên Claude như trước (test dựng deps tối giản không cần tiêm).
     aux_swap: Optional[Callable] = None
+    # M5: stage_agent_procedure(brain, slug, text) -> procedure id when the assistant has an active procedure
+    # overlay (its additions then wait for the owner instead of going live), None otherwise. Raises ValueError
+    # when the host checks refuse the text.
+    stage_agent_procedure: Optional[Callable] = None
 
 
 ALLOWED_WRITE_PREFIXES = ["memory", "Memory", "Wiki", "skills", ".claude/skills", "Javis",
@@ -920,10 +924,27 @@ class LearnFeature:
         return {"mode": "incremental", "changed": changed, "sig": sig, "n": len(files),
                 "reason": f"{len(changed)}/{len(files)} note đổi kể từ vòng trước"}
 
+    # Character cap for the memory index put in the learn prompt (dedup). Was 6000 of MEMORY.md alone (#934).
+    MEMORY_INDEX_PROMPT_MAX = 16000
+
     def _read_memory_index(self, brain: str) -> str:
+        """Every index line (MEMORY.md and secondary indexes) so the learn step sees every memory it might duplicate.
+        Only the `- [...](facts/...)` lines are kept, and a cut list says so instead of hiding it."""
         try:
-            idx = self.deps.brain_memory_dir(brain) / "MEMORY.md"
-            return idx.read_text(encoding="utf-8")[:6000] if idx.exists() else ""
+            import memory_index_files
+            text = memory_index_files.all_index_text(self.deps.brain_memory_dir(brain))
+            lines = [ln.rstrip() for ln in text.splitlines() if "](facts/" in ln]
+            if not lines:
+                return text[:self.MEMORY_INDEX_PROMPT_MAX]
+            out, total, cut = [], 0, 0
+            for ln in lines:
+                if total + len(ln) + 1 > self.MEMORY_INDEX_PROMPT_MAX:
+                    cut += 1
+                    continue
+                out.append(ln); total += len(ln) + 1
+            if cut:
+                out.append(f"- (... còn {cut} ký ức nữa không liệt kê hết - dùng Grep trong memory/facts/ để kiểm trước khi tạo mới)")
+            return "\n".join(out)
         except Exception:
             return ""
 
@@ -1036,7 +1057,7 @@ class LearnFeature:
                "  11. KHÔNG update chỉ để chữ đẹp hơn: phải có BẰNG CHỨNG trong batch này "
                "rằng làm theo skill cũ đã ra kết quả sai hoặc thiếu. Không có thì để yên. "
                "Skill hệ thống (javis-builder, ingest-source, query-wiki, lint-wiki, notes, "
-               "html-to-webcake) và skill ghi [chủ đã khoá] thì cấm đụng.\n\n"
+               "html-to-webcake, security-audit) và skill ghi [chủ đã khoá] thì cấm đụng.\n\n"
                if caps.get("skill") else "")
             + ("TASK (chống spam backlog): worker nền là HEADLESS - chỉ đọc/ghi file TRONG brain này "
                "và đọc dữ liệu qua MCP. Nó KHÔNG có tay user, KHÔNG có trình duyệt đã đăng nhập, "
@@ -1165,6 +1186,8 @@ class LearnFeature:
     # ── VERIFY agent + workflow (cùng lý do với skill: blast radius lớn - hiện thẳng Studio).
     # Gộp 1 spawn cho cả hai để không nhân đôi chi phí fork mỗi batch. ──
     async def _verify_agents_workflows(self, brain: str, manifest: dict, cfg: dict) -> None:
+        # Javis Core's file (2026-11-05) is the owner's to edit on its card; a learning round never rewrites it.
+        manifest["agents"] = [a for a in (manifest.get("agents") or []) if str(a.get("slug") or "").lower() != "javis-core"]
         agents = manifest.get("agents") or []
         wfs = manifest.get("workflows") or []
         if not agents and not wfs:
@@ -1469,6 +1492,20 @@ class LearnFeature:
                                 f"agent '{slug}': sửa vai chỉ được THÊM luật (add_rules/owner_rules)"
                                 + (", không viết lại cả thân" if body else ""))
                             continue
+                        if add_rules and self.deps.stage_agent_procedure is not None:
+                            # M5 (spec 8.3): an assistant on the improvement path gets its learned
+                            # additions as a procedure candidate for the owner, never a live write.
+                            try:
+                                staged = self.deps.stage_agent_procedure(
+                                    brain, slug, "\n".join(f"- {r}" for r in add_rules))
+                            except ValueError as e:
+                                rep["blocked"].append(f"agent '{slug}': bổ sung tự học bị từ chối ({e})")
+                                continue
+                            if staged:
+                                rep.setdefault("agent_procedures_staged", []).append(slug)
+                                add_rules = []
+                                if not owner_rules:
+                                    continue
                     # skills chỉ giữ slug ĐÃ tồn tại thật - fork có thể bịa tên skill.
                     sk_ok = [_slugify(s) for s in (a.get("skills") or []) if isinstance(s, str)
                              and skill_router.resolve_skill_file(root, _slugify(s))]
@@ -1639,9 +1676,13 @@ class LearnFeature:
     # ── merger cho file append-only (model KHÔNG được ghi trực tiếp) ──
     def _merge_memory_index(self, brain, slug, title, hook, written, root):
         try:
-            idx = self.deps.brain_memory_dir(brain) / "MEMORY.md"
+            import memory_index_files
+            mem_dir = self.deps.brain_memory_dir(brain)
+            idx = mem_dir / "MEMORY.md"
             text = idx.read_text(encoding="utf-8") if idx.exists() else ""
-            if f"facts/{slug}.md" in text:
+            # Listed in MEMORY.md OR a secondary index (memory_index_files, #934): updating a memory that lives in a
+            # secondary index used to append a duplicate line to MEMORY.md, the preloaded core.
+            if f"facts/{slug}.md" in text or memory_index_files.listed(mem_dir, slug):
                 return
             line = f"- [{title}](facts/{slug}.md) - {hook}".rstrip(" -")
             # Dòng giữ chỗ có ở MỌI ngôn ngữ của file hạt giống (brain_seed_i18n.GIU_CHO_BO_NHO):
@@ -1956,7 +1997,8 @@ class LearnFeature:
             facts_dir = mem_dir / "facts"
             idx = mem_dir / "MEMORY.md"
             files = sorted(facts_dir.glob("*.md")) if facts_dir.is_dir() else []
-            text = idx.read_text(encoding="utf-8") if idx.exists() else ""
+            import memory_index_files
+            text = memory_index_files.all_index_text(mem_dir)   # MEMORY.md + secondary indexes (#934)
             # Bỏ qua fact ĐÃ BỊ THAY THẾ: kéo nó vào index là đúng thứ `_curator_retire_memory`
             # ngay dưới vừa gỡ ra, hai vòng curator sẽ đá nhau mãi mãi.
             missing = [f for f in files

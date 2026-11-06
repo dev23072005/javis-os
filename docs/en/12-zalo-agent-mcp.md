@@ -55,7 +55,7 @@ Right after you sign Zalo in to Javis, the Inbox only holds messages from the mo
 
 - Javis takes the messages javis-zalo pulls in on every connect: about the last **2 weeks**, since Zalo does not allow going further back. At most 5,000 messages per run.
 - Only chats with **no message yet** in the Inbox are filled. Chats that already have messages are skipped, since old messages added later would show in the wrong order.
-- The bot **does not answer** these messages, they are **not counted as unread**, and groups still keep only their latest 100 messages as usual.
+- The bot **does not answer** these messages, they are **not counted as unread**, and groups still keep only their latest 1,000 messages as usual.
 - Right after scanning the QR code, wait a few minutes for Zalo to finish loading old messages before pressing it. Pressing again never duplicates anything.
 
 ## The MCP tools
@@ -70,6 +70,7 @@ Right after you sign Zalo in to Javis, the Inbox only holds messages from the mo
 | `zalo_review_join_requests` | Approve or reject people waiting to join | Dangerous |
 | `zalo_list_threads` | List the chats currently in the buffer | Read |
 | `zalo_search_threads` | Find a group or person by name | Read |
+| `zalo_get_labels` | The tags (labels) the owner set on chats in the Zalo app, for one chat or all (javis-zalo 1.6.0 and later) | Read |
 | `zalo_view_media` | Download/open an image, audio or video on the server (the brain does not see it, see `zalo_read_images` below) | Read |
 | `zalo_mark_read` | Mark as handled up to a cursor | Write |
 | `zalo_send_message` | Send a message to a person or group | Dangerous |
@@ -241,6 +242,15 @@ Four things worth knowing:
 - **If the group locks note or poll creation for members**, Zalo refuses and Javis reports that reason as is. If a command times out,
   Javis says it is **not sure whether it was created** and asks you to check the group before trying again, so you do not get two polls.
 - **With several Zalo accounts attached, Javis asks** which one to use, same as for sending images.
+
+## Bold, coloured text and "typing..." (since 0.413.0)
+
+A bot answering on personal Zalo now writes more like a person:
+
+- **Bold, italic, strikethrough and coloured text.** When the bot writes `**85.000đ**`, the customer sees bold text, not the stars. Colours are written `{red:50% off}`, with `red`, `orange`, `yellow`, `green`, plus `{big:...}` and `{small:...}` for the size. A `- ` line becomes `•`, a heading becomes a bold line. The bot is told to stress only one or two things, as a person texting would.
+- **"Typing...".** In private chats the customer sees the typing indicator while the bot writes its reply. This needs javis-zalo 1.9.0 or later; with an older one the bot answers as usual, only without the indicator. Groups never show it, since the bot chooses to stay silent on many messages there.
+
+Formatted messages go through `javis-zalo msg send --style`. If that command fails, the message still goes out as plain text with the symbols removed.
 
 ## Using it in chat
 

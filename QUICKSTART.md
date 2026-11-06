@@ -4,6 +4,29 @@
 
 Chạy Javis OS trong vài phút. Chi tiết từng phần: [docs/](docs/README.md).
 
+## Máy tính cá nhân (Windows, macOS) - tải bộ cài
+
+Cài Javis như một ứng dụng bình thường: tải một file, bấm mở, xong thì có biểu tượng JAVIS OS để bấm vào mỗi ngày. Bộ cài tự kiểm tra máy còn thiếu gì (Git, Python, Node, các bộ não AI) và tự cài phần thiếu.
+
+- **Windows 10/11:** tải [JavisOS-Setup.exe](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-Setup.exe), bấm đúp, bấm Next tới hết. Một cửa sổ đen hiện tiến trình cài (vài phút). Xong thì có biểu tượng JAVIS OS trên Desktop và Start menu.
+- **macOS 11 trở lên:** tải [JavisOS-macOS.dmg](https://github.com/blogminhquy/javis-os/releases/download/desktop/JavisOS-macOS.dmg), mở ra, kéo **JAVIS OS** vào **Applications**, rồi mở từ Launchpad. Lần đầu Terminal mở ra để cài (có thể hỏi đặt tài khoản quản trị Javis và mật khẩu máy Mac một lần).
+
+Bấm vào biểu tượng là Javis mở thành cửa sổ riêng (không thanh địa chỉ), Javis tự chạy cùng máy, nút **Cập nhật** trong app dùng được như thường. Dữ liệu nằm ở thư mục `JavisOS` trong thư mục người dùng; gỡ app không xoá thư mục này.
+
+**Cách cài không bị màn hình cảnh báo (khuyên dùng).** Hai bộ cài chưa ký số, nên tải bằng trình duyệt thì lần đầu máy sẽ chặn lại. Dán một dòng lệnh dưới đây thì không bị chặn, vẫn ra đúng bộ cài có logo Javis:
+- **Windows:** bấm Start, gõ `PowerShell`, mở lên, dán dòng này rồi Enter:
+  ```
+  irm https://raw.githubusercontent.com/blogminhquy/javis-os/main/packaging/windows/get-javis.ps1 | iex
+  ```
+- **macOS:** mở **Terminal** (Launchpad, gõ Terminal), dán dòng này rồi Enter:
+  ```
+  curl -fsSL https://raw.githubusercontent.com/blogminhquy/javis-os/main/packaging/macos/get-javis.sh | bash
+  ```
+
+Nếu đã tải file bằng trình duyệt và bị chặn:
+- Windows hiện "Windows protected your PC": bấm **More info** rồi **Run anyway**.
+- macOS báo không mở được: vào **System Settings → Privacy & Security**, kéo xuống bấm **Open Anyway**, rồi mở lại JAVIS OS.
+
 ## Cách 1 - Hostinger VPS (Docker Manager, 1-click)
 
 > 🛒 **Chưa có VPS?** [Đăng ký VPS Hostinger tại đây](https://www.hostinger.com?REFERRALCODE=UTRBLOGMIDSN). VPS có sẵn Docker Manager nên cài Javis đúng một cú bấm. Thuê xong quay lại làm các bước dưới.
@@ -21,7 +44,9 @@ Chạy Javis OS trong vài phút. Chi tiết từng phần: [docs/](docs/README.
 4. **Deploy**. Đợi 1-3 phút. Mở app bằng nút **Open** (hoặc `https://<DOMAIN_NAME>`).
 5. Lần đầu: màn hình sẽ hỏi tạo tài khoản admin. Sau đó đăng nhập Claude Code trong terminal container 1 lần: `claude auth login --claudeai`.
 
-Cập nhật bản mới: bấm **Redeploy** trong Docker Manager (image `:latest`, `pull_policy: always`). Dữ liệu brain giữ nguyên trong volume.
+VPS cài **Ubuntu 26** hay hệ điều hành trắng, không có Traefik của Hostinger: vẫn dán đúng link trên, bỏ trống `DOMAIN_NAME` cũng được: bấm **Open** là Javis tự chuyển sang `https://javis.srvXXXX.hstgr.cloud` hoặc `https://srvXXXX.hstgr.cloud` (từ 0.302.0). **Cài đặt → Tên miền** cho biết link đã chạy chưa. Container `javis-gateway` đi kèm tự cấp HTTPS cho `DOMAIN_NAME` khi cổng 80/443 trống (từ 0.300.0); nhớ mở cổng 80, 443 ở tường lửa.
+
+Cập nhật bản mới: bấm **⬆ Cập nhật ngay** trong app (trang Cập nhật), hoặc **Redeploy** trong Docker Manager (image `:latest`, `pull_policy: always`). Dữ liệu brain giữ nguyên trong volume.
 
 ## Cách 2 - Docker ở máy/VPS bất kỳ
 
@@ -52,6 +77,6 @@ Xem [docs/README.md](docs/README.md) - hướng dẫn từng chức năng (chat/
 
 ## Sự cố hay gặp
 
-- **Không cập nhật được bằng nút trong app trên Hostinger**: đúng thiết kế - trên Hostinger dùng **Redeploy** trong Docker Manager (nút trong app cần Watchtower, Hostinger hay chặn Docker socket).
+- **Nút cập nhật trong app không chạy trên Hostinger**: nút cần container `javis-watchtower` đi kèm (có sẵn từ 0.55.56). Stack hiện "Partially running" thì mở log container đó; không sửa được thì cập nhật bằng **Redeploy** trong Docker Manager.
 - **ChatGPT/Codex báo "model không hỗ trợ"**: chọn model Codex hợp lệ ở trang Models (vd `gpt-5.5`), không dùng `gpt-5-mini`/`gpt-4o` (đó là model API, Codex account không chạy).
 - Thêm: [docs/17 - Khắc phục sự cố](docs/17-khac-phuc-su-co.md).

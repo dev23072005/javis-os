@@ -6,7 +6,7 @@ Detailed guides for every feature of Javis OS. Each page is a standalone how-to:
 
 > Just starting? Read [Installation in the README](../../README.md#-installation) first, then go to [01 - Getting started and first setup](01-getting-started.md).
 
-The dashboard's navigation rail groups **19 pages** into **7 groups**: Assistant · Brain · Code · Capabilities · Work · Connections · System. The table of contents below follows the same logic.
+The dashboard's navigation rail groups **19 pages** into **5 groups**: Brain · Capabilities · Work · Connections · System. The table of contents below follows the same logic.
 
 ## Table of contents
 
@@ -19,8 +19,8 @@ The dashboard's navigation rail groups **19 pages** into **7 groups**: Assistant
 - [04 - Sessions](04-sessions.md) - saving, reopening, renaming, deleting, full-text search, compacting a long session.
 - [05 - File manager](05-file-manager.md) - browsing the brain, finding files by name or content, editing .md/.txt directly, uploading and downloading.
 
-### Code (the Code group)
-- [27 - The Code group: Terminal](27-code-terminal.md) - a real command line on the machine running Javis, opened right in the dashboard, with no SSH.
+### Terminal (the Capabilities group)
+- [27 - Terminal](27-code-terminal.md) - a real command line on the machine running Javis, opened right in the dashboard, with no SSH.
 
 ### Extending capabilities (the Capabilities group)
 - [06 - Skills](06-skills.md) - grouping, searching, enabling and disabling, adding, editing and deleting, importing and exporting skills.
@@ -31,6 +31,7 @@ The dashboard's navigation rail groups **19 pages** into **7 groups**: Assistant
 - [29 - Slack and WhatsApp](29-slack-whatsapp.md) - chat with Javis and run customer bots on Slack (no domain needed) and WhatsApp (Meta's official API).
 - [30 - Discord and Lark/Feishu](30-discord-lark.md) - chat with Javis from Discord and Lark/Feishu on the Admin channels page, no domain needed.
 - [31 - Messenger](31-messenger.md) - a customer bot that answers your Facebook Page inbox (Meta's official API, needs an HTTPS domain).
+  - [Messenger step by step](31-messenger-step-by-step.md) - every click on Meta's site, for a first-time setup.
 - [32 - Web page watch](32-page-watch.md) - watch a page for a price, some text or any change on a schedule, without spending tokens.
 - [33 - Cookies](33-login-vault.md) - keep your own sign-ins (cookies) so Javis can read and watch pages behind them.
 
@@ -41,7 +42,6 @@ The dashboard's navigation rail groups **19 pages** into **7 groups**: Assistant
 
 ### Connections and channels (the Connections group)
 - [09 - Connections and business data](09-connections-and-business-data.md) - the multi-account store of external services, permissions, reporting real figures.
-- [10 - Models and engines](10-models-and-engines.md) - switching the brain between Claude Code, ChatGPT/Codex, Antigravity CLI, OpenRouter, OpenAI, Gemini, Anthropic, Groq and Ollama without losing capability; thinking levels, the background work model.
 - [11 - The Telegram channel](11-telegram.md) - asking Javis from a phone, sending and receiving files.
 - [26 - The Zalo Bot channel](26-zalo-bot-channel.md) - asking Javis on Zalo through the official API, paired with one click.
 - [12 - Zalo Agent MCP](12-zalo-agent-mcp.md) - signing in by QR, reading and searching history, sending messages through the standard MCP.
@@ -49,10 +49,13 @@ The dashboard's navigation rail groups **19 pages** into **7 groups**: Assistant
 
 ### The brain and data
 - [13 - Second Brain: memory, Wiki, INGEST](13-second-brain.md) - multiple brains, living memory, digesting knowledge.
+- [34 - GitHub inside chat](34-github-in-chat.md) - attach repos to a conversation; Javis checks, pushes, opens a PR, watches CI, fixes red CI and merges when green.
+- [35 - Zalo OA](35-zalo-oa.md) - a customer bot that answers your Zalo Official Account inbox (official OA API v3, needs an HTTPS domain).
 - [18 - Backing the brain up to GitHub](18-github-backup.md) - two-way sync to a private repo, recovering after losing a machine or VPS.
 - [19 - Tasks and Dataview in notes](19-tasks-and-dataview.md) - Obsidian-style self-saving checkboxes, ```dataview blocks that really run.
 
 ### Accounts, branding, configuration (the System group)
+- [10 - Models and engines](10-models-and-engines.md) - switching the brain between Claude Code, ChatGPT/Codex, Antigravity CLI, OpenRouter, OpenAI, Gemini, Anthropic, Groq and Ollama without losing capability; thinking levels, the background work model.
 - [14 - Security and accounts](14-security-and-accounts.md) - forced login, passwords, rate limiting, secret-key encryption.
 - [15 - Branding and custom domains](15-branding-and-domains.md) - changing the logo and avatar, pointing a domain and enabling HTTPS.
 - [16 - .env configuration](16-env-configuration.md) - a reference for every environment variable.

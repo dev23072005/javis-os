@@ -13,7 +13,55 @@
    0.230.0: the main chat composer uses it too (composer-dictate.js), with cancel() and a level meter (onStream),
    and a run the browser ends on its own restarts until the owner presses stop.
 
-   joinText is pure so node tests can run it. */
+   0.339.0: a PHONE lets only ONE thing capture the mic (the rule voice.js learned in 0.59.35, see _nhaMicStream).
+   Opening the recorder (or the level meter) next to Web Speech left both deaf on an iPhone: the timer ran, the meter
+   stayed flat and no word ever arrived (owner report 2026-10-26). On a phone a press now uses one engine only:
+   with an upload ear, record only (the text arrives on stop, the meter works); without one, Web Speech only (no
+   meter, no recorder). iOS also gets non-continuous runs, the restart loop strings them together.
+
+   0.409.0: stop and X always close the bar (owner report 2026-10-30, iPhone: the timer ran on and neither button did
+   anything). A browser that never answers rec.stop() with onend, a MediaRecorder that never fires onstop, or a /stt
+   call that hangs used to leave the run waiting forever with nothing left to press: stop only worked while `on`, and
+   X during "transcribing" waited for the upload. Each wait now has a watchdog, a second stop forces the end, and X
+   closes the bar at once.
+
+   0.419.0: the mic opens INSIDE the tap on an iPhone (owner report 2026-10-30, iPhone 15 Pro Max: press the mic, the
+   bar flashes and closes). Safari only lets a page start the mic or its speech recognizer during the brief moment that
+   follows a tap. start() first asked GET /voice/ear and only then opened the mic; the answer is cached for a minute, so
+   nearly every real press went to the network first (through Cloudflare, and since 0.416 through fetch-gop.js and the
+   service worker), and by the time it came back the tap no longer counted: Safari refused, the run reported "denied"
+   or "failed" and the bar closed. The ear is now asked in the background (on load, when the tab comes back, after each
+   press), and a press opens the mic synchronously: with the known answer, whatever its age, and with "no ear" when there
+   is none yet (owner, same day: ordinary users never set up Groq, so the browser's own recognizer is the path that must
+   always work; a Groq user only loses the re-listen on a press made before the first answer came). A failed refresh
+   keeps the last known answer. A recognizer the phone itself has switched off (iOS "service-not-allowed": Dictation
+   off in Settings) is reported as "service", not as a blocked mic, so the note can say where to turn it on.
+
+   2026-11-05: no more "tôi tôi bị tôi bị học" on Android. Chrome on Android, on some phones and
+   Google app versions (hence "only now and then"), hands every new result back as the WHOLE sentence so far: "tôi",
+   "tôi bị", "tôi bị học", several of them marked final, sometimes the same one twice. Appending each piece filled the
+   box with every draft of the sentence. On Android a piece that grows, repeats or trims the one before it now replaces
+   that one (addPiece). A computer and an iPhone never send results like that, so they keep plain appending.
+
+   2026-11-06: the run's text is REBUILT from the whole result list on every event (buildRun), not added up event by
+   event. The list is the browser's own state of the run: a result that grows is the same entry updated, so reading
+   the list again shows it once. The 2026-11-05 rule above also dropped a short piece that arrived after a longer one
+   ("tôi về rồi" then "tôi" lost the second "tôi"); that rule is gone. Android keeps two narrow rules, between
+   NEIGHBOUR entries of the list only, as voice.js learned on real phones: the same entry sent twice is kept once,
+   and an entry that is the one before it grown ("tôi", "tôi bị") takes its place. Known limit: a new sentence that
+   starts with the whole sentence right before it ("có", then "có lẽ tôi đi") is read as the same sentence grown.
+   Computers and iPhones never send such neighbours, so they keep every entry.
+
+   2026-11-06 (later the same day): the faded bubble is gone and every recording ends with a REWRITE (owner: "nói xong
+   ấn Enter hoặc ấn tắt thì nó tự dùng mô hình viết lại thành câu đúng ngữ cảnh, không phải câu nghe được", and "đừng
+   chỉ sửa vài từ, hãy sửa cả cấu trúc"). On a computer the words show right in the text box while speaking, as before
+   0.481.9. When the recording ends (stop, Enter, Send, the 5-minute limit) the whole sentence goes to POST /stt/fix
+   with `final` and a few recent messages of the chat as context: a model rewrites it into what the owner meant, any
+   language, any mishearing, not a word list (server/transcript_fix.py). The run stays in "transcribing" while that
+   happens, so a Send pressed during the recording sends the rewritten sentence. A phone keeps the words for the end,
+   as the owner asked on 2026-11-05. Any failure or a slow answer keeps the words as heard: never lose a sentence.
+
+   joinText and buildRun are pure so node tests can run them. */
 (function () {
   "use strict";
 
@@ -27,6 +75,38 @@
     return base + (/\s$/.test(base) ? "" : " ") + spoken;
   }
 
+  // Words only, for comparing two pieces: case, punctuation and spacing differ between drafts of the same sentence.
+  function wordsOf(s) {
+    return String(s == null ? "" : s).toLowerCase().replace(/[.,!?;:\u2026"\u201c\u201d]/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  // The run's text from its whole result list (2026-11-06, see the note at the top). `results` is list-like:
+  // results[i][0].transcript and results[i].isFinal, as SpeechRecognitionResultList gives them. With `android`, a
+  // neighbour that repeats the entry before it is skipped, and one that grows it replaces it.
+  function buildRun(results, android) {
+    var out = [];
+    var n = results && results.length ? results.length : 0;
+    for (var i = 0; i < n; i++) {
+      var r = results[i];
+      var t = String((r && r[0] && r[0].transcript) || "").trim();
+      if (!t) continue;
+      if (android && out.length) {
+        var prev = wordsOf(out[out.length - 1]), cur = wordsOf(t);
+        if (cur === prev) continue;
+        if (prev && cur.indexOf(prev + " ") === 0) { out[out.length - 1] = t; continue; }
+      }
+      out.push(t);
+    }
+    return out.reduce(joinText, "");
+  }
+
+  // Set localStorage "javis.debug.dictate" to "1" to print each result list in the console: the shape real phones
+  // send is what decides the rules above.
+  function debugOn() {
+    try { return typeof localStorage !== "undefined" && localStorage.getItem("javis.debug.dictate") === "1"; }
+    catch (e) { return false; }
+  }
+
   function langTag() {
     try {
       var l = (document.documentElement.getAttribute("lang") || "").toLowerCase();
@@ -35,6 +115,15 @@
     return "vi-VN";
   }
 
+  // Restarts of a run the browser ended by itself. iOS ends a run after every utterance, so the cap is generous; the
+  // composer stops the whole recording after five minutes anyway.
+  var MAX_RESTARTS = 200;
+
+  // How long a run waits for the browser before it ends by itself (0.409.0): onend after rec.stop(), onstop after
+  // MediaRecorder.stop(), and the answer of POST /stt.
+  var END_WAIT_MS = 1500;
+  var STT_WAIT_MS = 45000;
+
   var earKind = null;   // cached answer of GET /voice/ear: "upload", "" (none) or null (not asked yet)
   var earAt = 0;        // asked again after a minute, so a key added on the Models page counts without a reload
   function askEar() {
@@ -42,22 +131,60 @@
     if (fresh || typeof fetch !== "function") return Promise.resolve(earKind || "");
     return fetch("/voice/ear", { credentials: "same-origin" }).then(function (r) { return r.json(); })
       .then(function (j) { earKind = j && j.kind === "upload" ? "upload" : ""; earAt = Date.now(); return earKind; },
-        function () { earKind = ""; earAt = Date.now(); return ""; });
+        // A network hiccup is not "the server has no ear": keep what we knew (0.419.0).
+        function () { if (earKind === null) earKind = ""; earAt = Date.now(); return earKind; });
+  }
+
+  // Ask in the background so a press finds the answer already there and can open the mic inside the tap (0.419.0).
+  function warmEar() { try { askEar(); } catch (e) { /* the next press asks again */ } }
+  if (typeof document !== "undefined" && typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("load", function () { setTimeout(warmEar, 1500); });
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) warmEar(); });
   }
 
   function recognizer() {
     return (typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
   }
 
+  // iPhone, iPad (iPadOS reports itself as a Mac with touch) or Android. `nav` is injectable for node tests.
+  function isIOS(nav) {
+    nav = nav || (typeof navigator !== "undefined" ? navigator : {});
+    var ua = String(nav.userAgent || "");
+    return /iP(hone|ad|od)/.test(ua) || (nav.platform === "MacIntel" && (nav.maxTouchPoints || 0) > 1);
+  }
+  function isAndroid(nav) {
+    nav = nav || (typeof navigator !== "undefined" ? navigator : {});
+    return /Android/i.test(String(nav.userAgent || ""));
+  }
+  function isPhone(nav) {
+    nav = nav || (typeof navigator !== "undefined" ? navigator : {});
+    return isIOS(nav) || /Android/i.test(String(nav.userAgent || ""));
+  }
+
+  // Which engines one press runs: { speech, record, meter }. A computer runs Web Speech and the recorder side by
+  // side; a phone runs exactly one capture (see the 0.339.0 note at the top). Pure, for node tests.
+  function plan(o) {
+    var canRecord = !!(o.ear === "upload" && o.mediaRecorder);
+    if (!o.phone) return { speech: !!o.speech, record: canRecord, meter: !!o.wantMeter };
+    if (canRecord) return { speech: false, record: true, meter: !!o.wantMeter };
+    return { speech: !!o.speech, record: false, meter: false };
+  }
+
   // opts: onText(text, final) gets the WHOLE spoken text so far; onState("listening" | "transcribing" | "idle");
-  // onError(code) with "unsupported", "denied" or "failed"; onStream(stream | null) when given also opens the mic
-  // for a level meter even without an upload ear (0.230.0). Returns { start, stop, cancel, active, busy }.
+  // onError(code) with "unsupported", "denied", "service" (0.419.0: the device's speech service is off), "failed" or "nothing" (0.339.0: the run ended with no word at all,
+  // reported only when no other error was); onStream(stream | null) when given also opens the mic for a level meter
+  // even without an upload ear (0.230.0). Returns { start, stop, cancel, active, busy }.
   function create(opts) {
     opts = opts || {};
     var rec = null, media = null, stream = null, chunks = [], on = false, spoken = "", cancelled = false;
     var finishing = false;
     var state = function (s) { if (opts.onState) opts.onState(s); };
-    var err = function (c) { if (opts.onError) opts.onError(c); };
+    var reported = false;   // an error was already shown for this press: "nothing" would only hide it
+    var err = function (c) {
+      if (c === "nothing" && reported) return;
+      reported = true;
+      if (opts.onError) opts.onError(c);
+    };
 
     function stopStream() {
       if (stream) {
@@ -74,20 +201,25 @@
       fd.append("file", blob, "voice." + ext);
       fd.append("lang", "auto");
       fd.append("draft", spoken);
-      return fetch("/stt", { method: "POST", body: fd, credentials: "same-origin" }).then(function (r) { return r.json(); })
-        .then(function (d) { return d && d.ok ? String(d.text || "").trim() : ""; }, function () { return ""; });
+      var ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      var t = ctl ? setTimeout(function () { try { ctl.abort(); } catch (e) {} }, STT_WAIT_MS) : 0;
+      return fetch("/stt", { method: "POST", body: fd, credentials: "same-origin", signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { clearTimeout(t); return d && d.ok ? String(d.text || "").trim() : ""; },
+          function () { clearTimeout(t); return ""; });
     }
 
     // Opens the mic when something needs it: the recorder (upload ear) or the caller's level meter.
-    function openMic(record) {
+    function openMic(record, noMeter) {
       if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         return Promise.resolve(false);
       }
       if (record && typeof MediaRecorder === "undefined") record = false;
-      if (!record && !opts.onStream) return Promise.resolve(false);
+      var meter = !!opts.onStream && !noMeter;
+      if (!record && !meter) return Promise.resolve(false);
       return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
         stream = s; chunks = [];
-        if (opts.onStream) opts.onStream(s);
+        if (meter) opts.onStream(s);
         if (record) {
           media = new MediaRecorder(s);
           media.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
@@ -100,28 +232,54 @@
     function stopRecorder() {
       return new Promise(function (resolve) {
         if (!media || media.state === "inactive") { media = null; stopStream(); resolve(null); return; }
-        var m = media;
-        m.onstop = function () {
+        var m = media, done = false;
+        var end = function () {
+          if (done) return;
+          done = true;
           stopStream();
           resolve(chunks.length ? new Blob(chunks, { type: m.mimeType || "audio/webm" }) : null);
           media = null;
         };
-        try { m.stop(); } catch (e) { media = null; stopStream(); resolve(null); }
+        m.onstop = end;
+        // Some phones never fire onstop: keep what was recorded so far instead of waiting forever.
+        setTimeout(end, END_WAIT_MS);
+        try { m.stop(); } catch (e) { end(); }
       });
+    }
+
+    // The last step of every recording (2026-11-06): the model rewrites the sentence with the chat as context.
+    function polish(text) {
+      if (!text || opts.polish === false) return Promise.resolve(text);
+      var ctx = [];
+      try { ctx = typeof opts.context === "function" ? (opts.context() || []) : []; } catch (e) { ctx = []; }
+      return polishText(text, ctx);
     }
 
     function finish() {
       if (finishing) return;
       var hadRecorder = !!media;
       on = false;
-      if (cancelled || !hadRecorder) { stopRecorder(); state("idle"); return; }
+      if (cancelled || (!hadRecorder && !spoken)) {
+        stopRecorder();
+        // Nothing was heard and nothing can listen again: say so instead of closing the bar in silence.
+        if (!cancelled && !spoken) err("nothing");
+        state("idle");
+        return;
+      }
       finishing = true;
       state("transcribing");
-      stopRecorder().then(upload).then(function (text) {
+      var heard = hadRecorder ? stopRecorder().then(upload) : Promise.resolve("");
+      heard.then(function (text) {
+        if (cancelled) return "";
+        // The ear's text when there is one, else what the browser heard.
+        text = text || spoken;
+        if (!text) return "";
+        return polish(text);
+      }).then(function (text) {
         finishing = false;
-        if (cancelled) { state("idle"); return; }
+        if (cancelled) return;   // cancel() already reported idle
         if (text) opts.onText && opts.onText(text, true);
-        else if (!spoken && !recognizer()) err("unsupported");
+        else err("nothing");
         state("idle");
       });
     }
@@ -132,27 +290,33 @@
       var r = new SR();
       rec = r;
       r.lang = langTag();
-      r.continuous = true;
+      // iOS cannot run a continuous session: it turns into an endless "recording" that never yields text (voice.js
+      // learned this in 0.59.x). One utterance per run there; onend below starts the next one.
+      r.continuous = !isIOS();
       r.interimResults = true;
-      var done = kept, fatal = false;
+      var fatal = false, android = isAndroid();
       r.onresult = function (e) {
         if (cancelled || rec !== r) return;
-        var interim = "";
-        for (var i = e.resultIndex; i < e.results.length; i++) {
-          var t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) done = joinText(done, t); else interim = joinText(interim, t);
+        if (debugOn()) {
+          try {
+            var shape = [];
+            for (var k = 0; k < e.results.length; k++) shape.push([e.results[k][0].transcript, !!e.results[k].isFinal]);
+            console.debug("[dictate] resultIndex=" + e.resultIndex, JSON.stringify(shape));
+          } catch (x) {}
         }
-        spoken = joinText(done, interim);
+        // The whole list, every time: words kept from earlier runs, then this run's text.
+        spoken = joinText(kept, buildRun(e.results, android));
         if (opts.onText) opts.onText(spoken, false);
       };
       r.onerror = function (e) {
-        if (e && (e.error === "not-allowed" || e.error === "service-not-allowed")) { fatal = true; err("denied"); }
+        if (e && e.error === "service-not-allowed") { fatal = true; err("service"); }
+        else if (e && e.error === "not-allowed") { fatal = true; err("denied"); }
         else if (e && e.error !== "no-speech" && e.error !== "aborted") { fatal = true; err("failed"); }
       };
       r.onend = function () {
         if (rec !== r) return;
         rec = null;
-        if (on && !cancelled && !fatal && restarts < 30) {
+        if (on && !cancelled && !fatal && restarts < MAX_RESTARTS) {
           try { runRecognizer(SR, spoken, restarts + 1); return; } catch (x) { rec = null; }
         }
         finish();
@@ -162,28 +326,54 @@
 
     function start() {
       if (on || finishing) return;
-      on = true; spoken = ""; cancelled = false;
+      on = true; spoken = ""; cancelled = false; reported = false;
       var SR = recognizer();
-      askEar().then(function (ear) {
+      // A known answer, however old, is used NOW so the mic opens inside the tap; the refresh only serves the next
+      // press (0.419.0, see the note at the top). No answer yet counts as "no ear": the browser's recognizer.
+      go(earKind || "");
+      warmEar();
+
+      function go(ear) {
         if (!on) return;
-        if (!SR && ear !== "upload") { on = false; err("unsupported"); state("idle"); return; }
-        openMic(ear === "upload").then(function () {
+        var p = plan({ phone: isPhone(), ear: ear, speech: !!SR, wantMeter: !!opts.onStream,
+          mediaRecorder: typeof MediaRecorder !== "undefined" });
+        if (!p.speech && !p.record) { on = false; err("unsupported"); state("idle"); return; }
+        // Web Speech alone (a phone without an ear): start it right here, still inside the tap, not a promise later.
+        if (!p.record && !p.meter) {
+          try { runRecognizer(SR, "", 0); state("listening"); }
+          catch (x) { rec = null; on = false; err("failed"); state("idle"); }
+          return;
+        }
+        var micUp = openMic(p.record, !p.meter);
+        micUp.then(function () {
           if (!on) { stopRecorder(); return; }
-          if (!SR) {
+          if (!p.speech) {
             if (!media) { on = false; stopRecorder(); state("idle"); return; }
             state("listening"); return;
           }
           try { runRecognizer(SR, "", 0); state("listening"); }
           catch (x) { rec = null; on = false; stopRecorder(); err("failed"); state("idle"); }
         });
-      });
+      }
     }
 
+    // A second press while the browser still owes onend forces the end (0.409.0).
     function stop() {
-      if (!on) return;
+      if (!on) {
+        if (rec && !finishing) { var r0 = rec; rec = null; r0.onend = null; try { r0.abort(); } catch (e) {} finish(); }
+        return;
+      }
       on = false;
-      if (rec) { try { rec.stop(); } catch (e) { rec = null; finish(); } return; }
-      finish();
+      if (!rec) { finish(); return; }
+      var r = rec;
+      try { r.stop(); } catch (e) { rec = null; finish(); return; }
+      // iOS sometimes never answers stop() with onend: end the run ourselves, keeping the words heard so far.
+      setTimeout(function () {
+        if (rec !== r) return;
+        rec = null; r.onend = null;
+        try { r.abort(); } catch (e) {}
+        finish();
+      }, END_WAIT_MS);
     }
 
     // Drops everything: nothing more reaches onText, the recording is not uploaded.
@@ -191,7 +381,8 @@
       if (!on && !finishing && !rec) return;   // a stopped run still waiting for its last result counts
       cancelled = true;
       on = false;
-      if (finishing) return;   // the pending upload sees `cancelled` and reports idle itself
+      // The pending upload sees `cancelled` and drops its text; the bar closes now instead of waiting for it.
+      if (finishing) { state("idle"); return; }
       var r = rec;
       rec = null;
       if (r) { r.onend = null; try { r.abort(); } catch (e) {} }
@@ -202,8 +393,61 @@
       busy: function () { return finishing; } };
   }
 
+  // A phone, not a tablet: iPhone, iPod or an Android phone. Only computers and tablets show the words in the box while
+  // speaking; a phone keeps them for the end (owner, 2026-11-05).
+  function isPhoneUA(nav) {
+    nav = nav || (typeof navigator !== "undefined" ? navigator : {});
+    return /iPhone|iPod|Android.*Mobile/i.test(String(nav.userAgent || ""));
+  }
+
+  // How long the rewrite may take before the words go in as heard. A subscription brain (Claude Code, Codex) starts a
+  // CLI for it, which takes a few seconds; an API key answers in about one.
+  var POLISH_WAIT_MS = 25000;
+
+  // The whole recording rewritten by the server (POST /stt/fix with `final`, server/transcript_fix.py): what the owner
+  // meant, in context, not just a word list. `context` is a few recent messages of the chat. Any failure, odd answer or
+  // no answer in time gives the words back unchanged. Shared by every chat screen's mic.
+  function polishText(text, context, waitMs) {
+    var raw = String(text == null ? "" : text);
+    if (!raw.trim() || typeof fetch !== "function") return Promise.resolve(raw);
+    var ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = 0, gaveUp = false;
+    var late = new Promise(function (resolve) {
+      timer = setTimeout(function () { gaveUp = true; try { if (ctl) ctl.abort(); } catch (e) {} resolve(raw); },
+        waitMs || POLISH_WAIT_MS);
+    });
+    var req;
+    try {
+      req = fetch("/stt/fix", { method: "POST", credentials: "same-origin", signal: ctl ? ctl.signal : undefined,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: raw, final: true, context: (context || []).slice(-6) }) });
+    } catch (e) { clearTimeout(timer); return Promise.resolve(raw); }
+    var asked = Promise.resolve(req).then(function (r) { return r.json(); })
+      .then(function (d) { clearTimeout(timer); return !gaveUp && d && d.ok && d.text ? String(d.text) : raw; },
+        function () { clearTimeout(timer); return raw; });
+    return Promise.race([asked, late]);
+  }
+
+  // The last messages of a chat as plain text, oldest first, for the rewrite's context. `root` is the message list,
+  // `selector` matches one message's text. Each is cut to 300 characters; pure apart from DOM reads.
+  function recentMessages(root, selector, n) {
+    var out = [];
+    try {
+      if (!root || !root.querySelectorAll) return out;
+      var nodes = root.querySelectorAll(selector);
+      for (var i = Math.max(0, nodes.length - (n || 4)); i < nodes.length; i++) {
+        var t = String(nodes[i].innerText || nodes[i].textContent || "").replace(/\s+/g, " ").trim();
+        if (t) out.push(t.length > 300 ? t.slice(0, 300) + "..." : t);
+      }
+    } catch (e) { return out; }
+    return out;
+  }
+
   // The ear the last press found: "upload" (Groq or OpenAI listens again on stop), "" (browser text only) or null.
-  var api = { create: create, joinText: joinText, ear: function () { return earKind; } };
+  var api = { create: create, joinText: joinText, buildRun: buildRun, polishText: polishText,
+    recentMessages: recentMessages, isPhoneUA: isPhoneUA, plan: plan, isPhone: isPhone, isIOS: isIOS,
+    isAndroid: isAndroid,
+    ear: function () { return earKind; }, warm: askEar };
   if (typeof window !== "undefined") window.JavisDictate = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

@@ -46,7 +46,7 @@ check("CANARY: tự tải bằng SỰ KIỆN CUỘN gần đáy, KHÔNG dùng In
   /box\.onscroll = function \(\) \{ if \(_conDS && box\.scrollHeight - box\.scrollTop - box\.clientHeight < 240\) taiThem\(\); \};/.test(CV) &&
   !/new IntersectionObserver/.test(CV));
 check("CANARY: tự lấp đầy chỉ khi khung ĐÃ ĐO ĐƯỢC (clientHeight > 0)", /_conDS && box\.clientHeight > 0 && box\.scrollHeight <= box\.clientHeight \+ 40/.test(CV));
-check("dòng đếm hiện 'N+' khi còn trang sau, không còn mốc cứng 60+", /n: _items\.length \+ \(_conDS \? "\+" : ""\)/.test(CV) && !/TRANG \+ "\+"/.test(CV));
+check("còn trang sau thì có nút Xem thêm ở cuối danh sách, không còn mốc cứng 60+", /\(_conDS \? '<div class="ht-more">/.test(CV) && !/TRANG \+ "\+"/.test(CV));
 
 // ---- 2. khung tin: 40 tin mới nhất, nhịp chỉ hỏi phần mới ----
 check("mở hội thoại lấy 40 tin mới nhất (không còn limit=200 cho mọi nhịp)", /var TIN_TRANG = 40;/.test(CV) && /"limit=" \+ TIN_TRANG/.test(CV) && !/messages\?limit=200"/.test(CV));
@@ -75,17 +75,36 @@ check("tin còn ngắn chưa cuộn được thì tải tiếp, nhưng CANARY: c
 check("hết tin cũ thì nút biến mất (has_more do server báo)", /_conCu = !!d\.has_more && cu\.length > 0;/.test(CV) && /_conCu = !!d\.has_more;/.test(CV));
 
 // ---- 4. server ----
-check("server có after và has_more", /def conversations_messages\(conv_id: int, limit: int = 100, before: int = 0, after: int = 0\)/.test(SRV) &&
+check("server có after và has_more", /def conversations_messages\(conv_id: int, limit: int = 100, before: int = 0, after: int = 0[,)]/.test(SRV) &&
   /"has_more":/.test(SRV) && /co_tin_cu\(conv_id, msgs\[0\]\["id"\]\)/.test(SRV));
 check("lý do bot im tính trên tin cuối THẬT của cuộc chat, không phải phần trả về", /cuoi = msgs if \(not moi and not before\) else conversations\.tin_nhan\(conv_id, limit=1\)/.test(SRV));
 check("trang thứ hai của danh sách không tính lại số đếm", /if offset > 0:/.test(SRV) && /return \{"ok": True, "items": items\}/.test(SRV));
+
+// ---- 4b. mở hội thoại phản hồi ngay (chủ dự án 04/11/2026: "ấn sang nó không kiểu phản hồi ngay") ----
+check("đánh dấu đã đọc đi chung lượt lấy tin (read=1), không còn một lượt POST /read riêng chặn trước",
+  /read: int = 0\)/.test(SRV) && /if read and not conversations\.danh_dau_da_doc\(conv_id\):/.test(SRV) &&
+  /\(docLuon \? "&read=1" : ""\)/.test(CV) && /await taiTin\(false, true\);/.test(CV) &&
+  !/await api\("\/conversations\/" \+ id \+ "\/read", \{ method: "POST" \}\); \} catch \(e\) \{\}\s*await taiTin/.test(CV));
+check("bấm một dòng chỉ dời chỗ tô sáng, không vẽ lại cả danh sách", /function chonDong\(id\)/.test(CV) &&
+  /chonDong\(id\);/.test(CV) && !/thread-on"\);\s*veDanhSach\(\);/.test(CV));
+check("quay lại cuộc đã mở: hiện ngay từ bộ nhớ, rồi chỉ hỏi phần mới", /var cu = _cacheTin\[id\];/.test(CV) &&
+  /_msgs = cu\.msgs\.slice\(\)/.test(CV) && /_vetMeta = metaSig\(\); _dauVetTin = "x";/.test(CV));
+check("bộ nhớ có trần: 30 cuộc, 60 tin mỗi cuộc, cắt bớt thì còn đánh dấu có tin cũ", /var CACHE_CHAT = 30, CACHE_TIN = 60;/.test(CV) &&
+  /conCu: _conCu \|\| cat/.test(CV) && /while \(_cacheThu\.length > CACHE_CHAT\) delete _cacheTin\[_cacheThu\.shift\(\)\];/.test(CV));
+check("cuộc mới chưa có trong bộ nhớ thì hiện dòng Đang tải ngay, không để khung cũ đứng đó", /th\.innerHTML = '<div class="ht-empty ht-thread-empty">' \+ esc\(window\.t\("common\.loading"\)\)/.test(CV));
+check("xoá cuộc chat hoặc tải hỏng thì bỏ khỏi bộ nhớ", /dongThread\(\);\s*boCache\(id\);/.test(CV) && /if \(docLuon\) boCache\(id\);/.test(CV));
+check("danh sách cùng thứ tự thì chỉ thay dòng đổi, và gắn lại sự kiện cho dòng mới", /if \(rows\[ri\] === _rowHtml\[ri\]\) continue;/.test(CV) &&
+  /box\.replaceChild\(neu, cur\[ri\]\);\s*ganDong\(neu\);/.test(CV) && /box\.querySelectorAll\("\.ht-item"\)\.forEach\(ganDong\);/.test(CV) &&
+  /_rowIds = ids; _rowHtml = rows; _rowFoot = foot;/.test(CV));
+check("danh sách trống thì quên bản vẽ cũ, lần sau vẽ lại đầy đủ", /if \(!_items\.length\) \{\s*_rowIds = null;/.test(CV));
+check("định dạng giờ dùng lại một Intl.DateTimeFormat, không tạo mới mỗi lần gọi", /new Intl\.DateTimeFormat\(LOC\(\)/.test(CV) &&
+  /return fmtGio\(cungNgay\)\.format\(d\);/.test(CV) && !/toLocaleTimeString\(LOC\(\)/.test(CV));
 
 // ---- 5. giao diện + từ điển ----
 check("có kiểu cho nút Xem thêm và nút Xem tin cũ hơn", /\.ht-more \{/.test(CSS) && /\.ht-older \{/.test(CSS) && /\.ht-older\.busy \{/.test(CSS));
 check("hai khoá chữ mới có ở vi và en, và được mã dùng", VI["ht.xem_them"] && EN["ht.xem_them"] && VI["ht.tin_cu"] && EN["ht.tin_cu"] &&
   CV.indexOf('"ht.xem_them"') > 0 && CV.indexOf('"ht.tin_cu"') > 0);
-check("hết icon robot ở trạng thái bot và nút Trả lại cho bot", !/ic\("bot"/.test(CV) && !/actionButton\("[a-z]+", "bot"/.test(CV) && !/: "bot"\)/.test(CV) &&
-  /"undo-2", "ht\.act_back"/.test(CV) && /off \? "circle-stop" : "sparkles"/.test(CV));
+check("hết icon robot trong hộp thư (A.I. dùng sparkles)", !/ic\("bot"/.test(CV) && !/: "bot"\)/.test(CV) && /ic\("sparkles"\)/.test(CV));
 check("không dùng em dash trong test này", fs.readFileSync(__filename, "utf8").indexOf(String.fromCharCode(0x2014)) < 0);
 
 if (fails.length) { console.log("\nĐỎ: " + fails.length + ": " + fails.join(" | ")); process.exit(1); }

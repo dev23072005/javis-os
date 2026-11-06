@@ -566,6 +566,9 @@ class ClaudeSDK:
     def is_available(self) -> bool:
         if not _SDK_OK:
             return False
+        trial_profile = getattr(self, "trial_profile", None)
+        if trial_profile is not None:
+            return os.path.isfile(trial_profile.pin["cli_path"])
         from claude_cli import find_claude_cli
         return find_claude_cli() is not None
 
@@ -737,6 +740,9 @@ class ClaudeSDK:
             pass
 
     def _options(self):
+        trial_profile = getattr(self, "trial_profile", None)
+        if trial_profile is not None:
+            return trial_profile.options(self)
         from claude_agent_sdk import ClaudeAgentOptions
         fields = getattr(ClaudeAgentOptions, "__dataclass_fields__", {})
         kw = {"cwd": self.cwd}
@@ -1028,8 +1034,12 @@ class ClaudeSDK:
         # này; chữ thông thường, tool_use và câu trả lời của subagent KHÔNG đủ để chốt lượt.
         RESULT_IDLE = tran_watchdog("JAVIS_CLAUDE_RESULT_TIMEOUT", "30")
         self._sweep_stale_tmp()   # dọn file prompt tạm sót từ lượt trước bị crash/kill
-        # Nới trần `initialize` TRƯỚC khi dựng client: SDK đọc env ngay trong connect().
-        tran_init = ap_tran_khoi_dong()
+        trial_profile = getattr(self, "trial_profile", None)
+        client_factory = getattr(trial_profile, "create_client", None)
+        # An owned client keeps its verified process environment exact. Its SDK
+        # initialize timeout and outer lifetime remain independently bounded.
+        # Legacy clients still install the existing startup override first.
+        tran_init = ap_tran_khoi_dong() if client_factory is None else None
         self._stderr_tail.clear()   # chỉ giữ dòng của lượt này
         loop = asyncio.get_running_loop()
         # Off the event loop (0.194.0): building options reads the MCP config, loads every plugin (imports their code
@@ -1037,7 +1047,10 @@ class ClaudeSDK:
         # (loop_watch caught it). `to_thread` copies the turn's context variables, so the per-turn hub key still lands.
         options = await asyncio.to_thread(self._options)
         completion = _CompletionWatch(RESULT_IDLE if getattr(options, "include_hook_events", False) else None)
-        client = ClaudeSDKClient(options=options)
+        # The trusted isolated profile may construct the client with its owned
+        # native transport. A factory failure must escape before connect/query;
+        # falling back would bypass that transport's held-create boundary.
+        client = client_factory(options) if client_factory is not None else ClaudeSDKClient(options=options)
         started = time.time()
         tools_running = 0   # số tool đã gọi mà CHƯA thấy kết quả về
         da_co_chu = False   # đã nhận được sự kiện đầu tiên chưa (quyết định dùng trần nào)
@@ -1055,6 +1068,9 @@ class ClaudeSDK:
             await client.connect()
             with _LOCK:
                 _ACTIVE[client] = (self.tag, loop)
+            trial_profile = getattr(self, "trial_profile", None)
+            if trial_profile is not None:
+                await trial_profile.before_query()
             if isinstance(prompt, list):
                 # Lượt có ẢNH (0.81.0): `prompt` là danh sách khối nội dung Anthropic (ảnh + chữ). SDK nhận một luồng
                 # tin nhắn thay cho chuỗi; gửi đúng MỘT tin user mang các khối đó.
@@ -1134,7 +1150,10 @@ class ClaudeSDK:
                     yield {"type": "error", "content": err}
                     break
                 da_co_chu = True   # có sự kiện đầu tiên → từ đây dùng trần ngắn IDLE
-                events, sid = map_message(msg)
+                if trial_profile is not None:
+                    events, sid = trial_profile.observe(msg), getattr(msg, "session_id", None)
+                else:
+                    events, sid = map_message(msg)
                 if sid:
                     if sid != self.session_id and self.javis_vault:
                         # Nhãn dự án cho trang Token: log thô chỉ có cwd (= gốc project ở MỌI
@@ -1164,7 +1183,11 @@ class ClaudeSDK:
                 chan_doan = self._startup_diagnosis(started)
                 print(f"[claude init timeout] tag={self.tag} sau={time.time() - started:.0f}s "
                       f"chan_doan={chan_doan}", file=sys.stderr)
-            yield {"type": "error", "content": loi_de_hieu(e, tran_init, chan_doan)}
+            error_event = {"type": "error", "content": loi_de_hieu(e, tran_init, chan_doan)}
+            if getattr(self, "trial_profile", None) is not None:
+                status = getattr(e, "status_code", None)
+                error_event.update(error_type=type(e).__name__, status_code=status if type(status) is int else None)
+            yield error_event
         finally:
             with _LOCK:
                 _ACTIVE.pop(client, None)

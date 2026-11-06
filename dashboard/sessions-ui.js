@@ -176,7 +176,37 @@
     });
     rows.push({ sep: true });
     rows.push({ label: window.t("sess.proj_new"), run: function () { newProject(); } });
+    // 0.454.0: drag the projects into the owner's own order (reorder-dialog.js), like the brain picker.
+    if (projects.length > 1 && window.JavisReorder) {
+      rows.push({ label: window.t("reorder.menu_projects"), icon: "arrow-up-down", run: function () { reorderProjects(); } });
+    }
     openMenu(anchor, rows);
+  }
+
+  function reorderProjects() {
+    var R = window.JavisReorder, b = brain();
+    R.open({ title: window.t("reorder.title_projects"),
+      items: projects.map(function (p) { return { id: p.id, label: p.name, icon: p.icon || "folder" }; }),
+      save: function (ids) {
+        return R.post("/projects/order", { brain: b, order: JSON.stringify(ids) }).then(function (res) {
+          if (!res.ok) return (res.d && res.d.error) || window.t("reorder.save_err");
+          return Promise.resolve(loadProjects()).then(function () { return ""; });
+        });
+      } });
+  }
+
+  // 0.454.0: drag the pinned chats into the owner's own order. `pins` are the pinned rows shown in the list.
+  function reorderPins(pins) {
+    var R = window.JavisReorder;
+    R.open({ title: window.t("reorder.title_pins"),
+      items: pins.map(function (s) { return { id: s.id, label: s.title || s.preview || window.t("sess.untitled"), icon: "pin" }; }),
+      save: function (ids) {
+        return R.post("/sessions/pin-order", { order: JSON.stringify(ids) }).then(function (res) {
+          if (!res.ok) return (res.d && res.d.error) || window.t("reorder.save_err");
+          cached = null;
+          return Promise.resolve(loadList()).then(function () { return ""; });
+        });
+      } });
   }
 
   /** Hộp chức năng của MỘT project. Đi sâu vào cùng một popover (có hàng quay lại) chứ không
@@ -1395,6 +1425,7 @@
         ? '<div class="pd-form">' +
             '<input class="pd-in pd-lurl" placeholder="' + esc(pdT("proj.link_url_ph")) + '">' +
             '<input class="pd-in pd-llabel" placeholder="' + esc(pdT("proj.link_label_ph")) + '">' +
+            '<div class="pd-fmsg" role="status" hidden></div>' +
             '<div class="pd-frow">' +
               '<button class="pd-ok" type="button">' + esc(pdT("proj.add")) + "</button>" +
               '<button class="pd-huy" type="button">' + esc(pdT("proj.cancel")) + "</button>" +
@@ -1419,14 +1450,51 @@
     pane.querySelector(".pd-huy").onclick = function () { pdFormLink = false; veDrawer(); };
     [u, lb].forEach(function (o) {
       o.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); them(); } };
+      o.oninput = function () { baoFormLink(""); };
     });
   }
 
+  /** Dòng báo ngay trong form link. Trước đây ba đường (ô trống, link đã có, server từ chối)
+   *  đều không hiện gì hoặc chỉ một hộp alert: bấm "Thêm" thấy ô URL trống trơn, danh sách
+   *  y nguyên, người dùng tưởng nút hỏng (chủ repo báo 25/10). */
+  function baoFormLink(chu, loi) {
+    var m = pdEl && pdEl.querySelector('[data-pane="links"] .pd-fmsg');
+    if (!m) return;
+    m.textContent = chu || "";
+    m.hidden = !chu;
+    m.classList.toggle("loi", !!loi);
+  }
+
+  /** Dán "docs.google.com/..." (thiếu https://) là thói quen thường gặp; server chỉ nhận
+   *  http/https nên tự thêm thay vì bắt dán lại. Scheme khác (javascript:, file:) giữ nguyên
+   *  để server từ chối như cũ. */
+  function chuanHoaUrl(u) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(u) && !/^[^\/:]+\.[^\/:]+:\d/.test(u)) return u;
+    return /^[^\s\/]+\.[^\s\/]+/.test(u) ? "https://" + u.replace(/^\/+/, "") : u;
+  }
+
+  function nhayHang(id) {
+    var row = pdEl && pdEl.querySelector('[data-pane="links"] .pd-row[data-id="' + id + '"]');
+    if (!row) return;
+    row.classList.remove("nhay");
+    void row.offsetWidth;          // khởi động lại animation khi bấm lần nữa
+    row.classList.add("nhay");
+    if (row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+  }
+
   async function themLink(url, nhan) {
-    var u = (url || "").trim();
-    if (!u) return;
+    var u = chuanHoaUrl((url || "").trim());
+    var pane = pdEl && pdEl.querySelector('[data-pane="links"]');
+    var o = pane && pane.querySelector(".pd-lurl");
+    if (!u) { baoFormLink(pdT("proj.link_need_url"), true); if (o) o.focus(); return; }
+    var co = ((pdDuLieu() || {}).links || []).filter(function (l) { return l.manual !== false && l.url === u; })[0];
+    if (co) {
+      baoFormLink(pdT("proj.link_dup", { ten: co.label || co.url }), false);
+      nhayHang(co.id);
+      return;
+    }
     var r = await pdPost("/links", { url: u, label: (nhan || "").trim() });
-    if (!r || !r.ok) { alert(pdT("proj.err_add_link") + ": " + ((r && r.error) || "")); return; }
+    if (!r || !r.ok) { baoFormLink(pdT("proj.err_add_link") + ": " + ((r && r.error) || ""), true); return; }
     await napLaiChiTiet();
     napLaiChip();
     // Giữ form và dọn ô trống thay vì đóng lại: dán link thứ hai là chuyện thường, cùng lý do
@@ -1437,6 +1505,8 @@
     var lb = pane && pane.querySelector(".pd-llabel");
     if (u) { u.value = ""; u.focus(); }
     if (lb) lb.value = "";
+    baoFormLink(pdT("proj.link_added"), false);
+    if (r.id) nhayHang(r.id);
   }
 
   async function ghimLink(l) {
@@ -1610,6 +1680,7 @@
           '<div class="cside-list"></div>' +
         '</div>';
       listEl = side.querySelector(".cside-list");
+      ganTaiTruoc(listEl);
       searchEl = side.querySelector(".cside-search");
       projBar = null;
       cayEl = null;
@@ -1635,6 +1706,7 @@
       '</div>' +
       '<div class="cside-pane" data-pane="files"></div>';
     listEl = side.querySelector(".cside-list");
+    ganTaiTruoc(listEl);
     searchEl = side.querySelector(".cside-search");
     projBar = side.querySelector(".cside-proj");
     cayEl = side.querySelector('[data-pane="files"]');
@@ -1716,6 +1788,42 @@
     if (page) page.classList.remove("side-open");
   }
 
+  // 2026-11-05: start fetching a chat the moment the pointer rests on it (or a finger touches it), so the click that
+  // follows usually finds it ready (app.js prefetchSession keeps it). One listener on the list, not one per row:
+  // the list is redrawn often.
+  function ganTaiTruoc(el) {
+    if (!el || el._taiTruoc) return;
+    el._taiTruoc = true;
+    var hen = null;
+    var sidCua = function (e) {
+      var it = e.target && e.target.closest ? e.target.closest("[data-sid]") : null;
+      return it ? it.getAttribute("data-sid") : "";
+    };
+    var tai = function (sid) {
+      try { if (sid && window.JavisSessions && window.JavisSessions.prefetch) window.JavisSessions.prefetch(sid); } catch (e) {}
+    };
+    el.addEventListener("pointerover", function (e) {
+      var sid = sidCua(e);
+      clearTimeout(hen);
+      if (sid) hen = setTimeout(function () { tai(sid); }, 80);   // a pass over the list on the way elsewhere fetches nothing
+    }, { passive: true });
+    el.addEventListener("pointerdown", function (e) { clearTimeout(hen); tai(sidCua(e)); }, { passive: true });
+  }
+
+  // Light the row of the chat on screen without asking the server. False (the caller then reloads the list) when the
+  // list is not up, is showing search results, belongs to another brain, or does not hold that chat yet.
+  function chiToDongDangMo() {
+    if (!side || !listEl || brain() !== lastBrain) return false;
+    if (searchEl && searchEl.value.trim()) return false;
+    var cur = currentId();
+    if (!cur) return false;
+    var rows = listEl.querySelectorAll(".cside-item[data-sid]"), found = false;
+    for (var i = 0; i < rows.length; i++) { if (rows[i].getAttribute("data-sid") === cur) { found = true; break; } }
+    if (!found) return false;
+    for (var j = 0; j < rows.length; j++) rows[j].classList.toggle("active", rows[j].getAttribute("data-sid") === cur);
+    return true;
+  }
+
   function openSession(id) {
     if (window.JavisSessions) window.JavisSessions.open(id);
     closeDrawerIfNarrow();
@@ -1752,12 +1860,21 @@
     var keepScroll = listEl.scrollTop;
     listEl.innerHTML = "";
     var cur = currentId(), lastGroup = null;
+    var pins = items.filter(function (s) { return s.pinned; });
     items.forEach(function (s) {
       // Mục ghim gom thành MỘT nhóm trên đầu, không xếp theo thời gian nữa - ghim chính là để
       // thoát khỏi thứ tự thời gian. Server đã sắp pinned trước nên chỉ cần đổi nhãn nhóm.
       var g = s.pinned ? window.t("sess.grp_pinned") : groupOf(s.updated_at || 0);
       if (g !== lastGroup) {
-        listEl.appendChild(el('<div class="cside-group">' + g + '</div>'));
+        var head = el('<div class="cside-group">' + g + '</div>');
+        // 0.454.0: the pinned group gets a Reorder button (two or more pinned chats).
+        if (s.pinned && pins.length > 1 && window.JavisReorder) {
+          var rb = el('<button type="button" class="cside-reorder" title="' + esc(window.t("reorder.title_pins")) +
+            '" aria-label="' + esc(window.t("reorder.title_pins")) + '">' + ic("arrow-up-down") + '</button>');
+          rb.onclick = function (ev) { ev.stopPropagation(); reorderPins(pins); };
+          head.appendChild(rb);
+        }
+        listEl.appendChild(head);
         lastGroup = g;
       }
       var eng = (s.engine || "").toString().slice(0, 10);
@@ -1818,8 +1935,11 @@
         if (hit && hit.classList.contains("ren")) { e.stopPropagation(); renSession(s); return; }
         openSession(s.id);
       };
+      item.setAttribute("data-sid", s.id);
       listEl.appendChild(item);
     });
+    // GitHub status icon per conversation (0.365.0, github-connect.js). Only chats with GitHub work get one.
+    try { if (window.JavisGithubRepos && window.JavisGithubRepos.decorate) window.JavisGithubRepos.decorate(listEl); } catch (e) {}
     if (hasMore) {
       var more = el('<button class="cside-more" type="button">' + esc(window.t("sess.more", { so: PAGE })) + '</button>');
       more.onclick = function () { shown += PAGE; loadList(); };
@@ -1854,6 +1974,7 @@
           togglePin({ id: h.session_id, pinned: h.pinned }, q);
         };
         item.onclick = function () { openSession(h.session_id); };
+        item.setAttribute("data-sid", h.session_id);
         listEl.appendChild(item);
       });
     } catch (e) { listEl.innerHTML = '<div class="cside-empty">' + esc(window.t("sess.search_err")) + '</div>'; }
@@ -1942,7 +2063,12 @@
   };
 
   // Cập nhật khi có lượt chat mới / đổi phiên / đổi brain
-  window.addEventListener("javis:sessions-changed", refresh);
+  window.addEventListener("javis:sessions-changed", function (e) {
+    // Performance (2026-11-05): a plain switch to a chat already in the list changes nothing in the list but which row
+    // is lit. Re-fetching it (and its GitHub icons) on every click cost two round trips and redrew every row.
+    if (e && e.detail && e.detail.reason === "open" && chiToDongDangMo()) return;
+    refresh();
+  });
   // Chip phải tự sống KHÔNG phụ thuộc cột trái: refresh() thoát sớm khi chưa mount sidebar,
   // mà chip còn đứng ở màn Javis nơi cột đó chưa bao giờ mount. Đổi phiên là đổi project có
   // hiệu lực, nên bỏ cache rồi vẽ lại.
@@ -1982,22 +2108,9 @@
   function bindGlobal() {
     var gs = document.getElementById("graphSource");
     if (gs) gs.addEventListener("change", refresh);
-    // Nút "Lịch sử" → mở thẳng workspace với sidebar. Đặt INLINE trong hàng nút header
-    // (.hud-actions) để không đè lên nút Cài đặt/Reset; fallback về body nếu chưa có header.
-    var btn = el('<div id="jv-sess-btn">' + ic("history") + ' <span class="jv-sess-lbl"></span></div>');
-    // Nút này dựng NGAY lúc tải trang, có thể trước khi từ điển về, mà t() lúc đó trả về
-    // chính cái khoá. Nên vẽ nhãn qua một hàm và vẽ lại khi từ điển sẵn sàng/đổi ngôn ngữ.
-    function veNhanBtn() {
-      btn.title = window.t("sess.hist_title");
-      var lbl = btn.querySelector(".jv-sess-lbl");
-      if (lbl) lbl.textContent = window.t("sess.hist");
-    }
-    veNhanBtn();
-    window.addEventListener("javis:i18n", veNhanBtn);
-    btn.onclick = function () { if (window.JavisChatStage) window.JavisChatStage.showSide(); };
-    var host = document.querySelector(".hud-actions");
-    (host || document.body).appendChild(btn);
-    // Prefetch danh sách sau khi cockpit đã yên: bấm Lịch sử lần đầu là có sẵn dữ liệu.
+    // Nút "Lịch sử" ở thanh trên cùng đã bỏ (chủ repo, 06/11/2026: "bỏ nút lịch sử và nút reset hội thoại đi không
+    // cần thiết"): danh sách hội thoại đã nằm ở trang Trò chuyện, mục đầu tiên của menu.
+    // Prefetch danh sách sau khi cockpit đã yên: mở trang Trò chuyện lần đầu là có sẵn dữ liệu.
     // Kèm danh sách project vì chip ở thanh tiêu đề khung chat cần tên + số file/link ngay,
     // trong khi cột trái (nơi vẫn gọi loadProjects) chỉ mount khi mở trang Trò chuyện.
     setTimeout(function () {

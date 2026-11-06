@@ -72,8 +72,31 @@ check("chuỗi 3 mắt: hai mắt đầu chết, OpenRouter free cứu", evs[-1]
 check("chuỗi 3 mắt: cả 3 đều được thử", codex.ran == 1 and claude.ran == 1 and orfree.ran == 1)
 
 # --- mắt câm (không final) / unavailable đều coi là chết ---
-evs = run(collect(FB([FakeEngine([{"type": "tool_call", "name": "y"}]), FakeEngine([FINAL("co final")])])))
+evs = run(collect(FB([FakeEngine([]), FakeEngine([FINAL("co final")])])))
 check("mắt câm: mắt sau cứu", evs[-1]["content"] == "co final")
+# 0.350.0 (spec 2.7): a link that already called a tool and then broke stops the chain. Running the prompt again on
+# another engine could send the message twice, so the next link must NOT run and the caller gets the error.
+after_tool = FakeEngine([FINAL("khong duoc chay")])
+evs = run(collect(FB([FakeEngine([{"type": "tool_call", "name": "y"}]), after_tool])))
+check("hỏng sau khi gọi công cụ: dừng chuỗi, không chạy mắt sau", after_tool.ran == 0 and evs[-1]["type"] == "error")
+evs = run(collect(FB([FakeEngine([{"type": "tool_call", "name": "y"}, ERR("quota het")]), after_tool])))
+check("gọi công cụ rồi mới hết quota: vẫn dừng", after_tool.ran == 0 and evs[-1]["type"] == "error")
+
+# --- 0.410.0: Claude Code ends a failed turn with a FINAL flagged is_error (out of usage, API 429). That final is the
+# provider's error, not a result: the chain must try the next link, and never pass it on as a success. ---
+CLAUDE_ERR = {"type": "final", "content": "You're out of extra usage · resets 3pm (UTC)", "is_error": True,
+              "subtype": "success"}
+rescue = FakeEngine([FINAL("next link did it")])
+evs = run(collect(FB([FakeEngine([CLAUDE_ERR]), rescue])))
+check("is_error final: next link runs", rescue.ran == 1 and evs[-1] == FINAL("next link did it"))
+check("is_error final: never passed on", all(not e.get("is_error") for e in evs))
+evs = run(collect(FB([FakeEngine([CLAUDE_ERR])])))
+check("is_error final, no link left: caller gets an error carrying the provider text",
+      evs[-1]["type"] == "error" and "out of extra usage" in evs[-1]["content"])
+after_tool = FakeEngine([FINAL("khong duoc chay")])
+evs = run(collect(FB([FakeEngine([{"type": "tool_call", "name": "y"}, CLAUDE_ERR]), after_tool])))
+check("is_error final after a tool call: chain stops with the error",
+      after_tool.ran == 0 and evs[-1]["type"] == "error" and "out of extra usage" in evs[-1]["content"])
 silent = FakeEngine(available=False)
 evs = run(collect(FB([silent, FakeEngine([FINAL("truc tiep")])])))
 check("mắt unavailable: nhảy thẳng mắt sau, không chạy mắt chết", evs[-1]["content"] == "truc tiep" and silent.ran == 0)

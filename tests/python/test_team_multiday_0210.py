@@ -409,6 +409,9 @@ check("trace export: the pilot tool reads the chain mandate -> observation -> op
       "job -> steps -> acceptance", all(k in links for k in ("mandate_version", "observation", "opportunity"))
       and all(k in chain for k in ("opportunity", "decision", "approval", "job", "step", "acceptance")), chain)
 acc_line = next(x for x in lines if x["link"] == "acceptance" and x["task_id"] == job_a)
+check("trace export: versioned evidence is distinct from a current product recheck",
+      acc_line['contract_version'] == 1 and acc_line['output_manifest_hash'] and
+      acc_line['validity'] == 'not_rechecked_by_export' and acc_line['completion_valid'] is None, acc_line)
 check("trace export: acceptance carries the checks with sha256 evidence",
       acc_line["status"] == "passed" and acc_line["checks"][-1]["evidence"].get("sha256"), acc_line)
 

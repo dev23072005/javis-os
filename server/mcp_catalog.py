@@ -24,7 +24,13 @@ CATALOG_PATH = ROOT / "system" / "mcp-catalog.json"
 WRITE_HINTS = ("create", "update", "delete", "add", "remove", "edit", "send", "set",
                "cancel", "refund", "pay", "post", "write", "upsert", "order", "purchase", "transaction",
                "reply", "accept", "invite", "join", "approve", "deploy", "publish", "upload",
-               "execute", "submit", "launch", "react", "block", "kick")
+               "execute", "submit", "launch", "react", "block", "kick",
+               # Vá bảo mật 2026-11-05: những động từ này từng rơi vào "read" nên chạy được ở mức Chỉ đọc
+               # (forward mail, share file, trash, chuyển tiền). Thà chặn nhầm một tool đọc của connector
+               # tự thêm còn hơn để lọt một hành động; connector trong catalog khai tool_meta nên không bị ảnh hưởng.
+               "forward", "share", "trash", "transfer", "move", "archive", "assign", "withdraw", "revoke",
+               "grant", "rename", "insert", "patch", "replace", "merge", "subscribe", "enable", "disable",
+               "notify", "restore", "import")
 
 PERM_RANK = {"readonly": 0, "safe": 1, "full": 2}
 # "gated" (0.207.0, team_gate.py): a Team step that needs the owner's approval for outside actions. Caps like auto, so
@@ -378,6 +384,34 @@ def build_env(connector, secrets):
 _MUC = {"read": 0, "write": 1, "danger": 2}
 
 
+def _join_words(words, joined):
+    """Merge each multi-word app name of `joined` (e.g. "SHARE_POINT") into one word, left to right.
+
+    A tool slug is "<APP>_<VERB>_...", and an app name split on "_" can contain a verb: SharePoint
+    tools start with SHARE, a write verb, so every SharePoint read was classed danger. Merged, the
+    app name ("SHAREPOINT") matches no verb list. Only the exact consecutive words merge, so
+    SHARE_POINT_SHARE_FILE still keeps its own SHARE.
+    """
+    phrases = []
+    for j in joined or []:
+        parts = [w for w in re.split(r"[^A-Za-z0-9]+", str(j).upper()) if w]
+        if len(parts) > 1:
+            phrases.append(parts)
+    if not phrases:
+        return words
+    out, i = [], 0
+    while i < len(words):
+        for parts in phrases:
+            if words[i:i + len(parts)] == parts:
+                out.append("".join(parts))
+                i += len(parts)
+                break
+        else:
+            out.append(words[i])
+            i += 1
+    return out
+
+
 def _loai_hanh_dong_con(rule, item):
     """Phân loại MỘT hành động con bên trong tool cổng (xem `call_rules`). Fail-closed: không
     nhận ra là đọc thì trả mức `else` của luật (mặc định danger)."""
@@ -400,7 +434,7 @@ def _loai_hanh_dong_con(rule, item):
         return "danger"
     if [x for x in rule.get("write_values", []) if str(x).lower() == v.lower()]:
         return "write"
-    tu = {w for w in re.split(r"[^A-Za-z0-9]+", v.upper()) if w}
+    tu = set(_join_words([w for w in re.split(r"[^A-Za-z0-9]+", v.upper()) if w], rule.get("joined_words")))
     doc = {str(x).upper() for x in rule.get("read_tokens", [])}
     ghi = {str(x).upper() for x in rule.get("write_tokens", [])}
     # Đọc chỉ khi có động từ đọc VÀ không dính một động từ ghi nào: `GMAIL_FETCH_EMAILS` là đọc,

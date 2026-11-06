@@ -13,8 +13,8 @@ const deferred = () => { let resolve; const promise = new Promise(r => resolve =
   const input = {value:'  Viết nội dung mới  '};
   let progress = {trang_thai:'cho'};
   const ctx = {
-    opening:0, ready:false, active:true, S:{loai:'workflow',sessionCuaPhien:{}},
-    chatReady(v) { ctx.ready=v; }, veGiua(){}, vePhai(){}, veBuoc(){}, toMoiLichSu(){}, luuViTri(){},
+    opening:0, ready:false, active:true, S:{loai:'workflow',sessionCuaPhien:{}}, _phienGanNhat:{}, khoaGanNhat:x=>'test|workflow:'+x.slug,
+    chatReady(v) { ctx.ready=v; }, veGiua(){}, vePhai(){}, phaiDaVeCho:()=>false, veBuoc(){}, toMoiLichSu(){}, luuViTri(){},
     brain:()=> 'test', kenh:x=>'workflow:'+x.slug, fd:x=>x, t:k=>k,
     conDangXem:x=>x.slug===selected.slug, dangChon:()=>selected,
     tienDoHienTai:()=>progress, veLoi:e=>errors.push(e),

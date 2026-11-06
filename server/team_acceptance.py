@@ -31,8 +31,10 @@ import json
 import sqlite3
 import time
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Optional
+import localefmt
+import team_migration
 
 KINDS = ("file_exists", "file_contains", "json_keys", "command_ok", "owner_confirm")
 VERDICTS = ("pass", "fail", "unknown")
@@ -65,8 +67,32 @@ def _j(v: Any) -> str:
 
 
 def _rel_ok(p: str) -> bool:
-    q = Path(str(p or ""))
-    return bool(str(p or "").strip()) and not q.is_absolute() and ".." not in q.parts
+    raw = str(p or '').strip()
+    win, posix = PureWindowsPath(raw), PurePosixPath(raw)
+    return bool(raw) and '\x00' not in raw and not win.drive and not win.root and not posix.root and \
+        '..' not in win.parts and '..' not in posix.parts
+
+
+def digest(value: Any) -> str:
+    return hashlib.sha256(_j(value).encode('utf-8')).hexdigest()
+
+
+def clean_fix_rounds(value):
+    try:
+        return max(0, min(5, int(DEFAULT_FIX_ROUNDS if value in (None, '') else value)))
+    except (TypeError, ValueError, OverflowError):
+        raise AcceptanceError(localefmt.chu('Số vòng sửa không hợp lệ', 'Invalid fix round count'))
+
+
+def clean_outputs(value):
+    if not isinstance(value, list) or len(value) > MAX_CRITERIA:
+        raise AcceptanceError(localefmt.chu('Danh sách sản phẩm không hợp lệ', 'Invalid output list'))
+    out = []
+    for item in value:
+        if not isinstance(item, dict) or (item.get('target') != 'message' and not _rel_ok(item.get('path'))):
+            raise AcceptanceError(localefmt.chu('Đường dẫn sản phẩm không hợp lệ', 'Invalid product path'))
+        out.append({k: item[k] for k in ('target', 'path', 'sha256', 'version', 'required', 'label') if k in item})
+    return out
 
 
 def clean_criteria(raw: Any) -> list:
@@ -78,6 +104,15 @@ def clean_criteria(raw: Any) -> list:
             raise AcceptanceError(f"tiêu chí không hợp lệ: {str(c)[:80]}")
         k = c["kind"]
         item = {"kind": k, "label": str(c.get("label") or "").strip()[:200]}
+        if k == 'owner_confirm':
+            target = c.get('target') or ('file' if c.get('path') else 'message')
+            if target not in ('file', 'message') or (target == 'file' and not c.get('path')):
+                raise AcceptanceError(localefmt.chu('Loại sản phẩm không hợp lệ', 'Invalid confirmation target'))
+            item['target'] = target
+        if k == 'command_ok' and c.get('checker_sha256'):
+            item['checker_sha256'] = str(c['checker_sha256'])
+        if k == 'command_ok' and c.get('requires_isolated_checker'):
+            item['requires_isolated_checker'] = True
         if k in ("file_exists", "file_contains", "json_keys") or (k == "owner_confirm" and c.get("path")):
             if not _rel_ok(c.get("path")):
                 raise AcceptanceError("đường dẫn sản phẩm phải nằm trong bộ não (tương đối, không '..')")
@@ -113,6 +148,8 @@ def sha256_file(p: Path) -> Optional[str]:
 
 def resolve_in(root: Path, rel: str) -> Optional[Path]:
     """The product path inside `root`, symlinks resolved; None when it leaves the root."""
+    if not _rel_ok(rel):
+        return None
     try:
         base = Path(root).resolve()
         p = (base / rel).resolve()
@@ -130,7 +167,10 @@ def _file_evidence(root: Path, rel: str, since: float = 0.0) -> tuple:
         return {"path": rel, "error": "ngoài bộ não"}, None
     if not p.is_file():
         return {"path": rel, "exists": False}, None
-    st = p.stat()
+    try:
+        st = p.stat()
+    except OSError:
+        return {'path': rel, 'error': localefmt.chu('Không đọc được', 'Cannot read product')}, None
     ev = {"path": rel, "exists": True, "size": st.st_size, "mtime": st.st_mtime}
     if since and st.st_mtime < since:
         ev["older_than_job"] = True
@@ -165,10 +205,19 @@ def check_one(c: dict, root: Path, run_command: Optional[Callable] = None, since
     touched since then did not come from this job, so it is only "unknown" (the owner decides)."""
     k = c["kind"]
     if k == "command_ok":
+        if c.get('requires_isolated_checker'):
+            return 'unknown', dict(_script_sha(root, c['command']), command=c['command'],
+                reason='checker_isolation_unavailable', detail=localefmt.chu(
+                    'Chưa có môi trường kiểm độc lập bảo vệ bộ kiểm và dữ liệu mẫu; cần chủ xem kết quả',
+                    'An isolated checker and fixture environment is unavailable; owner review is required'))
         if run_command is None:
             return "unknown", {"command": c["command"], "detail": "máy chủ không chạy được lệnh kiểm tra"}
         sc = _script_sha(root, c["command"])
+        if c.get('checker_sha256') and sc.get('script_sha256') != c['checker_sha256']:
+            return 'unknown', dict(sc, detail=localefmt.chu('Bộ kiểm đã thay đổi', 'Checker changed'))
         res = run_command(c["command"], root) or {}
+        if c.get('checker_sha256') and _script_sha(root, c['command']).get('script_sha256') != c['checker_sha256']:
+            return 'unknown', dict(sc, detail=localefmt.chu('Bộ kiểm đã thay đổi', 'Checker changed'))
         if not res.get("ran"):
             return "unknown", dict(sc, command=c["command"], detail=str(res.get("error") or "lệnh không chạy")[:300])
         code = int(res.get("exit") or 0)
@@ -224,8 +273,39 @@ class AcceptanceStore:
         self.path = Path(path)
         self.clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        team_migration.snapshot_once(self.path, 'team_acceptance', 'contract_version', suffix='.pre-0.283.0')
         with closing(self._conn()) as c:
             c.executescript(SCHEMA)
+            columns = {r[1] for r in c.execute('PRAGMA table_info(team_acceptance)')}
+            additions = {'contract_version': 'INTEGER NOT NULL DEFAULT 1', 'contract_hash': "TEXT NOT NULL DEFAULT ''",
+                'origin': "TEXT NOT NULL DEFAULT 'owner'", 'template_id': "TEXT NOT NULL DEFAULT ''",
+                'template_version': 'INTEGER', 'job_revision': 'INTEGER NOT NULL DEFAULT 1',
+                'expected_outputs_json': "TEXT NOT NULL DEFAULT '[]'", 'source_refs_json': "TEXT NOT NULL DEFAULT '[]'",
+                'source_snapshot_hash': "TEXT NOT NULL DEFAULT ''", 'output_manifest_json': "TEXT NOT NULL DEFAULT '[]'",
+                'output_manifest_hash': "TEXT NOT NULL DEFAULT ''"}
+            for name, declaration in additions.items():
+                if name not in columns:
+                    c.execute(f'ALTER TABLE team_acceptance ADD COLUMN {name} {declaration}')
+            check_columns = {r[1] for r in c.execute('PRAGMA table_info(team_acceptance_checks)')}
+            for name, declaration in {'contract_version': 'INTEGER NOT NULL DEFAULT 1',
+                'output_manifest_hash': "TEXT NOT NULL DEFAULT ''", 'source_snapshot_hash': "TEXT NOT NULL DEFAULT ''"}.items():
+                if name not in check_columns:
+                    c.execute(f'ALTER TABLE team_acceptance_checks ADD COLUMN {name} {declaration}')
+            c.executescript('''
+                CREATE TABLE IF NOT EXISTS team_acceptance_versions(
+                  task_id TEXT NOT NULL, contract_version INTEGER NOT NULL, snapshot TEXT NOT NULL,
+                  PRIMARY KEY(task_id,contract_version));
+                CREATE TABLE IF NOT EXISTS team_acceptance_decisions(
+                  task_id TEXT NOT NULL, decision_key TEXT NOT NULL, payload_hash TEXT NOT NULL, result TEXT NOT NULL,
+                  PRIMARY KEY(task_id,decision_key));
+                CREATE TABLE IF NOT EXISTS team_acceptance_intents(
+                  task_id TEXT NOT NULL, decision_key TEXT NOT NULL, payload_hash TEXT NOT NULL, body TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'pending', team_applied INTEGER NOT NULL DEFAULT 0,
+                  signal_claimed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
+                  PRIMARY KEY(task_id,decision_key));
+                CREATE UNIQUE INDEX IF NOT EXISTS team_acceptance_one_intent ON team_acceptance_intents(task_id)
+                  WHERE status='pending';
+            ''')
 
     def _conn(self) -> sqlite3.Connection:
         c = sqlite3.connect(str(self.path), timeout=10, isolation_level=None)
@@ -240,56 +320,209 @@ class AcceptanceStore:
         d = dict(r)
         d["criteria"] = json.loads(d.pop("criteria_json") or "[]")
         d["confirmed_hashes"] = json.loads(d.pop("confirmed_hashes_json") or "{}")
+        for key in ('expected_outputs', 'source_refs', 'output_manifest'):
+            d[key] = json.loads(d.pop(key + '_json') or '[]')
         return d
 
     def get(self, task_id: str) -> Optional[dict]:
         with closing(self._conn()) as c:
             return self._row(c.execute("SELECT * FROM team_acceptance WHERE task_id=?", (task_id,)).fetchone())
 
-    def put(self, task_id: str, team_id: str, criteria: Any, fix_rounds: Any = None, by: str = "owner") -> dict:
+    def restore_contract(self, task_id):
+        with closing(self._conn()) as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute('SELECT snapshot FROM team_acceptance_versions WHERE task_id=? ORDER BY contract_version DESC LIMIT 1',
+                            (task_id,)).fetchone()
+            if row is None:
+                return None
+            snapshot = json.loads(row['snapshot'])
+            for key in ('criteria', 'confirmed_hashes', 'expected_outputs', 'source_refs', 'output_manifest'):
+                snapshot[key + '_json'] = _j(snapshot.pop(key))
+            columns = list(snapshot)
+            c.execute('INSERT OR IGNORE INTO team_acceptance(' + ','.join(columns) + ') VALUES(' + ','.join('?' for _ in columns) + ')',
+                      tuple(snapshot.values()))
+            c.commit()
+        return self.get(task_id)
+
+    def put(self, task_id: str, team_id: str, criteria: Any, fix_rounds: Any = None, by: str = "owner", *,
+            origin='owner', template_id='', template_version=None, job_revision=1, expected_outputs=None,
+            source_refs=None, only_if_absent=False) -> dict:
         crit = clean_criteria(criteria)
-        try:
-            rounds = max(0, min(5, int(DEFAULT_FIX_ROUNDS if fix_rounds in (None, "") else fix_rounds)))
-        except (TypeError, ValueError):
-            raise AcceptanceError("số vòng sửa phải là số")
+        rounds = clean_fix_rounds(fix_rounds)
+        outputs, sources = clean_outputs(expected_outputs or []), clean_outputs(source_refs or [])
         now = self.clock()
         with closing(self._conn()) as c:
+            c.execute('BEGIN IMMEDIATE')
+            old = self._row(c.execute('SELECT * FROM team_acceptance WHERE task_id=?', (task_id,)).fetchone())
+            if old and only_if_absent:
+                return old
+            version = int((old or {}).get('contract_version') or 0) + 1
+            if old:
+                c.execute('INSERT OR IGNORE INTO team_acceptance_versions VALUES(?,?,?)',
+                          (task_id, old['contract_version'], _j(old)))
             c.execute("INSERT INTO team_acceptance(task_id, team_id, criteria_json, fix_rounds, status, set_by, created_at,"
                       " updated_at) VALUES(?,?,?,?, 'pending', ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET "
                       "criteria_json=excluded.criteria_json, fix_rounds=excluded.fix_rounds, status='pending', "
                       "rounds_used=0, revision=NULL, confirmed_by='', confirmed_at=NULL, confirmed_hashes_json='{}', "
                       "set_by=excluded.set_by, updated_at=excluded.updated_at",
                       (task_id, team_id, _j(crit), rounds, by, now, now))
+            c.execute('UPDATE team_acceptance SET contract_version=?, contract_hash=?, origin=?, template_id=?, '
+                      'template_version=?, job_revision=?, expected_outputs_json=?, source_refs_json=?, '
+                      "source_snapshot_hash=?, output_manifest_json='[]', output_manifest_hash='', result_msg_id=NULL WHERE task_id=?",
+                      (version, digest([crit, outputs, sources, rounds]), origin, template_id, template_version,
+                       job_revision, _j(outputs), _j(sources), digest(sources), task_id))
+            snapshot = self._row(c.execute('SELECT * FROM team_acceptance WHERE task_id=?', (task_id,)).fetchone())
+            c.execute('INSERT OR REPLACE INTO team_acceptance_versions VALUES(?,?,?)', (task_id, version, _j(snapshot)))
+            c.commit()
         return self.get(task_id)
 
     def set_state(self, task_id: str, **fields) -> None:
         allowed = {"status", "rounds_used", "revision", "confirmed_by", "confirmed_at", "confirmed_hashes", "result_msg_id",
-                   "message_id"}
+                   "message_id", 'output_manifest', 'output_manifest_hash', 'job_revision'}
         if set(fields) - allowed:
             raise AcceptanceError("trường không đổi được")
-        cols = {("confirmed_hashes_json" if k == "confirmed_hashes" else k): (_j(v) if k == "confirmed_hashes" else v)
+        cols = {(k + '_json' if k in ('confirmed_hashes', 'output_manifest') else k): (_j(v) if k in ('confirmed_hashes', 'output_manifest') else v)
                 for k, v in fields.items()}
         with closing(self._conn()) as c:
             c.execute("UPDATE team_acceptance SET " + ", ".join(f"{k}=?" for k in cols) + ", updated_at=? WHERE task_id=?",
                       (*cols.values(), self.clock(), task_id))
 
+    def decision(self, task_id, key, payload_hash):
+        with closing(self._conn()) as c:
+            row = c.execute('SELECT payload_hash,result FROM team_acceptance_decisions WHERE task_id=? AND decision_key=?',
+                            (task_id, key)).fetchone()
+        if row:
+            return json.loads(row['result']) if row['payload_hash'] == payload_hash else {'ok': False, 'error': 'decision_key_conflict'}
+        return None
+
+    def save_decision(self, task_id, key, payload_hash, result):
+        with closing(self._conn()) as c:
+            c.execute('BEGIN IMMEDIATE')
+            c.execute('INSERT OR IGNORE INTO team_acceptance_decisions VALUES(?,?,?,?)', (task_id, key, payload_hash, _j(result)))
+            c.execute("UPDATE team_acceptance_intents SET status='complete' WHERE task_id=? AND decision_key=? AND payload_hash=?",
+                      (task_id, key, payload_hash))
+            c.commit()
+
+    def begin_decision(self, task_id, key, payload_hash, body):
+        with closing(self._conn()) as c:
+            c.execute('INSERT INTO team_acceptance_intents(task_id,decision_key,payload_hash,body,created_at) VALUES(?,?,?,?,?)',
+                      (task_id, key, payload_hash, _j(body), self.clock()))
+
+    def pending_decisions(self, task_id=None):
+        with closing(self._conn()) as c:
+            rows = c.execute("SELECT * FROM team_acceptance_intents WHERE status='pending'" +
+                (' AND task_id=?' if task_id else '') + ' ORDER BY created_at,task_id', (task_id,) if task_id else ()).fetchall()
+        return [dict(row, body=json.loads(row['body'])) for row in rows]
+
+    def claim_decision_signal(self, task_id, key):
+        with closing(self._conn()) as c:
+            return c.execute('UPDATE team_acceptance_intents SET signal_claimed=1 WHERE task_id=? AND decision_key=? '
+                             'AND signal_claimed=0', (task_id, key)).rowcount == 1
+
+    def apply_rejection(self, intent):
+        """Prepare exactly one repair before the other database may make the job runnable."""
+        body, task_id, key = intent['body'], intent['task_id'], intent['decision_key']
+        with closing(self._conn()) as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute('SELECT team_applied FROM team_acceptance_intents WHERE task_id=? AND decision_key=?',
+                            (task_id, key)).fetchone()
+            if row['team_applied']:
+                return
+            repair = body.get('repair')
+            if repair:
+                if body.get('old_step_id'):
+                    c.execute("UPDATE team_steps SET status='continued',note='acceptance_rejected',updated_at=? WHERE step_id=?",
+                              (self.clock(), body['old_step_id']))
+                if body.get('cap_blocked'):
+                    cap_record = {'task_id': task_id, 'cap': 'task_steps', 'specs': [repair], 'continues': None,
+                                  'decision_key': key}
+                    c.execute('INSERT INTO team_events(team_id,kind,by,before_json,after_json,created_at) VALUES(?,?,?,?,?,?)',
+                              (body['team_id'], 'cap_blocked', 'host', 'null', _j(cap_record), self.clock()))
+                else:
+                    seq = c.execute('SELECT COALESCE(MAX(seq),0)+1 FROM team_steps WHERE task_id=?', (task_id,)).fetchone()[0]
+                    c.execute('INSERT OR IGNORE INTO team_steps(step_id,task_id,team_id,seq,kind,agent_key,job_revision,brief,'
+                              'input_refs_json,parent_step,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                              (body['repair_id'], task_id, body['team_id'], seq, repair['kind'], repair['agent'], body['revision'],
+                               repair['brief'][:8000], _j(repair['inputs']), repair.get('parent'), 'queued', self.clock(), self.clock()))
+            c.execute("UPDATE team_acceptance SET status='fixing',updated_at=? WHERE task_id=?", (self.clock(), task_id))
+            c.execute('UPDATE team_acceptance_intents SET team_applied=1 WHERE task_id=? AND decision_key=?', (task_id, key))
+            c.commit()
+
     def record(self, task_id: str, revision: int, rnd: int, results: list) -> None:
         now = self.clock()
         with closing(self._conn()) as c:
+            acc = self.get(task_id) or {}
+            manifest_hash = digest(output_manifest(results))
             for i, (crit, verdict, ev) in enumerate(results):
                 c.execute("INSERT INTO team_acceptance_checks(task_id, revision, round, idx, kind, verdict, evidence_json,"
-                          " at) VALUES(?,?,?,?,?,?,?,?)", (task_id, int(revision), int(rnd), i, crit["kind"], verdict,
-                                                            _j(ev), now))
+                          " at, contract_version, output_manifest_hash, source_snapshot_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                          (task_id, int(revision), int(rnd), i, crit["kind"], verdict, _j(ev), now,
+                           acc.get('contract_version', 1), manifest_hash, acc.get('source_snapshot_hash', '')))
 
     def history(self, task_id: str) -> list:
         with closing(self._conn()) as c:
             return [dict(r, evidence=json.loads(r["evidence_json"])) for r in c.execute(
-                "SELECT id, task_id, revision, round, idx, kind, verdict, evidence_json, at FROM team_acceptance_checks "
+                "SELECT * FROM team_acceptance_checks "
                 "WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
 
 
-def run_checks(acc: dict, root: Path, run_command: Optional[Callable] = None, since: float = 0.0) -> list:
-    return [(c,) + check_one(c, root, run_command, since) for c in acc["criteria"]]
+def run_checks(acc: dict, root: Path, run_command: Optional[Callable] = None, since: float = 0.0, message=None) -> list:
+    results = []
+    for c in acc['criteria']:
+        if c['kind'] == 'owner_confirm' and c.get('target') == 'message':
+            ev = message_evidence(message)
+            results.append((c, 'unknown', ev))
+        else:
+            results.append((c,) + check_one(c, root, run_command, since))
+    for output in acc.get('expected_outputs') or []:
+        if output.get('target') == 'message':
+            ev = message_evidence(message)
+            results.append(({'kind': 'expected_message'}, 'pass' if ev.get('sha256') else 'unknown', ev))
+            continue
+        c = dict(output, kind='file_exists')
+        results.append((c,) + check_one(c, root, run_command, since))
+    for source in acc.get('source_refs') or []:
+        if source.get('path') and source.get('sha256'):
+            ev, _ = _file_evidence(root, source['path'])
+            verdict = 'pass' if ev.get('sha256') == source['sha256'] else 'unknown'
+            results.append(({'kind': 'source_snapshot', 'path': source['path']}, verdict,
+                            dict(ev, sha256=source['sha256'], detail=localefmt.chu('Nguồn đã thay đổi', 'Source snapshot changed'))
+                            if verdict == 'unknown' else ev))
+    return results
+
+
+def message_evidence(message):
+    if not message:
+        return {'target': 'message', 'error': localefmt.chu('Thiếu tin kết quả đã lưu', 'Stored result message is missing')}
+    return {'target': 'message', 'message_id': message['id'],
+            'sha256': hashlib.sha256(str(message.get('content') or '').encode('utf-8')).hexdigest()}
+
+
+def output_manifest(results):
+    seen = {}
+    for _c, _v, ev in results:
+        if ev.get('path'):
+            key = 'file:' + ev['path']
+            seen[key] = {'target': 'file', 'path': ev['path'], 'sha256': ev.get('sha256')}
+        elif ev.get('target') == 'message':
+            seen['message'] = {k: ev.get(k) for k in ('target', 'message_id', 'sha256')}
+        if ev.get('script'):
+            seen['checker:' + ev['script']] = {'target': 'file', 'path': ev['script'], 'sha256': ev.get('script_sha256')}
+    return [seen[k] for k in sorted(seen)]
+
+
+def manifest_changes(manifest, root, message=None):
+    out = []
+    for item in manifest or []:
+        if item.get('target') == 'message':
+            current = message_evidence(message)
+            if current.get('sha256') != item.get('sha256') or current.get('message_id') != item.get('message_id') or not item.get('sha256'):
+                out.append('message')
+        else:
+            p = resolve_in(root, item.get('path', ''))
+            if not item.get('sha256') or p is None or not p.is_file() or sha256_file(p) != item['sha256']:
+                out.append(item.get('path', ''))
+    return out
 
 
 def summarize(results: list) -> str:
@@ -322,9 +555,6 @@ def stale(acc: Optional[dict], history: list, root: Path) -> list:
             out.append(rel)
             continue
         st = p.stat()
-        ev = seen.get(rel) or {}
-        if ev.get("size") == st.st_size and ev.get("mtime") == st.st_mtime:
-            continue   # same size and mtime as checked: no need to hash again on every view
         if st.st_size > HASH_MAX or sha256_file(p) != sha:
             out.append(rel)
     return out

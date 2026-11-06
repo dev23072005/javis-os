@@ -63,7 +63,7 @@ The fix: turn off skills you do not use so the 20 router slots go to the ones yo
 
 Javis has 2 kinds of skill:
 
-- **System skills** (cards labelled "system"): default Javis OS features, currently 6:
+- **System skills** (cards labelled "system"): default Javis OS features, currently 7:
 
   | Slug | What it does |
   |---|---|
@@ -73,6 +73,7 @@ Javis has 2 kinds of skill:
   | `lint-wiki` | Audit wiki health and return a list of issues |
   | `notes` | Save the current message verbatim into `sources/` (images included), distilling it into the wiki when it deserves it |
   | `html-to-webcake` | Turn an HTML page into a `.pke` file that opens in the Webcake page builder |
+  | `security-audit` | Security review of source code using Cloudflare's workflow: evidence-backed findings, independent verification, a report with fixes |
 
   The originals live in the app installation folder, not in the brain, so they are **present in every brain** and **update themselves when you update Javis OS**. They cannot be deleted from the dashboard (deleting the files by hand only makes them reinstall on the next start); to stop using one, **disable** it like any skill, and that disabled state survives every update.
 - **Your skills**: created with + Skill, through chat, imported from a `.zip`, or proposed by the Self-learning page. These are brain data: switching brains switches the skill set, and app updates never touch them.
@@ -186,6 +187,15 @@ Deletion is final: the whole skill folder is removed from disk, with no recycle 
 - **⤒ Import** (top of the page, next to + Skill): pick a file to bring into the selected brain. It accepts `.zip` (a Javis package), a single `.md`, or a Claude `.skill` package (Javis recognises the `SKILL.md` inside and files it correctly). Javis asks first: "If an agent/skill/workflow with the SAME NAME exists, OVERWRITE it with the new one?" Click OK to overwrite, Cancel to keep the old ones and only import what is missing. Afterwards Javis lists what was imported and what was skipped.
 
 Note: skill content is instructions the AI follows, so only import packages from sources you trust. Details on packaging with dependencies are in [Agents & Workflows](07-agents-and-workflows.md).
+
+## Recommended in the Javis Store
+
+The first tab of the **Javis Store** is **Recommended**: skills copied **word for word** from the author's own GitHub repo (Remotion's official skills, for example, or Lemo-Opuscar for short films made in code). Nothing is translated or changed: you read exactly what the author wrote.
+
+- Each card has an **Updated from the author** line linking to the GitHub repo, with the day the latest version was taken.
+- Every day the store compares them with the source repo. When the author changes a skill, the pack gets a new version, Javis tells you in the bell and you press **Update** (through the usual confirm screen).
+- Skills you have edited yourself are kept when you update, never overwritten.
+- When a skill ships its own files (`scripts/`, `references/`...), Javis tells the model the skill's folder when it loads the skill, so those files can be found.
 
 ## Asking Javis to create a skill in words
 

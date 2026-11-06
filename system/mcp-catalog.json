@@ -32,6 +32,7 @@
       "call_rules": {
         "COMPOSIO_MULTI_EXECUTE_TOOL": {
           "items": "tools", "key": "tool_slug", "else": "danger",
+          "joined_words": ["SHARE_POINT"],
           "read_tokens": ["LIST", "LISTS", "GET", "FETCH", "SEARCH", "FIND", "READ", "QUERY", "RETRIEVE", "DESCRIBE", "VIEW", "COUNT", "LOOKUP", "DOWNLOAD", "EXPORT"],
           "write_tokens": ["CREATE", "UPDATE", "PATCH", "DELETE", "REMOVE", "SEND", "POST", "ADD", "INSERT", "UPLOAD", "MOVE", "TRASH", "UNTRASH", "REPLY", "FORWARD", "SET", "SHARE", "ARCHIVE", "PUBLISH", "EXECUTE", "CANCEL", "APPROVE", "MODIFY", "EDIT", "WRITE", "PUT", "MARK", "SUBSCRIBE", "UNSUBSCRIBE", "INVITE", "ACCEPT", "DECLINE", "IMPORT", "DUPLICATE", "COPY", "RENAME", "CLEAR", "EMPTY", "STAR", "UNSTAR", "WATCH", "RESTORE", "PIN", "UNPIN", "LIKE", "UNLIKE", "FOLLOW", "UNFOLLOW", "BLOCK", "UNBLOCK", "CLOSE", "REOPEN", "ASSIGN", "TRANSFER", "PAY", "CHARGE", "REFUND", "GENERATE", "TOGGLE", "ENABLE", "DISABLE", "RESET", "REVOKE", "GRANT", "SAVE", "SUBMIT", "REACT", "HIDE", "UNHIDE", "INVOKE", "DEPLOY", "PUSH", "COMMIT", "APPLY", "REPLACE", "UPSERT", "CLAIM", "RESPOND", "JOIN", "LEAVE", "KICK", "BAN", "MUTE", "UNMUTE", "RSVP", "TERMINATE", "KILL", "DESTROY", "PURGE", "WIPE", "REBOOT", "RESTART", "SUSPEND", "RESUME", "ACTIVATE", "DEACTIVATE", "LOCK", "UNLOCK", "VOTE", "DISMISS", "RESOLVE", "COMPLETE", "CHECKOUT", "PURCHASE", "BUY", "SELL", "WITHDRAW", "DEPOSIT", "NOTIFY", "BROADCAST", "ANNOUNCE", "RELEASE", "PROMOTE", "DEMOTE", "CONFIRM", "ATTACH", "DETACH", "LINK", "UNLINK", "CONNECT", "DISCONNECT", "REGISTER", "UNREGISTER", "SIGN", "UNDO", "REVERT", "ROLLBACK", "EXTEND", "RENEW", "ENROLL", "UNENROLL", "PREPEND", "APPEND"]
         },
@@ -43,16 +44,111 @@
       "default_perm": "readonly",
       "risk": "Composio là cổng đa ứng dụng: mọi hành động lên app thật (đọc mail, gửi mail, sửa sheet, tạo issue...) đều chạy qua MỘT tool chung.\nJavis soi TỪNG lệnh bên trong theo tên lệnh: có động từ đọc (LIST, GET, FETCH, SEARCH...) là đọc, còn lại coi là ghi.\n\nMức Chỉ đọc: đọc dữ liệu các app đã nối (xem lịch, đọc mail, liệt kê file) và xem tài khoản đã nối. Lệnh nào không chắc là đọc thì bị chặn.\n\nMức Ghi nháp: thêm quyền nối app mới (Composio đưa link đăng nhập, bạn tự đăng nhập, Javis không thấy mật khẩu).\n\nMức Toàn quyền: Javis chạy được MỌI hành động của các app bạn đã nối qua Composio, kể cả gửi tin, sửa và xoá dữ liệu thật.\nChỉ nâng khi thật sự cần; phạm vi đúng bằng quyền bạn đã cấp cho từng app bên Composio."
     },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "icon": "/static/logos/cloudflare.jpg",
+      "category": "Lập trình",
+      "description": "Toàn bộ API Cloudflare ngay trong chat qua MCP chính chủ: DNS, Workers, Pages, KV, R2, D1, tường lửa, SSL, cache, thống kê lưu lượng, Zero Trust. Dán API token là xong, quyền của token quyết định Javis được làm gì.",
+      "group": "cloudflare",
+      "group_line": "Dán API token: tự chọn quyền từng mảng, dùng chung được với gói Cloudflare Deploy (Wrangler).",
+      "status": "beta",
+      "transport": "http",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "auth": {
+        "type": "apikey",
+        "fields": [
+          {
+            "key": "api_token",
+            "label": "API token (Cloudflare)",
+            "placeholder": "Dán API token tạo ở dash.cloudflare.com...",
+            "header": "Authorization: Bearer {api_token}"
+          },
+          {
+            "key": "account_id",
+            "label": "Account ID (tuỳ chọn)",
+            "placeholder": "Chỉ cần khi token thấy nhiều tài khoản. Lấy ở trang tổng quan Cloudflare, cột bên phải",
+            "optional": true
+          }
+        ],
+        "guide": "Làm 1 lần:\n1. Vào dash.cloudflare.com > Hồ sơ (My Profile) > API Tokens > Create Token.\n2. Muốn Javis làm được mọi việc thì chọn Create Custom Token.\nThêm quyền Edit cho những mảng bạn dùng (Zone, DNS, Workers Scripts, Pages, Workers KV, R2, D1, Firewall...) và Account Resources : Read.\nChỉ muốn xem thì chọn quyền Read.\n3. Ở Zone Resources chọn All zones hoặc đúng các tên miền cần quản lý.\n4. Muốn deploy bằng gói 'Cloudflare Deploy (Wrangler)' thì token cần thêm Workers Scripts : Edit và Cloudflare Pages : Edit.\n5. KHÔNG bật lọc theo IP (Client IP Address Filtering): MCP của Cloudflare chưa hỗ trợ token có lọc IP.\n6. Bấm tạo, copy token NGAY lúc đó (đóng là không xem lại được) rồi dán vào ô dưới. Ô Account ID chỉ cần điền khi token thấy nhiều tài khoản.\n\nToken là hàng rào thật: Javis chỉ làm được đúng những gì token cho phép. Lỡ lộ token thì vào lại trang đó bấm Roll hoặc Delete.",
+        "guide_url": "https://github.com/cloudflare/mcp#readme",
+        "steps": [
+          {
+            "text": "Mở trang API Tokens của Cloudflare rồi bấm Create Token.",
+            "link": "https://dash.cloudflare.com/profile/api-tokens",
+            "link_label": "Mở trang API Tokens"
+          },
+          {
+            "text": "Chọn Create Custom Token. Muốn toàn quyền thì cấp Edit cho các mảng bạn dùng (Zone, DNS, Workers, Pages, KV, R2, D1, Firewall) và thêm Account Resources : Read. Chỉ xem thì cấp Read."
+          },
+          {
+            "text": "Không bật lọc theo IP: MCP của Cloudflare chưa nhận token có lọc IP."
+          },
+          {
+            "text": "Copy token ngay khi hiện ra, dán vào ô bên dưới rồi bấm Kết nối.",
+            "link": "https://github.com/cloudflare/mcp#readme",
+            "link_label": "Hướng dẫn của Cloudflare"
+          }
+        ]
+      },
+      "tool_meta": {
+        "read": [
+          "docs",
+          "search"
+        ],
+        "danger": [
+          "execute"
+        ]
+      },
+      "default_perm": "readonly",
+      "risk": "MCP của Cloudflare chỉ có 3 công cụ: docs (tra tài liệu), search (tìm API cần gọi) và execute (chạy đoạn mã gọi API Cloudflare thật).\n\nexecute gọi được MỌI API mà token cho phép, từ đọc thống kê tới XOÁ tên miền, sửa DNS, deploy Worker, xoá bucket R2.\nJavis không phân biệt được một lần execute là đọc hay xoá, nên nó nằm ở nhóm nguy hiểm.\n\nMức Chỉ đọc và Ghi nháp: Javis chỉ tra tài liệu và tìm API, chưa đụng tới tài khoản.\n\nMức Toàn quyền: Javis tự thao tác thật. Sai một bản ghi DNS là website hoặc email tắt ngay, xoá Worker hay bucket là mất dữ liệu.\n\nCách an toàn nhất: muốn Javis chỉ đọc số liệu thì tạo token CHỈ CÓ quyền Read rồi mới nâng Toàn quyền. Khi đó execute có chạy cũng không sửa được gì.",
+      "thay_goi": [
+        "javis.cloudflare"
+      ]
+    },
+    {
+      "id": "cloudflare-oauth",
+      "name": "Cloudflare (đăng nhập web)",
+      "icon": "/static/logos/cloudflare.jpg",
+      "category": "Lập trình",
+      "description": "Cùng MCP chính chủ của Cloudflare nhưng không cần tạo API token: bấm Kết nối, đăng nhập Cloudflare rồi tick quyền muốn cấp ngay trên trang của Cloudflare. Quản lý DNS, Workers, Pages, KV, R2, D1, tường lửa, SSL, cache, thống kê lưu lượng.",
+      "group": "cloudflare",
+      "group_line": "Đăng nhập trên web: một chạm, không tạo token. Quyền tick lúc đăng nhập, sửa được bằng cách kết nối lại.",
+      "status": "beta",
+      "transport": "http",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "fields": [],
+        "guide": "Bấm Kết nối, đăng nhập tài khoản Cloudflare rồi chọn quyền muốn cấp cho Javis trên trang của Cloudflare.\n\nJavis tự đăng ký ứng dụng theo chuẩn OAuth của MCP Cloudflare, không cần tạo token hay dán key. Đây là cách Cloudflare khuyên dùng.\n\nQuyền tick lúc đăng nhập là hàng rào thật: chỉ muốn xem số liệu thì chỉ tick quyền đọc. Sau này thiếu quyền thì bấm Kết nối lại và tick thêm.\n\nTài khoản có nhiều Account Cloudflare thì nói rõ trong chat là làm trên tài khoản nào.\n\nGói Cloudflare Deploy (Wrangler) chưa dùng được kết nối này: nó cần cách Dán API token.",
+        "guide_url": "https://github.com/cloudflare/mcp#readme"
+      },
+      "tool_meta": {
+        "read": [
+          "docs",
+          "search"
+        ],
+        "danger": [
+          "execute"
+        ]
+      },
+      "default_perm": "readonly",
+      "risk": "MCP của Cloudflare chỉ có 3 công cụ: docs (tra tài liệu), search (tìm API cần gọi) và execute (chạy đoạn mã gọi API Cloudflare thật).\n\nexecute gọi được MỌI API mà quyền bạn đã cấp cho phép, từ đọc thống kê tới XOÁ tên miền, sửa DNS, deploy Worker, xoá bucket R2.\nJavis không phân biệt được một lần execute là đọc hay xoá, nên nó nằm ở nhóm nguy hiểm.\n\nMức Chỉ đọc và Ghi nháp: Javis chỉ tra tài liệu và tìm API, chưa đụng tới tài khoản.\n\nMức Toàn quyền: Javis tự thao tác thật. Sai một bản ghi DNS là website hoặc email tắt ngay, xoá Worker hay bucket là mất dữ liệu.\n\nCách an toàn nhất: muốn Javis chỉ đọc số liệu thì lúc đăng nhập CHỈ tick quyền đọc rồi mới nâng Toàn quyền. Khi đó execute có chạy cũng không sửa được gì.",
+      "thay_goi": [
+        "javis.cloudflare-oauth"
+      ]
+    },
             {
       "id": "zalo",
       "name": "Zalo Agent MCP",
       "icon": "/static/logos/zalo.png",
       "category": "Nhắn tin",
-      "description": "MCP của javis-zalo (bản CLI Zalo riêng của Javis): đọc tin mới/lịch sử, tìm cuộc chat, biết ai vừa vào nhóm và vào lúc nào, duyệt người xin vào nhóm, xem media và gửi tin bằng tài khoản Zalo cá nhân.",
+      "description": "MCP của javis-zalo (bản CLI Zalo riêng của Javis): đọc tin mới/lịch sử, tìm cuộc chat, biết ai vừa vào nhóm và vào lúc nào, duyệt người xin vào nhóm, đọc tag (thẻ phân loại) của cuộc chat, xem media và gửi tin bằng tài khoản Zalo cá nhân.",
       "status": "beta",
       "transport": "stdio",
       "command": "npx",
-      "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.5.0", "mcp", "start"],
+      "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.9.0", "mcp", "start"],
       "lenh_cu": [
         { "command": "npx", "args": ["-y", "zalo-agent-cli", "mcp", "start"] },
         { "command": "npx", "args": ["-y", "zalo-agent-cli@1.6.2", "mcp", "start"] },
@@ -60,7 +156,12 @@
         { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.1.0", "mcp", "start"] },
         { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.2.0", "mcp", "start"] },
         { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.3.0", "mcp", "start"] },
-        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.4.0", "mcp", "start"] }
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.4.0", "mcp", "start"] },
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.5.0", "mcp", "start"] },
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.6.0", "mcp", "start"] },
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.6.1", "mcp", "start"] },
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.7.0", "mcp", "start"] },
+        { "command": "npx", "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.8.0", "mcp", "start"] }
       ],
       "ngoai_le_ban_chinh_thuc": "Zalo KHÔNG đi theo bản gốc nữa (chủ repo chốt 2026-10-05): Javis chạy bản CLI riêng javis-zalo (github.com/blogminhquy/javis-zalo), cài từ tarball của tag phát hành, chỉ thư viện zca-js bên dưới đi theo bản chính thức trên npm. Ghim theo tag vì đăng nhập QR (zalo_login.py), gửi ảnh/tag/ghi chú nhóm (zalo_cli.py) và gói javis.zalo đọc thẳng định dạng của đúng bản đó. Ba chỗ ghim (ở đây, zalo_cli.py, zalo_login.py) phải luôn trùng nhau; --prefer-offline vì tag không đổi nên khỏi hỏi lại GitHub mỗi lần khởi động.",
       "requires": { "node": ">=20" },
@@ -68,7 +169,7 @@
       "auth": {
         "type": "qr",
         "fields": [],
-        "guide": "Cần Node.js 20+. Bấm Kết nối, quét QR bằng app Zalo rồi dùng trực tiếp 12 tool MCP của javis-zalo. Không còn listener/webhook/luật Zalo riêng của Javis.",
+        "guide": "Cần Node.js 20+. Bấm Kết nối, quét QR bằng app Zalo rồi dùng trực tiếp các tool MCP của javis-zalo. Không còn listener/webhook/luật Zalo riêng của Javis.",
         "guide_url": "https://github.com/blogminhquy/javis-os/blob/main/docs/12-zalo.md"
       },
       "tool_meta": {
@@ -80,10 +181,11 @@
           "zalo_list_join_requests",
           "zalo_list_threads",
           "zalo_search_threads",
-          "zalo_view_media"
+          "zalo_view_media",
+          "zalo_get_labels"
         ],
         "write": ["zalo_mark_read"],
-        "danger": ["zalo_send_message", "zalo_send_file", "zalo_review_join_requests"]
+        "danger": ["zalo_send_message", "zalo_send_typing", "zalo_send_file", "zalo_add_reaction", "zalo_review_join_requests"]
       },
       "default_perm": "full",
       "companion_pack": "javis.zalo",
@@ -417,6 +519,57 @@
       "oauth_file": { "format": "google_adc", "env": "GOOGLE_APPLICATION_CREDENTIALS", "ext": ".json" },
       "tool_meta": {
         "read": ["customers_*", "metadata_*", "search_*"]
+      },
+      "default_perm": "readonly"
+    },
+    {
+      "id": "google-analytics",
+      "name": "Google Analytics (GA4)",
+      "icon": "chart-column",
+      "category": "Marketing",
+      "description": "Số liệu website qua MCP chính chủ của Google cho GA4 (chỉ đọc): phiên truy cập, nguồn và chiến dịch (UTM), sự kiện, chuyển đổi, báo cáo thời gian thực. Chạy local, đăng nhập Google 1 lần.",
+      "status": "beta",
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["analytics-mcp@latest"],
+      "auth": {
+        "type": "oauth",
+        "provider": "google",
+        "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": ["openid", "email", "https://www.googleapis.com/auth/analytics.readonly"],
+        "authorize_params": {"access_type": "offline", "prompt": "consent", "include_granted_scopes": "true"},
+        "fields": [
+          {
+            "key": "client_id",
+            "label": "OAuth Client ID",
+            "placeholder": "Ví dụ: xxxx.apps.googleusercontent.com"
+          },
+          {
+            "key": "client_secret",
+            "label": "OAuth Client Secret",
+            "placeholder": "Ví dụ: GOCSPX-..."
+          },
+          {
+            "key": "adc_json",
+            "label": "Hoặc dán sẵn file ADC nếu bạn đã tự chạy gcloud (bỏ trống nếu đăng nhập ở trên)",
+            "placeholder": "Ví dụ: { \"type\": \"authorized_user\", \"refresh_token\": ... }",
+            "file": true,
+            "env": "GOOGLE_APPLICATION_CREDENTIALS",
+            "multiline": true,
+            "optional": true
+          }
+        ],
+        "guide": "Cần trước: không cài thêm gì. Javis tự tải bản chính thức mới nhất của Google (PyPI) mỗi lần khởi động.\n\nĐã đấu Google Ads thì dùng lại đúng OAuth client đó, chỉ cần bật thêm 2 API Analytics.\n\nLàm 1 lần, khoảng 10 phút:\n1. Vào console.cloud.google.com, chọn project rồi bật CẢ HAI API: Google Analytics Data API và Google Analytics Admin API.\n2. Màn hình đồng ý OAuth: chọn External, thêm email của bạn vào Test users.\n3. Thông tin xác thực > Tạo OAuth client ID loại 'Ứng dụng web'.\n4. Ở phần 'URI chuyển hướng được ủy quyền', thêm đúng địa chỉ này:\nhttp://localhost:7777/connect/oauth/callback\nNếu chạy trên VPS thì thêm cả https://<tên-miền>/connect/oauth/callback\n5. Điền các ô bên dưới rồi bấm nút đăng nhập. Trình duyệt sẽ mở để bạn cho phép Javis đọc Google Analytics.\n\nEmail đăng nhập phải có ít nhất quyền Xem (Viewer) trên property GA4. Javis tự liệt kê mọi property bạn xem được, không cần điền Property ID.\n\nGặp cảnh báo 'ứng dụng chưa được xác minh' thì bấm Nâng cao > Tiếp tục, vì đây là app của chính bạn.\n\nĐã tự chạy gcloud rồi thì dán nội dung file application_default_credentials.json vào ô cuối, Javis sẽ dùng luôn.",
+        "guide_url": "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com"
+      },
+      "validate": {
+        "tool": "get_account_summaries",
+        "args": {}
+      },
+      "oauth_file": { "format": "google_adc", "env": "GOOGLE_APPLICATION_CREDENTIALS", "ext": ".json" },
+      "tool_meta": {
+        "read": ["get_*", "list_*", "run_*"]
       },
       "default_perm": "readonly"
     },

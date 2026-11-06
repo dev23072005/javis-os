@@ -1,13 +1,15 @@
 <!-- translated-from: README.md sha256:2e10ad3d2a86 -->
 <div align="center">
 
-<img src="../../../dashboard/logo.svg" width="88" alt="Javis OS 로고">
+<a href="https://javisos.com"><img src="../../assets/social-preview.png" width="100%" alt="Javis OS: Your AI Workforce. Never miss the best AI."></a>
 
 # Javis OS
 
-### 교체 가능한 브레인을 갖춘 셀프 호스팅 AI 에이전트, 그리고 날마다 더 똑똑해지는 Second Brain.
+### 당신의 AI 팀. 최고의 AI를 놓치지 마세요.
 
-노트북이나 작은 VPS에서 실행합니다. 음성으로 대화합니다. Claude, ChatGPT, Grok, Gemini 등 12개 제공자 중 무엇이든 연결하고, 바꿔도 모든 도구는 그대로 유지되며, 잠자는 동안에도 백그라운드에서 일하게 할 수 있습니다.
+Javis OS는 **Claude, ChatGPT, Gemini, Grok** 그리고 직접 고른 모델을 내 컴퓨터나 서버에서 24시간 일하는 팀으로 만듭니다. 동료마다 역할이 있고, 같은 기억과 도구를 공유하며, 백그라운드에서 계속 일합니다. 더 좋은 모델이 나오면 바꾸기만 하면 되고, 팀이 배운 것은 모두 그대로 남습니다.
+
+**🌐 웹사이트: [javisos.com](https://javisos.com)** · 오픈 소스 · 셀프 호스팅 · 14개 AI 제공자
 
 [![GitHub stars](https://img.shields.io/github/stars/blogminhquy/javis-os?style=flat&logo=github&label=stars)](https://github.com/blogminhquy/javis-os/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](../../../LICENSE)
@@ -149,7 +151,7 @@ Javis에서 모델은 교체할 수 있는 부품입니다. 쌓아 온 모든 �
 모든 브레인은 연결된 MCP 서버를 호출하고, Brain을 읽고 쓰고, Skill을 실행하고, Kanban 작업을 대기열에 넣고, Agent, Workflow, Loop, 리마인더를 만들 수 있습니다. CLI 엔진은 여기에 더해 **셸 명령 실행**, **웹 가져오기와 검색**, **병렬 서브 에이전트 생성** 도 할 수 있습니다.
 
 > [!WARNING]
-> **구독 요금제로 백그라운드 작업을 돌리기 전에 꼭 읽어 주세요.** Anthropic은 Claude Pro/Max를 Claude Code의 **일반적인 개인 사용** 으로 한정합니다. 지속적인 백그라운드 실행(Loop, 리마인더, Kanban 작업, 챗봇), VPS에서의 실행, 여러 사람이 한 계정을 함께 쓰는 경우는 모두 이 범위를 벗어나며, 실제로 이 때문에 **계정이 정지된 사례가 있습니다**. Javis는 로그인 토큰을 절대 읽지 않고 실제 `claude` 바이너리를 실행하지만, 그렇다고 24시간 백그라운드 사용이 정당해지는 것은 아닙니다. 안전하게 쓰려면 Models 페이지에서 Claude Code를 **API 키** 로 실행하도록 설정하거나, **백그라운드 작업용 모델** 을 다른 제공자로 지정하세요. xAI 요금제에도 같은 주의가 적용됩니다. `server/claude_auth.py` 를 참고하세요.
+> **구독 요금제로 백그라운드 작업을 돌리기 전에 참고하세요.** Anthropic은 Claude Pro/Max를 Claude Code의 **일반적인 개인 사용** 으로 한정합니다. 지속적인 백그라운드 실행(Loop, 리마인더, Kanban 작업, 챗봇), VPS에서의 실행, 여러 사람이 한 계정을 함께 쓰는 경우는 모두 이 범위를 벗어나므로 **계정이 잠길** 위험이 있습니다. 다만 지금까지 Javis에서 확인된 사례는 없습니다. 혹시 겪으신다면 [Issues](https://github.com/blogminhquy/javis-os/issues/new/choose)로 개발자에게 알려 주세요. Javis는 로그인 토큰을 절대 읽지 않고 실제 `claude` 바이너리를 실행하지만, 그렇다고 24시간 백그라운드 사용이 정당해지는 것은 아닙니다. 안전하게 쓰려면 Models 페이지에서 Claude Code를 **API 키** 로 실행하도록 설정하거나, **백그라운드 작업용 모델** 을 다른 제공자로 지정하세요. xAI 요금제에도 같은 주의가 적용됩니다. `server/claude_auth.py` 를 참고하세요.
 
 ---
 
@@ -507,5 +509,6 @@ Javis OS는 무료 오픈 소스이며, 아직 한 사람이 코드를 쓰고 �
 
 <div align="center">
 <br>
+<b><a href="https://javisos.com">javisos.com</a></b><br>
 베트남에서 ☕ 와 함께 <b><a href="https://minhquy.vn">Minh Quý</a></b> 가 만들었습니다
 </div>

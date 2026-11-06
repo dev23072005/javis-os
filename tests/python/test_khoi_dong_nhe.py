@@ -49,12 +49,18 @@ NANG_PHAI_LUOI = {
     # 0.59.18: jsonschema ~50ms, chỉ hai hàm của capability_executor và một hàm của
     # readonly_orchestrator dùng, và cả ba chỉ chạy khi thật sự cấp/kiểm một capability lease.
     "jsonschema": "kiểm schema capability lease - ~50ms, chỉ dùng khi có lease",
+    # 0.274.0: ws_compat chỉ vá uvicorn khi uvicorn thật sự được nạp (~40ms); webpush chỉ nạp
+    # cryptography khi ký hoặc mã hoá (~20ms). Phép đo tỉ lệ đã chạm trần 4,0 ngay trên main.
+    "uvicorn": "chỉ cần khi chạy server; mọi đường khởi động đã nạp nó trước hoặc tự nạp sau",
+    "cryptography": "chỉ webpush ký VAPID và mã hoá tin đẩy, lúc thật sự gửi",
 }
 
 # File nào phải KHÔNG có lệnh import thư viện đó ở cột 0. Mặc định là main.py; thư viện nào
 # từng nằm ở file khác thì ghi rõ file ấy, kẻo hàng rào canh sai chỗ.
 NOI_CAM_IMPORT = {
     "jsonschema": ("capability_executor.py", "readonly_orchestrator.py"),
+    "uvicorn": ("main.py", "ws_compat.py"),
+    "cryptography": ("main.py", "webpush.py"),
 }
 
 import main  # noqa: E402,F401
@@ -147,7 +153,13 @@ for lop, ten in _BA_HAM:
 # cùng một bản code lúc xanh lúc đỏ (đỏ cả ở commit chỉ đổi số phiên bản). Không có thư viện nặng
 # nào mới: riêng thân main.py (hơn 520 endpoint) đã ~550ms, đúng kiểu phình chính đáng mà khối
 # trên đã đoán trước. 4,5 vẫn bắt được ca cần bắt: edge_tts quay lại mức module là ~5,9.
-TRAN_TI_LE = 4.5
+#
+# RAISED 4.5 -> 5.0 at 0.318.0 (owner's decision, 25/10/2026). Measured on main 0.313.0: 4.17-4.76 locally, red and
+# green on CI for the same code. `import main` grew only ~26 ms between 0.312.0 and 0.313.0 (1609 -> 1635 ms, min of 5)
+# and no heavy library came in: cProfile puts ~1.9 s of a 3.4 s profiled import in FastAPI building ~585 routes
+# (add_api_route -> get_dependant -> pydantic TypeAdapter, about 3 ms per route), the legitimate growth foreseen above.
+# 5.0 still catches the case this check exists for: edge_tts back at module level is ~5.9.
+TRAN_TI_LE = 5.0
 
 
 def do_nap_xen_ke(codes, n=5):

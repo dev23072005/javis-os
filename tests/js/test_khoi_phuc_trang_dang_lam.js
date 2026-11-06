@@ -112,7 +112,7 @@ navCase({ javis_last_page: "not-a-page" }, "home");
 // A live socket has already delivered chat events while the page is in memory. Returning
 // from another app must leave the existing transcript DOM intact.
 {
-  let reloads = 0, dongBo = 0;
+  let reloads = 0, dongBo = 0, pings = 0, drops = 0, overdue = false;
   const ctx = {
     _hiddenAt: Date.now() - 30000,
     ws: { readyState: 1 },
@@ -122,16 +122,30 @@ navCase({ javis_last_page: "not-a-page" }, "home");
     openStoredSession() { reloads++; },
     // 0.64.66: socket "còn sống" vẫn hỏi server tin cuối (rẻ); chỉ tải lại khi lệch.
     _dongBoNeuLech() { dongBo++; },
+    // 0.388.0: a live-looking socket is asked right away whether it is really alive.
+    _pingNow() { pings++; },
+    _unackedOverdue: () => overdue,
+    _dropDeadSocket() { drops++; },
   };
   vm.createContext(ctx);
   vm.runInContext(fn(appJs, "_resumeSauNgu", ""), ctx);
   ctx._resumeSauNgu(false);
   assert.equal(reloads, 0, "live transcript was rebuilt on return");
   assert.equal(dongBo, 1, "a live-looking socket must still get the cheap last-message check");
+  assert.equal(pings, 1, "a live-looking socket must be pinged at once, not after 30 s of silence");
   ctx.ws.readyState = 3;
   ctx._hiddenAt = Date.now() - 30000;
   ctx._resumeSauNgu(false);
   assert.equal(reloads, 1, "missed events must still be recovered after disconnect");
+  assert.equal(pings, 1, "a closed socket is reconnected, not pinged");
+  // Owner, 06/11/2026: a message sent before the swipe and never confirmed means the socket died under it. Back in
+  // the app, even after a short sleep, drop it at once so `hello` resends the message.
+  ctx.ws.readyState = 1;
+  ctx._hiddenAt = Date.now() - 3000;
+  overdue = true;
+  ctx._resumeSauNgu(false);
+  assert.equal(drops, 1, "an unconfirmed message must make the page drop the socket on return");
+  assert.equal(reloads, 1, "dropping the socket leaves the resync to hello");
 }
 
 console.log("OK - khoi phuc trang dang lam va phien tro ly");

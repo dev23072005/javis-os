@@ -128,6 +128,12 @@
       ".jvfe-share-url{flex:1 1 220px;min-width:0;padding:7px 10px;border-radius:8px;" +
       "border:1px solid var(--border);background:var(--bg2);color:var(--text-hi);font-size:13px}" +
       ".jvfe-body{flex:1;min-height:0;overflow:auto;background:var(--bg);display:flex;flex-direction:column}" +
+      // .html: preview pane (white page, like a browser tab) or the code pane, one at a time.
+      ".jvfe-html{flex:1;min-height:52vh;display:flex;flex-direction:column}" +
+      ".jvfe-html-prev,.jvfe-html-src{flex:1;min-height:0;display:flex;flex-direction:column}" +
+      ".jvfe-html.mode-preview .jvfe-html-src,.jvfe-html.mode-code .jvfe-html-prev{display:none}" +
+      ".jvfe-html-src .jvhl{flex:1;display:flex;flex-direction:column}" +
+      ".jv-html-frame{flex:1;width:100%;min-height:52vh;border:0;background:#fff;display:block}" +
       ".jvfe-text{flex:1;min-height:52vh;width:100%;box-sizing:border-box;border:0;outline:none;resize:none;" +
       "background:var(--bg);color:var(--text);font-family:ui-monospace,Menlo,Consolas,monospace;" +
       "font-size:13.5px;line-height:1.6;padding:16px}" +
@@ -142,7 +148,8 @@
       ".jvfe-note a{color:var(--accent)}" +
       ".jvfe-img{padding:16px;text-align:center;overflow:auto}" +
       ".jvfe-img img{max-width:100%;height:auto;border-radius:8px}" +
-      ".jvfe-frame{width:100%;height:72vh;border:0;background:#fff}";
+      ".jvfe-frame{width:100%;height:72vh;border:0;background:#fff;display:block}" +
+      ".jvfe-pdf{max-height:72vh;overflow:auto;-webkit-overflow-scrolling:touch}";
     document.head.appendChild(s);
   }
 
@@ -227,25 +234,31 @@
   }
 
   // ---------------------------------------------------------------- mo file
-  function open(brainRel) {
-    if (!brainRel) return;
+  // Bung modal voi mot tieu de, than "dang mo", va chen MOT buoc lich su de nut Back (va cu
+  // vuot canh man hinh) dong modal thay vi thoat app. Dung chung cho open() va openPdf().
+  function moModal(tieuDe) {
     build();
-    var b = brain();
-    elTitle.innerHTML = esc(baseOf(brainRel));
+    elTitle.innerHTML = esc(tieuDe);
     elActions.innerHTML = ""; elBody.innerHTML = '<div class="jvfe-note">' + esc(tw("fedit.opening")) + "</div>";
     curSave = null;
+    if (elShareModal) { elShareModal.innerHTML = ""; elShareModal.hidden = true; }
     modal.classList.add("open");
     document.body.classList.add("jvfe-open");
     if (!daDayLichSu) {
       try { history.pushState({ jvfe: 1 }, ""); daDayLichSu = true; } catch (e) {}
     }
+  }
+  function open(brainRel) {
+    if (!brainRel) return;
+    var b = brain();
+    moModal(baseOf(brainRel));
 
     var ext = extOf(brainRel);
     getHome(b).then(function (home) {
       var ceil = ceilPath(home, brainRel);
       // Anh / PDF: xem truoc thang qua /files/raw (khong doc dang text).
       if (IMG.indexOf(ext) >= 0) { renderImage(b, ceil, brainRel); return; }
-      if (ext === ".pdf") { renderPdf(b, ceil, brainRel); return; }
+      if (ext === ".pdf") { renderPdf(rawUrl(b, ceil), baseOf(brainRel)); return; }
       // Con lai: doc noi dung.
       fetch("/files/read?brain=" + encodeURIComponent(b) + "&path=" + encodeURIComponent(ceil))
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
@@ -263,9 +276,24 @@
     elActions.appendChild(shareBtn(b, ceil)); elActions.appendChild(openLink(b, ceil)); elActions.appendChild(dlLink(b, ceil)); elActions.appendChild(closeBtn());
     elBody.innerHTML = '<div class="jvfe-img"><img src="' + esc(rawUrl(b, ceil)) + '" alt="' + esc(baseOf(brainRel)) + '"></div>';
   }
-  function renderPdf(b, ceil, brainRel) {
-    elActions.appendChild(openLink(b, ceil)); elActions.appendChild(dlLink(b, ceil)); elActions.appendChild(closeBtn());
-    elBody.innerHTML = '<iframe class="jvfe-frame" src="' + esc(rawUrl(b, ceil)) + '"></iframe>';
+  // 0.332.0: same as the pinned editor (console.js): the PDF scrolls in its own box, and a phone gets a
+  // floating close button, because Safari on an iPhone grows a PDF iframe to the whole document.
+  //
+  // Nhan URL (khong phai duong dan brain) de mo duoc ca link PDF trong chat (openPdf ben duoi).
+  // iPhone/iPad: KHONG co nut "Mo tab moi" va nut Tai ve khong phai link. App cai ra man hinh
+  // chinh ma di theo mot link /files/raw (ke ca target="_blank") thi iPad thay CA app bang trang
+  // PDF, khong con duong quay lai (video chu repo 05/11/2026). Tai ve o day = bang chia se iOS.
+  function renderPdf(url, ten) {
+    if (laIOS()) elActions.appendChild(taiVeIOS(url, ten));
+    else {
+      elActions.appendChild(openLinkUrl(url)); elActions.appendChild(dlLinkUrl(url, ten));
+    }
+    elActions.appendChild(closeBtn());
+    elBody.innerHTML = '<div class="jvfe-pdf"><iframe class="jvfe-frame" src="' + esc(url) + '"></iframe></div>';
+    var x = closeBtn();
+    x.className = "pdf-float-close";
+    x.setAttribute("aria-label", tw("fedit.close_esc"));
+    elBody.appendChild(x);
   }
   function renderReadonly(b, ceil, brainRel, d) {
     elActions.appendChild(openLink(b, ceil)); elActions.appendChild(dlLink(b, ceil)); elActions.appendChild(closeBtn());
@@ -282,6 +310,76 @@
     a.href = rawUrl(b, ceil, 1); a.title = tw("common.download");
     a.innerHTML = '<button class="jvfe-btn icon" type="button">⇩</button>';
     return a;
+  }
+  // Cung nut Tai ve nhung tu mot URL bat ky: duong /files/raw, /upload/raw thi them dl=1 de may
+  // chu ep tai kem dung ten file; URL khac dua thuoc tinh download.
+  function dlLinkUrl(url, ten) {
+    var a = document.createElement("a");
+    a.href = /\/(files|upload)\/raw\?/.test(url) ? url + "&dl=1" : url;
+    a.download = ten || ""; a.title = tw("common.download");
+    a.innerHTML = '<button class="jvfe-btn icon" type="button">⇩</button>';
+    return a;
+  }
+  function openLinkUrl(url) {
+    var a = document.createElement("a");
+    a.href = url; a.target = "_blank"; a.rel = "noopener"; a.title = tw("fedit.open_tab");
+    a.innerHTML = '<button class="jvfe-btn icon" type="button">↗</button>';
+    return a;
+  }
+
+  // iPadOS 13+ khai minh la Mac, chi lo ra qua maxTouchPoints (cung luat voi chat-render.js).
+  function laIOS() {
+    try {
+      var ua = navigator.userAgent || "";
+      return /iP(hone|ad|od)/.test(ua) || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
+    } catch (e) { return false; }
+  }
+  // Nut Tai ve tren iPhone/iPad: bang chia se cua iOS ("Luu vao Tep", gui qua Zalo...). Bang do
+  // chi mo duoc NGAY trong cu bam, nen file duoc tai san thanh File luc khung xem vua mo (cung
+  // cach khung xem anh lam). Bam khi file chua ve kip: doi file ve roi thu mo bang; iOS tu choi
+  // vi da qua cu bam thi bao bam lai, luc do file da san. Khong co bang chia se (iOS rat cu)
+  // thi moi mo cua so moi, la cach duy nhat con lai.
+  function taiVeIOS(url, ten) {
+    var btn = document.createElement("button");
+    btn.className = "jvfe-btn icon"; btn.type = "button"; btn.innerHTML = "⇩";
+    btn.title = tw("common.download"); btn.setAttribute("aria-label", tw("common.download"));
+    var tep = null, cho = null;
+    ten = String(ten || "").split("?")[0] || "file.pdf";
+    if (!/\.[a-z0-9]{2,5}$/i.test(ten)) ten += ".pdf";
+    try {
+      if (typeof fetch === "function" && typeof File === "function" && navigator.canShare) {
+        cho = fetch(url, { credentials: "same-origin" }).then(function (r) {
+          if (!r.ok) throw new Error("http " + r.status);
+          return r.blob();
+        }).then(function (bl) {
+          var f = new File([bl], ten, { type: bl.type || "application/pdf" });
+          if (navigator.canShare({ files: [f] })) tep = f;
+          return tep;
+        }).catch(function () { return null; });
+      }
+    } catch (e) { cho = null; }
+    function moCuaSo() { window.open(url, "_blank"); }
+    function chiaSe(f) {
+      navigator.share({ files: [f] }).catch(function (err) {
+        if (err && err.name === "AbortError") return;        // nguoi dung tu dong bang chia se
+        if (err && err.name === "NotAllowedError") { baoBamLai(); return; }
+        moCuaSo();
+      });
+    }
+    function baoBamLai() {
+      var c = tw("fedit.dl_tap_again");
+      if (window.JavisToast) window.JavisToast(c); else { try { alert(c); } catch (e) {} }
+    }
+    btn.onclick = function () {
+      if (tep && navigator.share) { chiaSe(tep); return; }
+      if (!cho || !navigator.share) { moCuaSo(); return; }
+      btn.disabled = true;
+      cho.then(function (f) {
+        btn.disabled = false;
+        if (f) chiaSe(f); else moCuaSo();
+      });
+    };
+    return btn;
   }
   // Nut "Mo tab moi": xem file dung nhu trinh duyet hien no (vd .html chay that). Bam link
   // file trong chat gio mo THANG trinh sua thay vi tai ve, nen ca hai y dinh cu - xem va tai -
@@ -426,7 +524,46 @@
     var isMd = extOf(brainRel) === ".md";
     // .md + du bo may WYSIWYG (mdToHtml + JavisNoteEditor) -> soan nhu Word; con lai -> textarea nguon.
     if (isMd && typeof window.mdToHtml === "function" && window.JavisNoteEditor) renderMdEditor(b, ceil, d);
+    else if (window.JavisHtmlPreview && window.JavisHtmlPreview.isHtmlPath(ceil)) renderHtmlEditor(b, ceil, d);
     else renderPlainEditor(b, ceil, d);
+  }
+
+  // .html (0.430.2): opens on the PREVIEW, like an artifact, with a Code tab holding the usual
+  // highlighted editor. The preview draws the code currently in the editor (html-preview.js), so an
+  // edit shows on the next switch back without saving first. Save and Ctrl+S work from either tab.
+  function renderHtmlEditor(b, ceil, d) {
+    var HP = window.JavisHtmlPreview;
+    elActions.innerHTML = "";
+    elBody.innerHTML = '<div class="jvfe-html mode-preview">' +
+      '<div class="jvfe-html-prev"></div>' +
+      '<div class="jvfe-html-src"><textarea class="jvfe-text" spellcheck="false"></textarea></div></div>';
+    var box = elBody.firstChild;
+    var prev = box.querySelector(".jvfe-html-prev");
+    var ta = box.querySelector(".jvfe-text");
+    ta.value = d.content || "";
+    try { if (window.JavisCodeHL) window.JavisCodeHL.attach(ta, "html"); } catch (e) {}
+    var shown = null;   // the code the preview last drew, so switching tabs does not reload it for nothing
+    function draw() {
+      if (shown === ta.value) return;
+      shown = ta.value;
+      HP.render(prev, ta.value, ceil, function (path) { return rawUrl(b, path); });
+    }
+    var seg = document.createElement("span");
+    seg.className = "jvfe-seg";
+    [["preview", tw("crender.ap_preview")], ["code", tw("crender.ap_source")]].forEach(function (m) {
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "jvfe-btn" + (m[0] === "preview" ? " active" : "");
+      btn.textContent = m[1]; btn.dataset.mode = m[0];
+      btn.onclick = function () {
+        box.className = "jvfe-html mode-" + m[0];
+        seg.querySelectorAll("button").forEach(function (x) { x.classList.toggle("active", x === btn); });
+        if (m[0] === "preview") draw(); else focusNeuDuocPhep(ta);
+      };
+      seg.appendChild(btn);
+    });
+    elActions.appendChild(seg);
+    appendSaveAndClose(b, ceil, function () { return ta.value; });
+    draw();
   }
 
   // File text thuong (khong phai .md): textarea nguon, co to mau cu phap neu la file code.
@@ -510,14 +647,23 @@
     else NE.ensureTurndown().then(function () { if (isOpen() && window.TurndownService) { setMode("wys"); focusNeuDuocPhep(wys); } });
   }
 
+  // Xem mot PDF tu URL (link trong chat tren iPhone/iPad, chat-render.js goi). Cung khung voi
+  // PDF mo tu duong dan brain: nut Dong, nut Back cua may dong duoc, nut Tai ve.
+  function openPdf(url, ten) {
+    if (!url) return;
+    ten = String(ten || "").split("?")[0] || baseOf(String(url).split("?")[0]) || "file.pdf";
+    moModal(ten);
+    renderPdf(url, ten);
+  }
+
   if (typeof window !== "undefined") {
     window.JavisEditFile = open;
-    window.JavisFileEditor = { open: open, close: close };
+    window.JavisFileEditor = { open: open, close: close, openPdf: openPdf };
     // Trinh sua dinh (console.js) dung lai DUNG cai nut nay, khong chep lai logic:
     // mot cho sua la ca hai khung cung doi.
     window.JavisShareBtn = shareBtn;
   }
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { ceilPath: ceilPath };
+    module.exports = { ceilPath: ceilPath, laIOS: laIOS };
   }
 })();
