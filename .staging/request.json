@@ -1,11 +1,11 @@
 {
   "schema": "SAFE_AUTO_UPDATE_V1_BUILD_REQUEST",
-  "run_id": "sau-dry-20261021T130432Z-26e5",
-  "source_commit": "b30d9723c98c76bae711a357204b0aba1b62e3b4",
-  "source_tree": "bcf46499cd9acb052e3d781d7ef72a85b3497d4f",
-  "version": "0.265.100",
+  "run_id": "sau-dry-20261108T025238Z-625d",
+  "source_commit": "025325284f7aa25accf351ef80aa052fcedc028b",
+  "source_tree": "45bde961dd2d9e3d87a6729d58016bf4434bcf21",
+  "version": "0.491.100",
   "claude_cli": "2.1.293",
   "codex_cli": "0.161.0",
-  "tag": "staging-b30d9723c98c76bae711a357204b0aba1b62e3b4",
+  "tag": "staging-025325284f7aa25accf351ef80aa052fcedc028b",
   "latest_written": false
 }
